@@ -1,5 +1,6 @@
 "use client";
 import { useState } from "react";
+import { supabase } from "@/lib/supabase";
 
 export default function Home() {
   const [stuck, setStuck] = useState("");
@@ -50,7 +51,22 @@ export default function Home() {
               className="w-full rounded-md border border-zinc-300 px-4 py-2 text-black dark:border-zinc-700 dark:bg-zinc-900 dark:text-white"
             />
             <button
-              onClick={() => console.log({ actionText, checkinTime })}
+              onClick={async () => {
+                const today = new Date();
+                const [hours, minutes] = checkinTime.split(":").map(Number);
+                today.setHours(hours, minutes, 0, 0);
+
+                const { error } = await supabase.from("loops").insert({
+                  intention_text: stuck,
+                  action_text: actionText,
+                  checkin_scheduled_at: today.toISOString(),
+                });
+                if (error) {
+                  console.error(error);
+                } else {
+                  console.log("Loop saved!");
+                }
+              }}
               className="rounded-full bg-foreground px-6 py-2 text-background font-medium"
             >
               Commit
