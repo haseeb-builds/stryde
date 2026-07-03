@@ -18,11 +18,12 @@ export async function GET() {
   }
 
   for (const loop of loops) {
+    const checkinUrl = `${process.env.NEXT_PUBLIC_SITE_URL}/checkin/${loop.id}`;
     await resend.emails.send({
       from: "Stryde <onboarding@resend.dev>",
       to: "abdhaseeb.tech@gmail.com",
       subject: "Did this happen?",
-      html: `<p>Your action: <strong>${loop.action_text}</strong></p><p>Did this happen?</p>`,
+      html: `<p>Your action: <strong>${loop.action_text}</strong></p><p><a href="${checkinUrl}">Click here to check in</a></p>`,
     });
   }
 
