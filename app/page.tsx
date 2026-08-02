@@ -9,7 +9,7 @@ export default function CheckinPage() {
   const [intentionText, setIntentionText] = useState("");
   const [shrinkCount, setShrinkCount] = useState(0);
   const [loading, setLoading] = useState(true);
-  const [state, setState] = useState
+  const [state, setState] = useState <
   "asking" | "shrinking" | "summary" | "ceiling"
   >("asking");
   const [newAction, setNewAction] = useState("");
