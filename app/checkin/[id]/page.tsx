@@ -87,6 +87,3 @@ export default function Home() {
     </div>
   );
 }
-onClick={async () => {
-  console.log("Commit clicked");
-  const today = new Date();
