@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { runModelProposal } from "@/lib/model-gateway";
 import { buildReasoningPrompt, runReasoningKernel } from "@/lib/orchestration";
 import { createRun, transitionRun } from "@/lib/run";
 import { assembleSituation } from "@/lib/situation";
@@ -51,16 +52,16 @@ export async function POST(request: Request, context: RouteContext) {
       return NextResponse.json({ error: situationResult.error ?? "Unable to assemble situation", run_id: run.id }, { status: 500 });
     }
 
-    if (requestBody.model_proposal === undefined) {
-      return NextResponse.json({
-        status: "MODEL_INPUT_REQUIRED",
-        run: reassessed,
-        prompt: buildReasoningPrompt(normalizedInput, situationResult.situation),
-        situation_generated_at: situationResult.situation.generated_at,
-      });
-    }
+    const prompt = buildReasoningPrompt(normalizedInput, situationResult.situation);
+    const modelResult = requestBody.model_proposal !== undefined
+      ? { proposal: requestBody.model_proposal, provider: "development", model: "supplied" }
+      : await runModelProposal(prompt);
 
-    const result = runReasoningKernel(normalizedInput, situationResult.situation, requestBody.model_proposal);
+    const result = runReasoningKernel(
+      normalizedInput,
+      situationResult.situation,
+      modelResult.proposal,
+    );
     for (const stage of result.stages.slice(4)) {
       await transitionRun(supabase, run.id, stage);
     }
@@ -70,7 +71,14 @@ export async function POST(request: Request, context: RouteContext) {
       finalRun = await transitionRun(supabase, run.id, "DONE");
     }
 
-    return NextResponse.json({ run_id: run.id, run: finalRun, reasoning: result });
+    return NextResponse.json({
+      run_id: run.id,
+      run: finalRun,
+      reasoning: result,
+      model: { provider: modelResult.provider, model: modelResult.model },
+      ...(requestBody.model_proposal === undefined ? {} : { development_model_input: true }),
+      reassessed_run: reassessed,
+    });
   } catch (error) {
     if (runId && supabaseForRecovery) {
       try {
@@ -96,6 +104,6 @@ export async function POST(request: Request, context: RouteContext) {
       return NextResponse.json({ error: "Request body must be valid JSON", ...(runId ? { run_id: runId } : {}) }, { status: 400 });
     }
     const message = error instanceof Error ? error.message : "Unauthorized";
-    return NextResponse.json({ error: message, ...(runId ? { run_id: runId } : {}) }, { status: message.includes("token") ? 401 : 400 });
+    return NextResponse.json({ error: message, ...(runId ? { run_id: runId } : {}) }, { status: message.includes("token") ? 401 : 500 });
   }
 }
