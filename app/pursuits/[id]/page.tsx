@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 
@@ -25,17 +25,46 @@ type ReasoningResult = {
   };
 };
 
+type EntryOption = {
+  id: string;
+  label: string;
+  description: string;
+};
+
+const ENTRY_OPTIONS: EntryOption[] = [
+  { id: "next", label: "I don't know what to do next", description: "I want to move, but the next step isn't clear." },
+  { id: "stuck", label: "I know what I want, but I'm stuck", description: "The outcome is clear; something is getting in the way." },
+  { id: "too_many", label: "There are too many possible problems", description: "I can't tell which issue matters most." },
+  { id: "decision", label: "I need to make a decision", description: "I'm choosing between paths and don't know which to take." },
+  { id: "thinking", label: "I keep thinking about it, but not moving", description: "I've spent time on it without enough real progress." },
+  { id: "changed", label: "Something changed", description: "New information or circumstances changed the situation." },
+  { id: "waiting", label: "I'm waiting on someone or something", description: "Progress depends on another person, system, or event." },
+  { id: "not_sure", label: "I'm not sure what's going on", description: "That's okay. Stryde will help you figure it out." },
+];
+
+const GUIDED_QUESTIONS = [
+  { id: "outcome", prompt: "What are you trying to make happen?", hint: "It doesn't need to be perfectly worded." },
+  { id: "friction", prompt: "What seems to be making that difficult right now?", hint: "A feeling, obstacle, uncertainty, person, or pattern is enough." },
+  { id: "attempted", prompt: "What have you tried or been doing so far?", hint: "Include things that haven't worked. They are useful evidence." },
+] as const;
+
 export default function PursuitPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
   const [pursuit, setPursuit] = useState<Pursuit | null>(null);
   const [input, setInput] = useState("");
+  const [entryMode, setEntryMode] = useState<"guided" | "freeform">("guided");
+  const [selectedOption, setSelectedOption] = useState<string | null>(null);
+  const [guidedStep, setGuidedStep] = useState(0);
+  const [guidedAnswers, setGuidedAnswers] = useState<Record<string, string>>({});
   const [result, setResult] = useState<ReasoningResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [working, setWorking] = useState(false);
   const [error, setError] = useState("");
 
   const title = useMemo(() => pursuit?.title || "Untitled pursuit", [pursuit]);
+  const selectedEntry = useMemo(() => ENTRY_OPTIONS.find((option) => option.id === selectedOption) ?? null, [selectedOption]);
+  const currentQuestion = GUIDED_QUESTIONS[guidedStep];
 
   useEffect(() => {
     async function load() {
@@ -63,8 +92,66 @@ export default function PursuitPage() {
     void load();
   }, [params.id, router]);
 
-  async function runReasoning() {
-    if (!input.trim()) return;
+  function chooseOption(option: EntryOption) {
+    setSelectedOption(option.id);
+    setGuidedAnswers({});
+    setGuidedStep(0);
+    setInput("");
+    setError("");
+
+    if (option.id === "not_sure" || option.id === "next" || option.id === "too_many" || option.id === "thinking") {
+      setEntryMode("guided");
+    } else {
+      setEntryMode("guided");
+    }
+  }
+
+  function switchToFreeform() {
+    setEntryMode("freeform");
+    setSelectedOption(null);
+    setGuidedAnswers({});
+    setGuidedStep(0);
+    setError("");
+  }
+
+  function switchToGuided() {
+    setEntryMode("guided");
+    setSelectedOption(null);
+    setInput("");
+    setError("");
+  }
+
+  function saveGuidedAnswer(event: FormEvent) {
+    event.preventDefault();
+    const answer = input.trim();
+    if (!answer) return;
+
+    const updatedAnswers = { ...guidedAnswers, [currentQuestion.id]: answer };
+    setGuidedAnswers(updatedAnswers);
+    setInput("");
+    if (guidedStep < GUIDED_QUESTIONS.length - 1) {
+      setGuidedStep((step) => step + 1);
+      return;
+    }
+
+    void runReasoning(formatGuidedSituation(updatedAnswers));
+  }
+
+  function formatGuidedSituation(answers: Record<string, string>): string {
+    const optionContext = selectedEntry
+      ? `Starting signal: ${selectedEntry.label}. ${selectedEntry.description}`
+      : "Starting signal: user chose guided discovery.";
+    return [
+      optionContext,
+      "",
+      `What I'm trying to make happen: ${answers.outcome ?? ""}`,
+      `What seems to be making it difficult: ${answers.friction ?? ""}`,
+      `What I've tried or been doing: ${answers.attempted ?? ""}`,
+    ].join("\n");
+  }
+
+  async function runReasoning(reasoningInput = input.trim()) {
+    if (!reasoningInput) return;
     setWorking(true);
     setError("");
     setResult(null);
@@ -79,7 +166,7 @@ export default function PursuitPage() {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ input: input.trim() }),
+        body: JSON.stringify({ input: reasoningInput }),
       });
 
       const body = (await response.json()) as { error?: string } & Partial<ReasoningResult>;
@@ -108,28 +195,94 @@ export default function PursuitPage() {
           <p className="text-sm text-zinc-500">Status: {pursuit.status}</p>
         </header>
 
-        <section className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm space-y-5">
-          <div>
+        <section className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm">
+          <div className="space-y-2">
             <p className="text-lg font-medium">What’s going on?</p>
-            <p className="mt-1 text-sm text-zinc-500">Describe the current situation, not just a task.</p>
+            <p className="text-sm leading-6 text-zinc-500">You don't need to explain it perfectly. Start with whatever you know.</p>
           </div>
-          <textarea
-            value={input}
-            onChange={(event) => setInput(event.target.value)}
-            placeholder="I’m stuck because…"
-            rows={7}
-            className="w-full resize-none rounded-xl border border-zinc-300 px-4 py-3 outline-none focus:border-zinc-950"
-          />
 
-          <button
-            onClick={runReasoning}
-            disabled={working || !input.trim()}
-            className="rounded-full bg-zinc-950 px-5 py-2.5 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            {working ? "Stryde is thinking…" : "Run Stryde"}
-          </button>
+          <div className="mt-6">
+            <p className="text-sm font-medium">What best describes where you are?</p>
+            <div className="mt-3 grid gap-2 sm:grid-cols-2">
+              {ENTRY_OPTIONS.map((option) => (
+                <button
+                  key={option.id}
+                  type="button"
+                  onClick={() => chooseOption(option)}
+                  className={`rounded-xl border p-4 text-left transition ${selectedOption === option.id ? "border-zinc-950 bg-zinc-50" : "border-zinc-200 hover:border-zinc-400"}`}
+                >
+                  <p className="text-sm font-medium">{option.label}</p>
+                  <p className="mt-1 text-xs leading-5 text-zinc-500">{option.description}</p>
+                </button>
+              ))}
+            </div>
+          </div>
 
-          {error && <p className="text-sm text-red-600">{error}</p>}
+          {entryMode === "guided" && selectedOption && (
+            <form onSubmit={saveGuidedAnswer} className="mt-7 border-t border-zinc-200 pt-6">
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-400">Step {guidedStep + 1} of {GUIDED_QUESTIONS.length}</p>
+                  <p className="mt-2 text-lg font-medium">{currentQuestion.prompt}</p>
+                  <p className="mt-1 text-sm text-zinc-500">{currentQuestion.hint}</p>
+                </div>
+                <div className="h-2 w-24 overflow-hidden rounded-full bg-zinc-100" aria-hidden="true">
+                  <div className="h-full rounded-full bg-zinc-950 transition-all" style={{ width: `${((guidedStep + 1) / GUIDED_QUESTIONS.length) * 100}%` }} />
+                </div>
+              </div>
+              <textarea
+                autoFocus
+                value={input}
+                onChange={(event) => setInput(event.target.value)}
+                placeholder="Just say it the way you would say it out loud."
+                rows={5}
+                className="mt-5 w-full resize-none rounded-xl border border-zinc-300 px-4 py-3 outline-none focus:border-zinc-950"
+              />
+              <button
+                type="submit"
+                disabled={working || !input.trim()}
+                className="mt-3 rounded-full bg-zinc-950 px-5 py-2.5 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                {working ? "Stryde is thinking…" : guidedStep === GUIDED_QUESTIONS.length - 1 ? "Run Stryde" : "Continue"}
+              </button>
+            </form>
+          )}
+
+          {entryMode === "freeform" && (
+            <form onSubmit={(event) => { event.preventDefault(); void runReasoning(); }} className="mt-7 border-t border-zinc-200 pt-6">
+              <p className="text-lg font-medium">Tell Stryde in your own words</p>
+              <p className="mt-1 text-sm text-zinc-500">Messy is fine. Give it the situation as it exists in your head.</p>
+              <textarea
+                autoFocus
+                value={input}
+                onChange={(event) => setInput(event.target.value)}
+                placeholder="I don't really know how to explain this, but…"
+                rows={8}
+                className="mt-5 w-full resize-none rounded-xl border border-zinc-300 px-4 py-3 outline-none focus:border-zinc-950"
+              />
+              <button
+                type="submit"
+                disabled={working || !input.trim()}
+                className="mt-3 rounded-full bg-zinc-950 px-5 py-2.5 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                {working ? "Stryde is thinking…" : "Run Stryde"}
+              </button>
+            </form>
+          )}
+
+          <div className="mt-6 border-t border-zinc-100 pt-4 text-center">
+            {entryMode === "guided" ? (
+              <button type="button" onClick={switchToFreeform} className="text-sm text-zinc-500 underline underline-offset-4 hover:text-zinc-950">
+                I'll tell Stryde myself
+              </button>
+            ) : (
+              <button type="button" onClick={switchToGuided} className="text-sm text-zinc-500 underline underline-offset-4 hover:text-zinc-950">
+                Help me figure it out instead
+              </button>
+            )}
+          </div>
+
+          {error && <p className="mt-5 text-sm text-red-600">{error}</p>}
         </section>
 
         {result && (
