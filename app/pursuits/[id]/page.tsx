@@ -12,6 +12,7 @@ type Pursuit = {
 
 type ReasoningResult = {
   run_id: string;
+  model?: { provider: string; model: string };
   reasoning: {
     stages: string[];
     terminal_stage: string;
@@ -24,23 +25,11 @@ type ReasoningResult = {
   };
 };
 
-const DEMO_PROPOSAL = {
-  path: "UNCLEAR",
-  understanding: "The user wants help moving a real pursuit forward, but the current constraint has not yet been established.",
-  diagnosis: "Need to identify the dominant current blocker before choosing an intervention.",
-  intervention: {
-    kind: "DECISION",
-    rationale: "Clarify the highest-leverage constraint before prescribing more work.",
-  },
-  proposed_response: "Let’s identify the one thing currently preventing meaningful progress.",
-};
-
 export default function PursuitPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
   const [pursuit, setPursuit] = useState<Pursuit | null>(null);
   const [input, setInput] = useState("");
-  const [modelProposal, setModelProposal] = useState(JSON.stringify(DEMO_PROPOSAL, null, 2));
   const [result, setResult] = useState<ReasoningResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [working, setWorking] = useState(false);
@@ -84,20 +73,13 @@ export default function PursuitPage() {
       const token = sessionData.session?.access_token;
       if (!token) throw new Error("Session expired. Please sign in again.");
 
-      let parsedProposal: unknown;
-      try {
-        parsedProposal = JSON.parse(modelProposal);
-      } catch {
-        throw new Error("Model proposal must be valid JSON.");
-      }
-
       const response = await fetch(`/api/v1/pursuits/${params.id}/reason`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ input: input.trim(), model_proposal: parsedProposal }),
+        body: JSON.stringify({ input: input.trim() }),
       });
 
       const body = (await response.json()) as { error?: string } & Partial<ReasoningResult>;
@@ -135,27 +117,16 @@ export default function PursuitPage() {
             value={input}
             onChange={(event) => setInput(event.target.value)}
             placeholder="I’m stuck because…"
-            rows={6}
+            rows={7}
             className="w-full resize-none rounded-xl border border-zinc-300 px-4 py-3 outline-none focus:border-zinc-950"
           />
-
-          <details className="rounded-xl border border-zinc-200 bg-zinc-50 p-4">
-            <summary className="cursor-pointer text-sm font-medium">Model proposal (development surface)</summary>
-            <p className="mt-2 text-xs text-zinc-500">This lets us exercise the control loop before the model gateway is connected.</p>
-            <textarea
-              value={modelProposal}
-              onChange={(event) => setModelProposal(event.target.value)}
-              rows={13}
-              className="mt-3 w-full rounded-xl border border-zinc-300 bg-white px-4 py-3 font-mono text-xs outline-none focus:border-zinc-950"
-            />
-          </details>
 
           <button
             onClick={runReasoning}
             disabled={working || !input.trim()}
             className="rounded-full bg-zinc-950 px-5 py-2.5 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-40"
           >
-            {working ? "Running…" : "Run Stryde"}
+            {working ? "Stryde is thinking…" : "Run Stryde"}
           </button>
 
           {error && <p className="text-sm text-red-600">{error}</p>}
@@ -186,7 +157,8 @@ export default function PursuitPage() {
               {result.reasoning.proposed_response && <div><p className="font-medium">Proposed response</p><p className="mt-1 text-zinc-600">{result.reasoning.proposed_response}</p></div>}
             </div>
 
-            <p className="border-t border-zinc-200 pt-4 text-xs text-zinc-500">Side effects authorized: {String(result.reasoning.side_effect_authorized)}</p>
+            {result.model && <p className="border-t border-zinc-200 pt-4 text-xs text-zinc-500">Model: {result.model.model}</p>}
+            <p className="text-xs text-zinc-500">Side effects authorized: {String(result.reasoning.side_effect_authorized)}</p>
           </section>
         )}
       </div>
