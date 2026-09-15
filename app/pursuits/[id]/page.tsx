@@ -31,6 +31,12 @@ type EntryOption = {
   description: string;
 };
 
+type GuidedQuestion = {
+  id: "outcome" | "friction" | "attempted";
+  prompt: string;
+  hint: string;
+};
+
 const ENTRY_OPTIONS: EntryOption[] = [
   { id: "next", label: "I don't know what to do next", description: "I want to move, but the next step isn't clear." },
   { id: "stuck", label: "I know what I want, but I'm stuck", description: "The outcome is clear; something is getting in the way." },
@@ -42,11 +48,54 @@ const ENTRY_OPTIONS: EntryOption[] = [
   { id: "not_sure", label: "I'm not sure what's going on", description: "That's okay. Stryde will help you figure it out." },
 ];
 
-const GUIDED_QUESTIONS = [
+const BASE_QUESTIONS: GuidedQuestion[] = [
   { id: "outcome", prompt: "What are you trying to make happen?", hint: "It doesn't need to be perfectly worded." },
   { id: "friction", prompt: "What seems to be making that difficult right now?", hint: "A feeling, obstacle, uncertainty, person, or pattern is enough." },
   { id: "attempted", prompt: "What have you tried or been doing so far?", hint: "Include things that haven't worked. They are useful evidence." },
-] as const;
+];
+
+const QUESTION_SETS: Record<string, GuidedQuestion[]> = {
+  next: [
+    BASE_QUESTIONS[0],
+    { id: "friction", prompt: "What feels unclear about the next move?", hint: "Too many choices, missing information, uncertainty, fear, or something else." },
+    BASE_QUESTIONS[2],
+  ],
+  stuck: [
+    BASE_QUESTIONS[0],
+    BASE_QUESTIONS[1],
+    { id: "attempted", prompt: "What have you already tried, and where does it keep getting stuck?", hint: "A specific point of failure is especially useful." },
+  ],
+  too_many: [
+    BASE_QUESTIONS[0],
+    { id: "friction", prompt: "What are the main things you think might be wrong?", hint: "List them roughly. Stryde will help separate signal from noise." },
+    { id: "attempted", prompt: "What have you been spending the most time on?", hint: "This helps distinguish activity from the constraint actually slowing progress." },
+  ],
+  decision: [
+    { id: "outcome", prompt: "What decision are you trying to make?", hint: "State the choice as simply as you can." },
+    { id: "friction", prompt: "What are the options you're considering, and what makes the choice difficult?", hint: "You don't need to evaluate them yet." },
+    { id: "attempted", prompt: "What have you already considered or ruled out?", hint: "Include evidence, assumptions, or conversations that shaped your thinking." },
+  ],
+  thinking: [
+    BASE_QUESTIONS[0],
+    { id: "friction", prompt: "What keeps pulling you back into thinking instead of doing?", hint: "Uncertainty, perfectionism, lack of clarity, fear, competing priorities, or something else." },
+    { id: "attempted", prompt: "What have you actually done in the real world so far?", hint: "Concrete actions matter more than plans here." },
+  ],
+  changed: [
+    BASE_QUESTIONS[0],
+    { id: "friction", prompt: "What changed, and what did that change break or make uncertain?", hint: "A new person, result, deadline, piece of information, or circumstance all count." },
+    BASE_QUESTIONS[2],
+  ],
+  waiting: [
+    BASE_QUESTIONS[0],
+    { id: "friction", prompt: "What exactly are you waiting for, and who or what controls it?", hint: "A person, reply, approval, payment, system, event, or external condition." },
+    { id: "attempted", prompt: "What have you already done while waiting?", hint: "Include follow-ups, alternatives, or work you can still move independently." },
+  ],
+  not_sure: [
+    { id: "outcome", prompt: "Let's start simpler. What are you trying to make happen?", hint: "Even a rough answer like 'get this working' is enough." },
+    { id: "friction", prompt: "What feels wrong, difficult, or unresolved right now?", hint: "You don't need to know whether this is the real problem." },
+    { id: "attempted", prompt: "What have you been doing, thinking about, or trying so far?", hint: "Tell Stryde what has actually been happening. We'll work out the pattern together." },
+  ],
+};
 
 export default function PursuitPage() {
   const params = useParams<{ id: string }>();
@@ -64,7 +113,8 @@ export default function PursuitPage() {
 
   const title = useMemo(() => pursuit?.title || "Untitled pursuit", [pursuit]);
   const selectedEntry = useMemo(() => ENTRY_OPTIONS.find((option) => option.id === selectedOption) ?? null, [selectedOption]);
-  const currentQuestion = GUIDED_QUESTIONS[guidedStep];
+  const guidedQuestions = useMemo(() => selectedOption ? (QUESTION_SETS[selectedOption] ?? BASE_QUESTIONS) : BASE_QUESTIONS, [selectedOption]);
+  const currentQuestion = guidedQuestions[guidedStep] ?? BASE_QUESTIONS[0];
 
   useEffect(() => {
     async function load() {
@@ -98,12 +148,6 @@ export default function PursuitPage() {
     setGuidedStep(0);
     setInput("");
     setError("");
-
-    if (option.id === "not_sure" || option.id === "next" || option.id === "too_many" || option.id === "thinking") {
-      setEntryMode("guided");
-    } else {
-      setEntryMode("guided");
-    }
   }
 
   function switchToFreeform() {
@@ -129,7 +173,7 @@ export default function PursuitPage() {
     const updatedAnswers = { ...guidedAnswers, [currentQuestion.id]: answer };
     setGuidedAnswers(updatedAnswers);
     setInput("");
-    if (guidedStep < GUIDED_QUESTIONS.length - 1) {
+    if (guidedStep < guidedQuestions.length - 1) {
       setGuidedStep((step) => step + 1);
       return;
     }
@@ -145,7 +189,7 @@ export default function PursuitPage() {
       optionContext,
       "",
       `What I'm trying to make happen: ${answers.outcome ?? ""}`,
-      `What seems to be making it difficult: ${answers.friction ?? ""}`,
+      `What seems to be making it difficult or unresolved: ${answers.friction ?? ""}`,
       `What I've tried or been doing: ${answers.attempted ?? ""}`,
     ].join("\n");
   }
@@ -222,12 +266,12 @@ export default function PursuitPage() {
             <form onSubmit={saveGuidedAnswer} className="mt-7 border-t border-zinc-200 pt-6">
               <div className="flex items-center justify-between gap-4">
                 <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-400">Step {guidedStep + 1} of {GUIDED_QUESTIONS.length}</p>
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-400">Step {guidedStep + 1} of {guidedQuestions.length}</p>
                   <p className="mt-2 text-lg font-medium">{currentQuestion.prompt}</p>
                   <p className="mt-1 text-sm text-zinc-500">{currentQuestion.hint}</p>
                 </div>
                 <div className="h-2 w-24 overflow-hidden rounded-full bg-zinc-100" aria-hidden="true">
-                  <div className="h-full rounded-full bg-zinc-950 transition-all" style={{ width: `${((guidedStep + 1) / GUIDED_QUESTIONS.length) * 100}%` }} />
+                  <div className="h-full rounded-full bg-zinc-950 transition-all" style={{ width: `${((guidedStep + 1) / guidedQuestions.length) * 100}%` }} />
                 </div>
               </div>
               <textarea
@@ -243,7 +287,7 @@ export default function PursuitPage() {
                 disabled={working || !input.trim()}
                 className="mt-3 rounded-full bg-zinc-950 px-5 py-2.5 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-40"
               >
-                {working ? "Stryde is thinking…" : guidedStep === GUIDED_QUESTIONS.length - 1 ? "Run Stryde" : "Continue"}
+                {working ? "Stryde is thinking…" : guidedStep === guidedQuestions.length - 1 ? "Run Stryde" : "Continue"}
               </button>
             </form>
           )}
