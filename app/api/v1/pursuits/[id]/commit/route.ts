@@ -1,12 +1,13 @@
 import { NextResponse } from "next/server";
+import { transitionRun } from "@/lib/run";
 import { requireAuthenticatedSupabase } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
-
 type RouteContext = { params: Promise<{ id: string }> };
 
 type CommitBody = {
   approved?: unknown;
+  run_id?: unknown;
   intent_summary?: unknown;
   intent_parameters?: unknown;
   execution_mode?: unknown;
@@ -33,9 +34,7 @@ function optionalString(value: unknown, maxLength: number): string | null {
 
 export async function POST(request: Request, context: RouteContext) {
   try {
-    const { supabase } = await requireAuthenticatedSupabase(
-      request.headers.get("authorization"),
-    );
+    const { supabase } = await requireAuthenticatedSupabase(request.headers.get("authorization"));
     const { id: pursuitId } = await context.params;
 
     let body: CommitBody;
@@ -45,9 +44,8 @@ export async function POST(request: Request, context: RouteContext) {
       return errorResponse("Request body must be valid JSON", 400);
     }
 
-    if (body.approved !== true) {
-      return errorResponse("Explicit approval is required to commit an intervention", 400);
-    }
+    if (body.approved !== true) return errorResponse("Explicit approval is required to commit an intervention", 400);
+    const runId = typeof body.run_id === "string" && body.run_id.trim() ? body.run_id.trim() : null;
 
     const intentSummary = optionalString(body.intent_summary, 2000);
     if (!intentSummary) return errorResponse("intent_summary is required", 400);
@@ -90,10 +88,14 @@ export async function POST(request: Request, context: RouteContext) {
 
     if (error) {
       const message = error.message || "Unable to commit intervention";
-      const clientError = /required|invalid|not found|registered|grant|terminal|execution|tool/i.test(
-        message,
-      );
+      const clientError = /required|invalid|not found|registered|grant|terminal|execution|tool/i.test(message);
       return errorResponse(clientError ? message : "Unable to commit intervention", clientError ? 400 : 500);
+    }
+
+    if (runId) {
+      const committed = await transitionRun(supabase, runId, "COMMIT");
+      const done = await transitionRun(supabase, runId, "DONE");
+      return NextResponse.json({ committed: true, ...data, run: done, prior_run: committed }, { status: 201 });
     }
 
     return NextResponse.json({ committed: true, ...data }, { status: 201 });
@@ -101,6 +103,6 @@ export async function POST(request: Request, context: RouteContext) {
     const message = error instanceof Error ? error.message : "Unable to commit intervention";
     if (message.includes("token")) return errorResponse(message, 401);
     if (/Expected a string|String exceeds/.test(message)) return errorResponse(message, 400);
-    return errorResponse(message, 500);
+    return errorResponse(message, /Run not found|Invalid Run transition|Run is terminal/.test(message) ? 400 : 500);
   }
 }
