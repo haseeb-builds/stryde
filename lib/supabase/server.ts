@@ -1,12 +1,5 @@
 import { createClient, type SupabaseClient, type User } from "@supabase/supabase-js";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-if (!supabaseUrl || !supabaseAnonKey) {
-  throw new Error("Missing Supabase environment configuration");
-}
-
 export type AuthenticatedSupabase = {
   supabase: SupabaseClient;
   user: User;
@@ -14,7 +7,8 @@ export type AuthenticatedSupabase = {
 
 /**
  * Authenticate an API request against Supabase and return a request-scoped client.
- * Ownership is always derived from the verified Supabase user, never from request input.
+ * Configuration is resolved at request time so a missing deployment environment
+ * cannot fail the Next.js build during module evaluation.
  */
 export async function requireAuthenticatedSupabase(
   authorizationHeader: string | null,
@@ -26,6 +20,13 @@ export async function requireAuthenticatedSupabase(
   const accessToken = authorizationHeader.slice("Bearer ".length).trim();
   if (!accessToken) {
     throw new Error("Missing bearer token");
+  }
+
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+  if (!supabaseUrl || !supabaseAnonKey) {
+    throw new Error("Missing Supabase environment configuration");
   }
 
   const supabase = createClient(supabaseUrl, supabaseAnonKey, {
