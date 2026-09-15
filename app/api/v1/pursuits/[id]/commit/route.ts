@@ -34,7 +34,7 @@ function optionalString(value: unknown, maxLength: number): string | null {
 
 export async function POST(request: Request, context: RouteContext) {
   try {
-    const { supabase } = await requireAuthenticatedSupabase(request.headers.get("authorization"));
+    const { supabase, user } = await requireAuthenticatedSupabase(request.headers.get("authorization"));
     const { id: pursuitId } = await context.params;
 
     let body: CommitBody;
@@ -46,6 +46,24 @@ export async function POST(request: Request, context: RouteContext) {
 
     if (body.approved !== true) return errorResponse("Explicit approval is required to commit an intervention", 400);
     const runId = typeof body.run_id === "string" && body.run_id.trim() ? body.run_id.trim() : null;
+
+    if (runId) {
+      const { data: run, error: runError } = await supabase
+        .from("run")
+        .select("id, owner_user_id, current_stage, status, trigger_metadata")
+        .eq("id", runId)
+        .eq("owner_user_id", user.id)
+        .maybeSingle();
+      if (runError) return errorResponse("Unable to load Run", 500);
+      if (!run) return errorResponse("Run not found", 404);
+      const metadata = run.trigger_metadata && typeof run.trigger_metadata === "object"
+        ? run.trigger_metadata as Record<string, unknown>
+        : null;
+      if (metadata?.pursuit_id !== pursuitId) return errorResponse("Run does not belong to this Pursuit", 400);
+      if (run.current_stage !== "AUTHORIZE" || run.status !== "RUNNING") {
+        return errorResponse("Run is not awaiting authorization", 400);
+      }
+    }
 
     const intentSummary = optionalString(body.intent_summary, 2000);
     if (!intentSummary) return errorResponse("intent_summary is required", 400);
@@ -93,9 +111,13 @@ export async function POST(request: Request, context: RouteContext) {
     }
 
     if (runId) {
-      const committed = await transitionRun(supabase, runId, "COMMIT");
-      const done = await transitionRun(supabase, runId, "DONE");
-      return NextResponse.json({ committed: true, ...data, run: done, prior_run: committed }, { status: 201 });
+      try {
+        const committed = await transitionRun(supabase, runId, "COMMIT");
+        const done = await transitionRun(supabase, runId, "DONE");
+        return NextResponse.json({ committed: true, ...data, run: done, prior_run: committed }, { status: 201 });
+      } catch {
+        return NextResponse.json({ committed: true, ...data, run_transition_warning: "Action committed but Run closure requires reconciliation", run_id: runId }, { status: 201 });
+      }
     }
 
     return NextResponse.json({ committed: true, ...data }, { status: 201 });
@@ -103,6 +125,6 @@ export async function POST(request: Request, context: RouteContext) {
     const message = error instanceof Error ? error.message : "Unable to commit intervention";
     if (message.includes("token")) return errorResponse(message, 401);
     if (/Expected a string|String exceeds/.test(message)) return errorResponse(message, 400);
-    return errorResponse(message, /Run not found|Invalid Run transition|Run is terminal/.test(message) ? 400 : 500);
+    return errorResponse(message, 500);
   }
 }
