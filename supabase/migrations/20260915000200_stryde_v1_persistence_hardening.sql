@@ -11,6 +11,7 @@ declare
   objective_kind text;
   objective_status text;
   objective_pursuit uuid;
+  objective_superseded_by uuid;
 begin
   if tg_table_name = 'pursuit' then
     if new.predecessor_pursuit_id is not null then
@@ -23,14 +24,15 @@ begin
     end if;
 
     if new.objective_claim_id is not null then
-      select kind, epistemic_status, pursuit_id
-      into objective_kind, objective_status, objective_pursuit
+      select kind, epistemic_status, pursuit_id, superseded_by_claim_id
+      into objective_kind, objective_status, objective_pursuit, objective_superseded_by
       from public.claim
       where id = new.objective_claim_id and owner_user_id = new.owner_user_id;
 
       if objective_kind is distinct from 'OBJECTIVE'
          or objective_status is null
          or objective_pursuit is distinct from new.id
+         or objective_superseded_by is not null
          or objective_status = 'CONTRADICTED' then
         raise exception 'Objective pointer must reference a current OBJECTIVE Claim owned by this Pursuit';
       end if;
@@ -54,6 +56,14 @@ begin
       where id = new.supersedes_claim_id and owner_user_id = new.owner_user_id;
       if predecessor_epistemic_status is null then
         raise exception 'Claim supersession target must exist and belong to the same owner';
+      end if;
+    end if;
+
+    -- Epistemic upgrades are trusted-control-plane operations. Authenticated browser clients
+    -- are not allowed to change status directly, preventing an LLM/client from self-certifying VERIFIED.
+    if tg_op = 'UPDATE' and new.epistemic_status is distinct from old.epistemic_status then
+      if coalesce(auth.jwt() ->> 'role', '') <> 'service_role' then
+        raise exception 'Claim epistemic status changes require the trusted control plane';
       end if;
     end if;
   end if;
@@ -101,6 +111,16 @@ begin
     execute format('drop policy if exists %I on public.%I', t || '_owner_insert', t);
     execute format('drop policy if exists %I on public.%I', t || '_owner_update', t);
     execute format('drop policy if exists %I on public.%I', t || '_owner_delete', t);
+  end loop;
+end $$;
+
+-- Domain state transitions are also server/control-plane owned; clients may read state but cannot mutate it directly.
+do $$
+declare
+  t text;
+begin
+  foreach t in array array['pursuit','claim','decision','action','job','reconciliation_task','budget','run'] loop
+    execute format('drop policy if exists %I on public.%I', t || '_owner_update', t);
   end loop;
 end $$;
 
