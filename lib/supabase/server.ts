@@ -13,8 +13,8 @@ export type AuthenticatedSupabase = {
 };
 
 /**
- * Authenticate an API request using the Supabase access token supplied by the caller.
- * Ownership is always derived from the verified Supabase user; callers never supply owner_user_id.
+ * Authenticate an API request against Supabase and return a request-scoped client.
+ * Ownership is always derived from the verified Supabase user, never from request input.
  */
 export async function requireAuthenticatedSupabase(
   authorizationHeader: string | null,
