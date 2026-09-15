@@ -37,9 +37,22 @@ export default function HomePage() {
     return () => data.subscription.unsubscribe();
   }, []);
 
+  function validateCredentials() {
+    if (!email.trim()) return "Enter your email address.";
+    if (!password) return "Enter a password.";
+    if (password.length < 6) return "Password must be at least 6 characters.";
+    return null;
+  }
+
   async function signIn(event: FormEvent) {
     event.preventDefault();
     setLoading(true); setError(""); setMessage("");
+    const validationError = validateCredentials();
+    if (validationError) {
+      setError(validationError);
+      setLoading(false);
+      return;
+    }
     const { error: authError } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
     if (authError) setError(authError.message);
     else { setMessage("Signed in."); await loadPursuits(); }
@@ -48,6 +61,12 @@ export default function HomePage() {
 
   async function signUp() {
     setLoading(true); setError(""); setMessage("");
+    const validationError = validateCredentials();
+    if (validationError) {
+      setError(validationError);
+      setLoading(false);
+      return;
+    }
     const { data, error: authError } = await supabase.auth.signUp({ email: email.trim(), password });
     if (authError) setError(authError.message);
     else setMessage(data.session ? "Account created." : "Account created. Check your email to confirm it.");
@@ -78,13 +97,24 @@ export default function HomePage() {
     return (
       <main className="min-h-screen bg-zinc-50 px-6 py-16 text-zinc-950">
         <div className="mx-auto max-w-md space-y-8">
-          <header className="space-y-3"><p className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-400">Stryde</p><h1 className="text-4xl font-semibold tracking-tight">What needs to move?</h1><p className="text-zinc-500">A persistent intelligence layer for understanding situations and moving real work forward.</p></header>
+          <header className="space-y-3">
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-400">Stryde</p>
+            <h1 className="text-4xl font-semibold tracking-tight">What needs to move?</h1>
+            <p className="text-zinc-500">A persistent intelligence layer for understanding situations and moving real work forward.</p>
+          </header>
           <form onSubmit={signIn} className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm space-y-4">
-            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email" className="w-full rounded-xl border border-zinc-300 px-4 py-3" required />
-            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Password" className="w-full rounded-xl border border-zinc-300 px-4 py-3" required minLength={6} />
+            <div className="space-y-2">
+              <label htmlFor="email" className="text-sm font-medium">Email</label>
+              <input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" autoComplete="email" className="w-full rounded-xl border border-zinc-300 px-4 py-3 outline-none focus:border-zinc-950" required />
+            </div>
+            <div className="space-y-2">
+              <label htmlFor="password" className="text-sm font-medium">Password</label>
+              <input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="At least 6 characters" autoComplete="current-password" className="w-full rounded-xl border border-zinc-300 px-4 py-3 outline-none focus:border-zinc-950" required minLength={6} />
+            </div>
             <button disabled={loading} className="w-full rounded-full bg-zinc-950 px-5 py-3 text-sm font-medium text-white disabled:opacity-40">{loading ? "Working…" : "Sign in"}</button>
-            <button type="button" disabled={loading || !email || !password} onClick={() => void signUp()} className="w-full rounded-full border border-zinc-300 px-5 py-3 text-sm font-medium disabled:opacity-40">Create account</button>
-            {error && <p className="text-sm text-red-600">{error}</p>}{message && <p className="text-sm text-zinc-600">{message}</p>}
+            <button type="button" disabled={loading} onClick={() => void signUp()} className="w-full rounded-full border border-zinc-300 px-5 py-3 text-sm font-medium disabled:opacity-40">Create account</button>
+            {error && <p className="text-sm text-red-600">{error}</p>}
+            {message && <p className="text-sm text-zinc-600">{message}</p>}
           </form>
         </div>
       </main>
