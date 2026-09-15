@@ -1,5 +1,4 @@
 import { createClient, type SupabaseClient, type User } from "@supabase/supabase-js";
-import type { Database } from "./database.types";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -9,10 +8,14 @@ if (!supabaseUrl || !supabaseAnonKey) {
 }
 
 export type AuthenticatedSupabase = {
-  supabase: SupabaseClient<Database>;
+  supabase: SupabaseClient;
   user: User;
 };
 
+/**
+ * Authenticate an API request using the Supabase access token supplied by the caller.
+ * Ownership is always derived from the verified Supabase user; callers never supply owner_user_id.
+ */
 export async function requireAuthenticatedSupabase(
   authorizationHeader: string | null,
 ): Promise<AuthenticatedSupabase> {
@@ -25,7 +28,7 @@ export async function requireAuthenticatedSupabase(
     throw new Error("Missing bearer token");
   }
 
-  const supabase = createClient<Database>(supabaseUrl, supabaseAnonKey, {
+  const supabase = createClient(supabaseUrl, supabaseAnonKey, {
     auth: {
       persistSession: false,
       autoRefreshToken: false,
