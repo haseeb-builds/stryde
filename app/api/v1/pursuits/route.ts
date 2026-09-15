@@ -37,19 +37,17 @@ export async function GET(request: Request) {
     if (status) query = query.eq("status", status);
 
     const { data, error } = await query;
-
     if (error) return errorResponse("Unable to load pursuits", 500);
     return NextResponse.json({ pursuits: data ?? [] });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unauthorized";
-    const status = message.includes("token") ? 401 : 500;
-    return errorResponse(message, status);
+    return errorResponse(message, message.includes("token") ? 401 : 500);
   }
 }
 
 export async function POST(request: Request) {
   try {
-    const { supabase, user } = await requireAuthenticatedSupabase(
+    const { supabase } = await requireAuthenticatedSupabase(
       request.headers.get("authorization"),
     );
 
@@ -70,33 +68,10 @@ export async function POST(request: Request) {
       return errorResponse("title is too long", 400);
     }
 
-    if (!originThreadId) {
-      const { data, error } = await supabase
-        .from("pursuit")
-        .insert({
-          owner_user_id: ownerId(user),
-          title,
-        })
-        .select(
-          "id, title, status, objective_claim_id, origin_thread_id, predecessor_pursuit_id, created_at, updated_at, active_at, paused_at, completed_at, abandoned_at",
-        )
-        .single();
-
-      if (error) return errorResponse("Unable to create pursuit", 500);
-      return NextResponse.json({ pursuit: data }, { status: 201 });
-    }
-
-    const { data, error } = await supabase
-      .from("pursuit")
-      .insert({
-        owner_user_id: ownerId(user),
-        title,
-        origin_thread_id: originThreadId,
-      })
-      .select(
-        "id, title, status, objective_claim_id, origin_thread_id, predecessor_pursuit_id, created_at, updated_at, active_at, paused_at, completed_at, abandoned_at",
-      )
-      .single();
+    const { data, error } = await supabase.rpc("stryde_create_pursuit", {
+      p_title: title,
+      p_origin_thread_id: originThreadId,
+    });
 
     if (error) return errorResponse("Unable to create pursuit", 500);
     return NextResponse.json({ pursuit: data }, { status: 201 });
@@ -106,7 +81,6 @@ export async function POST(request: Request) {
     }
 
     const message = error instanceof Error ? error.message : "Unauthorized";
-    const status = message.includes("token") ? 401 : 500;
-    return errorResponse(message, status);
+    return errorResponse(message, message.includes("token") ? 401 : 500);
   }
 }
