@@ -34,12 +34,6 @@ const MODEL_PROPOSAL_SCHEMA = {
   },
 } as const;
 
-function requiredEnv(name: string): string {
-  const value = process.env[name]?.trim();
-  if (!value) throw new Error(`Missing model configuration: ${name}`);
-  return value;
-}
-
 function extractResponseText(response: unknown): string {
   if (typeof response !== "object" || response === null) {
     throw new Error("Model returned an invalid response envelope");
