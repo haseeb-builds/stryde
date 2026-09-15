@@ -38,10 +38,7 @@ export async function POST(request: Request, context: RouteContext) {
       return NextResponse.json({ error: "pursuit_id must match route id" }, { status: 400 });
     }
 
-    const run = await createRun(supabase, "PURSUIT_REASON", {
-      pursuit_id: id,
-      input_text: normalizedInput.text,
-    });
+    const run = await createRun(supabase, "PURSUIT_REASON", { pursuit_id: id, input_text: normalizedInput.text });
     runId = run.id;
 
     await transitionRun(supabase, run.id, "CONTEXT_ASSEMBLY");
@@ -68,17 +65,29 @@ export async function POST(request: Request, context: RouteContext) {
       await transitionRun(supabase, run.id, stage);
     }
 
-    return NextResponse.json({ run_id: run.id, reasoning: result });
+    let finalRun = null;
+    if (!result.intervention && result.proposed_response) {
+      finalRun = await transitionRun(supabase, run.id, "DONE");
+    }
+
+    return NextResponse.json({ run_id: run.id, run: finalRun, reasoning: result });
   } catch (error) {
     if (runId && supabaseForRecovery) {
       try {
-        await transitionRun(
-          supabaseForRecovery,
-          runId,
-          "FAILED",
-          "FAILED",
-          error instanceof Error ? error.message : "Reasoning failed",
-        );
+        const { data: currentRun } = await supabaseForRecovery
+          .from("run")
+          .select("current_stage, status")
+          .eq("id", runId)
+          .maybeSingle();
+        if (currentRun && currentRun.status !== "SUCCEEDED" && currentRun.status !== "FAILED" && currentRun.current_stage !== "FAILED") {
+          await transitionRun(
+            supabaseForRecovery,
+            runId,
+            "FAILED",
+            "FAILED",
+            error instanceof Error ? error.message : "Reasoning failed",
+          );
+        }
       } catch {
         // Preserve the original error if lifecycle recovery also fails.
       }
