@@ -67,8 +67,6 @@ begin
       v_claim.id, v_observation.id, p_relation_type, v_job.owner_user_id
     );
 
-    -- Mechanical evidence is evidence-bearing, never self-authorizing. A
-    -- direct execution result can establish OBSERVED, but not VERIFIED.
     if v_claim.epistemic_status = 'REPORTED' then
       update public.claim
       set epistemic_status = 'OBSERVED', updated_at = now()
@@ -92,6 +90,24 @@ begin
   end if;
 
   return jsonb_build_object('observation', to_jsonb(v_observation), 'claim_id', p_claim_id);
+end;
+$$;
+
+create or replace function public.stryde_record_attempt_observation(
+  p_attempt_id uuid,
+  p_claim_id uuid default null,
+  p_relation_type text default null
+)
+returns jsonb
+language plpgsql
+security invoker
+set search_path = public, pg_temp
+as $$
+begin
+  if coalesce((select auth.jwt() ->> 'role'),'') <> 'service_role' then
+    raise exception 'Verification worker authentication required';
+  end if;
+  return stryde_internal.record_attempt_observation(p_attempt_id, p_claim_id, p_relation_type);
 end;
 $$;
 
@@ -122,10 +138,7 @@ begin
   select * into v_claim from public.claim
   where id=p_claim_id and owner_user_id=v_actor for update;
   if not found then raise exception 'Claim not found'; end if;
-
-  if v_claim.epistemic_status = p_to_status then
-    raise exception 'Claim already has this epistemic status';
-  end if;
+  if v_claim.epistemic_status = p_to_status then raise exception 'Claim already has this epistemic status'; end if;
 
   if p_observation_id is not null then
     select * into v_observation from public.observation
@@ -163,10 +176,11 @@ begin
 end;
 $$;
 
-revoke all on function public.stryde_adjudicate_claim(uuid,text,text,uuid) from public;
+revoke all privileges on function public.stryde_adjudicate_claim(uuid,text,text,uuid) from public, anon;
 grant execute on function public.stryde_adjudicate_claim(uuid,text,text,uuid) to authenticated;
-
-revoke all on function stryde_internal.record_attempt_observation(uuid,uuid,text) from public;
+revoke all privileges on function public.stryde_record_attempt_observation(uuid,uuid,text) from public, anon, authenticated;
+grant execute on function public.stryde_record_attempt_observation(uuid,uuid,text) to service_role;
+revoke all privileges on function stryde_internal.record_attempt_observation(uuid,uuid,text) from public, anon, authenticated;
 grant execute on function stryde_internal.record_attempt_observation(uuid,uuid,text) to service_role;
-
-revoke all on schema stryde_internal from public;
+grant usage on schema stryde_internal to service_role;
+revoke all privileges on schema stryde_internal from public, anon, authenticated;
