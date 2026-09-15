@@ -1,219 +1,103 @@
 "use client";
-import { useParams } from "next/navigation";
-import { useEffect, useState } from "react";
+
+import { FormEvent, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 
-export default function CheckinPage() {
-  const params = useParams<{ id: string }>();
-  const [actionText, setActionText] = useState("");
-  const [intentionText, setIntentionText] = useState("");
-  const [shrinkCount, setShrinkCount] = useState(0);
-  const [loading, setLoading] = useState(true);
-  const [state, setState] = useState <
-  "asking" | "shrinking" | "summary" | "ceiling"
-  >("asking");
-  const [newAction, setNewAction] = useState("");
-  const [intended, setIntended] = useState("");
-  const [happened, setHappened] = useState("");
-  const [nextStep, setNextStep] = useState("");
-  const [saved, setSaved] = useState(false);
+type Pursuit = { id: string; title: string | null; status: string };
+
+export default function HomePage() {
+  const router = useRouter();
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [title, setTitle] = useState("");
+  const [pursuits, setPursuits] = useState<Pursuit[]>([]);
+  const [sessionReady, setSessionReady] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+
+  async function loadPursuits() {
+    const { data: sessionData } = await supabase.auth.getSession();
+    const token = sessionData.session?.access_token;
+    if (!token) {
+      setSessionReady(false);
+      return;
+    }
+    setSessionReady(true);
+    const response = await fetch("/api/v1/pursuits", { headers: { Authorization: `Bearer ${token}` } });
+    if (!response.ok) return;
+    const body = (await response.json()) as { pursuits?: Pursuit[] };
+    setPursuits(body.pursuits ?? []);
+  }
 
   useEffect(() => {
-    async function fetchLoop() {
-      const { data } = await supabase
-        .from("loops")
-        .select("action_text, intention_text, shrink_count")
-        .eq("id", params.id)
-        .single();
-      if (data) {
-        setActionText(data.action_text);
-        setIntentionText(data.intention_text);
-        setShrinkCount(data.shrink_count);
-      }
-      setLoading(false);
-    }
-    fetchLoop();
-  }, [params.id]);
+    void loadPursuits();
+    const { data } = supabase.auth.onAuthStateChange(() => { void loadPursuits(); });
+    return () => data.subscription.unsubscribe();
+  }, []);
 
-  async function handleYes() {
-    await supabase
-      .from("loops")
-      .update({ evidence_result: "yes", loop_status: "closed-evidence" })
-      .eq("id", params.id);
-    setIntended(intentionText);
-    setHappened("Done — completed as planned.");
-    setNextStep("Start a new loop when ready.");
-    setState("summary");
+  async function signIn(event: FormEvent) {
+    event.preventDefault();
+    setLoading(true); setError(""); setMessage("");
+    const { error: authError } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
+    if (authError) setError(authError.message);
+    else { setMessage("Signed in."); await loadPursuits(); }
+    setLoading(false);
   }
 
-  async function handleNo() {
-    if (shrinkCount >= 2) {
-      await supabase
-        .from("loops")
-        .update({ evidence_result: "no", loop_status: "closed-ceiling" })
-        .eq("id", params.id);
-      setState("ceiling");
-    } else {
-      setState("shrinking");
-    }
+  async function signUp() {
+    setLoading(true); setError(""); setMessage("");
+    const { data, error: authError } = await supabase.auth.signUp({ email: email.trim(), password });
+    if (authError) setError(authError.message);
+    else setMessage(data.session ? "Account created." : "Account created. Check your email to confirm it.");
+    setLoading(false);
   }
 
-  async function submitShrink() {
-    const nextCheckin = new Date();
-    nextCheckin.setDate(nextCheckin.getDate() + 1);
-
-    const { data: current } = await supabase
-      .from("loops")
-      .select("action_history, action_text")
-      .eq("id", params.id)
-      .single();
-
-    const priorHistory = current?.action_history || [];
-    const updatedHistory = [...priorHistory, current?.action_text];
-
-    await supabase
-      .from("loops")
-      .update({
-        action_text: newAction,
-        action_history: updatedHistory,
-        shrink_count: shrinkCount + 1,
-        checkin_scheduled_at: nextCheckin.toISOString(),
-        evidence_result: null,
-      })
-      .eq("id", params.id);
-    setState("summary");
-    setIntended(intentionText);
-    setHappened("Not yet — shrinking the action.");
-    setNextStep(`Smaller next step: ${newAction}`);
+  async function createPursuit(event: FormEvent) {
+    event.preventDefault();
+    if (!title.trim()) return;
+    setLoading(true); setError(""); setMessage("");
+    const { data: sessionData } = await supabase.auth.getSession();
+    const token = sessionData.session?.access_token;
+    if (!token) { setError("Please sign in first."); setLoading(false); return; }
+    const response = await fetch("/api/v1/pursuits", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ title: title.trim() }),
+    });
+    const body = (await response.json()) as { pursuit?: Pursuit; error?: string };
+    if (!response.ok || !body.pursuit) setError(body.error || "Unable to create pursuit.");
+    else { setTitle(""); setPursuits((current) => [body.pursuit!, ...current]); router.push(`/pursuits/${body.pursuit.id}`); }
+    setLoading(false);
   }
 
-  async function handleReclassify() {
-    await supabase.from("loops").update({ diagnosis: "B1" }).eq("id", params.id);
-    setIntended(intentionText);
-    setHappened("Not completed after two shrink attempts.");
-    setNextStep("Reclassified — the blocker may be clarity, not execution.");
-    setState("summary");
-  }
+  async function signOut() { await supabase.auth.signOut(); setPursuits([]); setSessionReady(false); }
 
-  async function handleStartFresh() {
-    setIntended(intentionText);
-    setHappened("Not completed after two shrink attempts.");
-    setNextStep("Starting fresh — go back to Stryde to begin a new loop.");
-    setState("summary");
-  }
-
-  async function saveSummary() {
-    await supabase
-      .from("loops")
-      .update({
-        closing_summary: { intended, happened, next_step: nextStep },
-      })
-      .eq("id", params.id);
-    setSaved(true);
-  }
-
-  if (loading) return <p className="p-6">Loading...</p>;
-
-  if (state === "ceiling")
+  if (!sessionReady) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-screen gap-6 px-6 text-center max-w-sm mx-auto">
-        <h1 className="text-2xl font-semibold">Two shrinks, still no evidence</h1>
-        <p className="text-zinc-600">
-          This might not be a task-size problem. What fits better?
-        </p>
-        <div className="flex flex-col gap-3 w-full">
-          <button
-            onClick={handleReclassify}
-            className="rounded-full border border-zinc-300 px-6 py-2 font-medium"
-          >
-            This isn&apos;t a task-size problem
-          </button>
-          <button
-            onClick={handleStartFresh}
-            className="rounded-full bg-foreground text-background px-6 py-2 font-medium"
-          >
-            Start fresh
-          </button>
+      <main className="min-h-screen bg-zinc-50 px-6 py-16 text-zinc-950">
+        <div className="mx-auto max-w-md space-y-8">
+          <header className="space-y-3"><p className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-400">Stryde</p><h1 className="text-4xl font-semibold tracking-tight">What needs to move?</h1><p className="text-zinc-500">A persistent intelligence layer for understanding situations and moving real work forward.</p></header>
+          <form onSubmit={signIn} className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm space-y-4">
+            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email" className="w-full rounded-xl border border-zinc-300 px-4 py-3" required />
+            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Password" className="w-full rounded-xl border border-zinc-300 px-4 py-3" required minLength={6} />
+            <button disabled={loading} className="w-full rounded-full bg-zinc-950 px-5 py-3 text-sm font-medium text-white disabled:opacity-40">{loading ? "Working…" : "Sign in"}</button>
+            <button type="button" disabled={loading || !email || !password} onClick={() => void signUp()} className="w-full rounded-full border border-zinc-300 px-5 py-3 text-sm font-medium disabled:opacity-40">Create account</button>
+            {error && <p className="text-sm text-red-600">{error}</p>}{message && <p className="text-sm text-zinc-600">{message}</p>}
+          </form>
         </div>
-      </div>
+      </main>
     );
-
-  if (state === "summary")
-    return (
-      <div className="flex flex-col items-center justify-center min-h-screen gap-4 px-6 max-w-md mx-auto">
-        <h1 className="text-2xl font-semibold text-center">Loop closed</h1>
-        {saved ? (
-          <p className="text-center text-zinc-600">Saved.</p>
-        ) : (
-          <>
-            <label className="w-full text-sm text-zinc-500">What you intended to do</label>
-            <input
-              value={intended}
-              onChange={(e) => setIntended(e.target.value)}
-              className="w-full rounded-md border border-zinc-300 px-4 py-2"
-            />
-            <label className="w-full text-sm text-zinc-500">What happened</label>
-            <input
-              value={happened}
-              onChange={(e) => setHappened(e.target.value)}
-              className="w-full rounded-md border border-zinc-300 px-4 py-2"
-            />
-            <label className="w-full text-sm text-zinc-500">What the next step is</label>
-            <input
-              value={nextStep}
-              onChange={(e) => setNextStep(e.target.value)}
-              className="w-full rounded-md border border-zinc-300 px-4 py-2"
-            />
-            <button
-              onClick={saveSummary}
-              className="rounded-full bg-foreground text-background px-6 py-2 font-medium mt-2"
-            >
-              Save
-            </button>
-          </>
-        )}
-      </div>
-    );
-
-  if (state === "shrinking")
-    return (
-      <div className="flex flex-col items-center justify-center min-h-screen gap-6 px-6 text-center">
-        <h1 className="text-2xl font-semibold">Let&apos;s shrink it</h1>
-        <p className="text-zinc-600">What&apos;s a smaller version of this action?</p>
-        <input
-          type="text"
-          value={newAction}
-          onChange={(e) => setNewAction(e.target.value)}
-          placeholder="A smaller next step..."
-          className="w-full max-w-sm rounded-md border border-zinc-300 px-4 py-2"
-        />
-        <button
-          onClick={submitShrink}
-          className="rounded-full bg-foreground text-background px-6 py-2 font-medium"
-        >
-          Commit smaller action
-        </button>
-      </div>
-    );
+  }
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen gap-6 px-6 text-center">
-      <h1 className="text-2xl font-semibold">Did this happen?</h1>
-      <p className="text-lg text-zinc-600">{actionText}</p>
-      <div className="flex gap-4">
-        <button
-          onClick={handleYes}
-          className="rounded-full bg-green-600 text-white px-6 py-2 font-medium"
-        >
-          Yes
-        </button>
-        <button
-          onClick={handleNo}
-          className="rounded-full bg-red-600 text-white px-6 py-2 font-medium"
-        >
-          No
-        </button>
+    <main className="min-h-screen bg-zinc-50 px-6 py-10 text-zinc-950">
+      <div className="mx-auto max-w-3xl space-y-8">
+        <header className="flex items-start justify-between gap-6"><div><p className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-400">Stryde</p><h1 className="mt-2 text-4xl font-semibold tracking-tight">What needs to move?</h1><p className="mt-2 text-zinc-500">Start with a real outcome. Stryde will help you work the situation.</p></div><button onClick={() => void signOut()} className="text-sm text-zinc-500">Sign out</button></header>
+        <form onSubmit={createPursuit} className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm space-y-4"><input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Land my first AI-native operations client" className="w-full rounded-xl border border-zinc-300 px-4 py-4 text-lg outline-none focus:border-zinc-950"/><button disabled={loading || !title.trim()} className="rounded-full bg-zinc-950 px-5 py-2.5 text-sm font-medium text-white disabled:opacity-40">Start pursuit</button>{error && <p className="text-sm text-red-600">{error}</p>}</form>
+        <section className="space-y-3"><p className="text-sm font-medium text-zinc-500">Active pursuits</p>{pursuits.length === 0 ? <div className="rounded-2xl border border-dashed border-zinc-300 p-8 text-sm text-zinc-500">No pursuits yet. Start with something real.</div> : pursuits.map((pursuit) => <button key={pursuit.id} onClick={() => router.push(`/pursuits/${pursuit.id}`)} className="block w-full rounded-2xl border border-zinc-200 bg-white p-5 text-left shadow-sm hover:border-zinc-400"><p className="font-medium">{pursuit.title || "Untitled pursuit"}</p><p className="mt-1 text-xs text-zinc-500">{pursuit.status}</p></button>)}</section>
       </div>
-    </div>
+    </main>
   );
 }
