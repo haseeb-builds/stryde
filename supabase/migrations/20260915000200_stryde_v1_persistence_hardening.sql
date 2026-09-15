@@ -91,12 +91,14 @@ begin
   end loop;
 end $$;
 
--- Append-only semantic records must not have client update/delete paths.
+-- Append-only semantic/support records are never directly updateable or deletable by a user.
+-- Insertions also stay behind trusted server/control-plane paths so clients cannot forge provenance/history.
 do $$
 declare
   t text;
 begin
   foreach t in array array['claim_relation','observation','claim_observation_link','claim_status_event','decision_option','decision_premise','job_authorization','attempt','run_context_reference','event'] loop
+    execute format('drop policy if exists %I on public.%I', t || '_owner_insert', t);
     execute format('drop policy if exists %I on public.%I', t || '_owner_update', t);
     execute format('drop policy if exists %I on public.%I', t || '_owner_delete', t);
   end loop;
