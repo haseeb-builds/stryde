@@ -1,7 +1,7 @@
 import { validateModelProposal, type ModelProposal } from "@/lib/orchestration";
 
-const DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1";
-const DEFAULT_OPENAI_MODEL = "gpt-5.6-luna";
+const DEFAULT_OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
+const DEFAULT_OPENROUTER_MODEL = "openrouter/free";
 const MAX_OUTPUT_CHARS = 20_000;
 const MAX_CONVERSATION_MESSAGES = 16;
 const MAX_MESSAGE_CHARS = 8_000;
@@ -43,10 +43,7 @@ const MODEL_PROPOSAL_SCHEMA = {
       additionalProperties: false,
       required: ["kind", "rationale"],
       properties: {
-        kind: {
-          type: "string",
-          enum: ["ANSWER", "DECISION", "HUMAN_ACTION", "CONTROLLED_ACTION", "WAIT"],
-        },
+        kind: { type: "string", enum: ["ANSWER", "DECISION", "HUMAN_ACTION", "CONTROLLED_ACTION", "WAIT"] },
         rationale: { type: "string", minLength: 1, maxLength: 8000 },
       },
     },
@@ -79,35 +76,7 @@ const CONVERSATION_TURN_SCHEMA = {
   },
 } as const;
 
-function extractResponseText(response: unknown): string {
-  if (typeof response !== "object" || response === null) {
-    throw new Error("Model returned an invalid response envelope");
-  }
-
-  const candidate = response as { output?: unknown };
-  if (!Array.isArray(candidate.output)) {
-    throw new Error("Model response is missing output");
-  }
-
-  const chunks: string[] = [];
-  for (const item of candidate.output) {
-    if (typeof item !== "object" || item === null) continue;
-    const content = (item as { content?: unknown }).content;
-    if (!Array.isArray(content)) continue;
-    for (const part of content) {
-      if (typeof part !== "object" || part === null) continue;
-      const text = (part as { text?: unknown }).text;
-      if (typeof text === "string" && text.trim()) chunks.push(text);
-    }
-  }
-
-  const text = chunks.join("\n").trim();
-  if (!text) throw new Error("Model returned no text output");
-  if (text.length > MAX_OUTPUT_CHARS) throw new Error("Model output exceeded the allowed size");
-  return text;
-}
-
-function parseJson(text: string): unknown {
+function parseJsonText(text: string): unknown {
   try {
     return JSON.parse(text);
   } catch {
@@ -115,17 +84,35 @@ function parseJson(text: string): unknown {
   }
 }
 
+function extractChatText(response: unknown): string {
+  if (typeof response !== "object" || response === null) {
+    throw new Error("Model returned an invalid response envelope");
+  }
+  const choices = (response as { choices?: unknown }).choices;
+  if (!Array.isArray(choices) || choices.length === 0) {
+    throw new Error("Model response is missing choices");
+  }
+  const message = choices[0] && typeof choices[0] === "object" ? (choices[0] as { message?: unknown }).message : null;
+  const content = message && typeof message === "object" ? (message as { content?: unknown }).content : null;
+  if (typeof content !== "string" || !content.trim()) {
+    throw new Error("Model returned no text output");
+  }
+  const text = content.trim();
+  if (text.length > MAX_OUTPUT_CHARS) throw new Error("Model output exceeded the allowed size");
+  return text;
+}
+
 function getModelConfig() {
-  const provider = (process.env.STRYDE_MODEL_PROVIDER ?? "openai").trim().toLowerCase();
-  if (provider !== "openai") {
+  const provider = (process.env.STRYDE_MODEL_PROVIDER ?? "openrouter").trim().toLowerCase();
+  if (provider !== "openrouter") {
     throw new Error(`Unsupported STRYDE_MODEL_PROVIDER: ${provider}`);
   }
 
-  const apiKey = (process.env.STRYDE_MODEL_API_KEY ?? process.env.OPENAI_API_KEY)?.trim();
+  const apiKey = process.env.STRYDE_MODEL_API_KEY?.trim();
   if (!apiKey) throw new Error("Missing model configuration: STRYDE_MODEL_API_KEY");
 
-  const baseUrl = (process.env.STRYDE_MODEL_BASE_URL ?? DEFAULT_OPENAI_BASE_URL).replace(/\/$/, "");
-  const model = (process.env.STRYDE_MODEL_NAME ?? process.env.OPENAI_MODEL ?? DEFAULT_OPENAI_MODEL).trim();
+  const baseUrl = (process.env.STRYDE_MODEL_BASE_URL ?? DEFAULT_OPENROUTER_BASE_URL).replace(/\/$/, "");
+  const model = (process.env.STRYDE_MODEL_NAME ?? DEFAULT_OPENROUTER_MODEL).trim();
   if (!model) throw new Error("Missing model configuration: STRYDE_MODEL_NAME");
 
   return { provider, apiKey, baseUrl, model };
@@ -138,23 +125,25 @@ async function callStructuredModel(
 ): Promise<{ parsed: unknown; provider: string; model: string }> {
   const { provider, apiKey, baseUrl, model } = getModelConfig();
 
-  const response = await fetch(`${baseUrl}/responses`, {
+  const response = await fetch(`${baseUrl}/chat/completions`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${apiKey}`,
       "Content-Type": "application/json",
+      "X-Title": "Stryde",
     },
     body: JSON.stringify({
       model,
-      input,
-      text: {
-        format: {
-          type: "json_schema",
+      messages: [{ role: "user", content: input }],
+      response_format: {
+        type: "json_schema",
+        json_schema: {
           name: schemaName,
           strict: true,
           schema,
         },
       },
+      temperature: 0,
     }),
     cache: "no-store",
   });
@@ -165,26 +154,19 @@ async function callStructuredModel(
   }
 
   const envelope: unknown = await response.json();
-  const text = extractResponseText(envelope);
-  return { parsed: parseJson(text), provider, model };
+  const text = extractChatText(envelope);
+  return { parsed: parseJsonText(text), provider, model };
 }
 
 export async function runModelProposal(prompt: string): Promise<ModelGatewayResult> {
   const result = await callStructuredModel("stryde_model_proposal", MODEL_PROPOSAL_SCHEMA, prompt);
-  return {
-    proposal: validateModelProposal(result.parsed),
-    provider: result.provider,
-    model: result.model,
-  };
+  return { proposal: validateModelProposal(result.parsed), provider: result.provider, model: result.model };
 }
 
 function sanitizeConversation(messages: ConversationMessage[]): ConversationMessage[] {
   return messages
     .slice(-MAX_CONVERSATION_MESSAGES)
-    .map((item) => ({
-      role: item.role,
-      content: item.content.trim().slice(0, MAX_MESSAGE_CHARS),
-    }))
+    .map((item) => ({ role: item.role, content: item.content.trim().slice(0, MAX_MESSAGE_CHARS) }))
     .filter((item) => item.content.length > 0);
 }
 
@@ -192,14 +174,6 @@ function validateConversationTurn(value: unknown): ConversationTurn {
   if (typeof value !== "object" || value === null) throw new Error("Conversation turn must be an object");
   const candidate = value as Record<string, unknown>;
   if (typeof candidate.message !== "string" || !candidate.message.trim()) throw new Error("Conversation message is required");
-  if (candidate.message.length > 8000) throw new Error("Conversation message is too long");
-
-  const question = candidate.question === null || candidate.question === undefined
-    ? null
-    : typeof candidate.question === "string" && candidate.question.trim()
-      ? candidate.question.trim().slice(0, 4000)
-      : null;
-
   if (!Array.isArray(candidate.options)) throw new Error("Conversation options must be an array");
   const options = candidate.options.slice(0, 5).map((option) => {
     if (typeof option !== "object" || option === null) throw new Error("Invalid conversation option");
@@ -208,21 +182,10 @@ function validateConversationTurn(value: unknown): ConversationTurn {
     if (typeof item.value !== "string" || !item.value.trim()) throw new Error("Conversation option value is required");
     return { label: item.label.trim().slice(0, 300), value: item.value.trim().slice(0, 1000) };
   });
-
+  const question = candidate.question === null || candidate.question === undefined ? null : typeof candidate.question === "string" && candidate.question.trim() ? candidate.question.trim().slice(0, 4000) : null;
+  const focus = candidate.focus === null || candidate.focus === undefined ? null : typeof candidate.focus === "string" && candidate.focus.trim() ? candidate.focus.trim().slice(0, 2000) : null;
   if (typeof candidate.ready_for_reasoning !== "boolean") throw new Error("ready_for_reasoning must be boolean");
-  const focus = candidate.focus === null || candidate.focus === undefined
-    ? null
-    : typeof candidate.focus === "string" && candidate.focus.trim()
-      ? candidate.focus.trim().slice(0, 2000)
-      : null;
-
-  return {
-    message: candidate.message.trim(),
-    question,
-    options,
-    ready_for_reasoning: candidate.ready_for_reasoning,
-    focus,
-  };
+  return { message: candidate.message.trim().slice(0, 8000), question, options, ready_for_reasoning: candidate.ready_for_reasoning, focus };
 }
 
 export async function runConversationTurn(input: {
@@ -235,16 +198,8 @@ export async function runConversationTurn(input: {
   if (!userMessage) throw new Error("userMessage must be non-empty");
   if (userMessage.length > MAX_MESSAGE_CHARS) throw new Error("userMessage is too long");
 
-  const history = sanitizeConversation([
-    ...input.conversation,
-    { role: "user", content: userMessage },
-  ]);
-
-  const workingContext = JSON.stringify({
-    pursuit_title: input.pursuitTitle,
-    canonical_situation: input.situation,
-    conversation: history,
-  });
+  const history = sanitizeConversation([...input.conversation, { role: "user", content: userMessage }]);
+  const workingContext = JSON.stringify({ pursuit_title: input.pursuitTitle, canonical_situation: input.situation, conversation: history });
 
   const prompt = [
     "You are Stryde, a persistent situational-intelligence system.",
@@ -261,19 +216,15 @@ export async function runConversationTurn(input: {
     "Do not claim external actions were executed or verified. Do not authorize side effects, permissions, budgets, or tool use.",
     "The conversation is working memory, not canonical domain state. Canonical situation evidence is separate and should not be silently rewritten.",
     "When the user corrects your interpretation, accept the correction and use it as the new working signal.",
+    "Never use a progress label such as 'Step 1 of 3'. The interaction is adaptive.",
     "Return structured JSON only matching the ConversationTurn contract.",
     "Set ready_for_reasoning=true only when there is enough understanding to run the canonical reasoning kernel without inventing missing facts.",
-    "If ready_for_reasoning=true, message should briefly summarize the current understanding and what Stryde is ready to work on.",
     "",
     `WORKING_CONTEXT: ${workingContext}`,
   ].join("\n");
 
   const result = await callStructuredModel("stryde_conversation_turn", CONVERSATION_TURN_SCHEMA, prompt);
-  return {
-    turn: validateConversationTurn(result.parsed),
-    provider: result.provider,
-    model: result.model,
-  };
+  return { turn: validateConversationTurn(result.parsed), provider: result.provider, model: result.model };
 }
 
 export type { ConversationMessage };
