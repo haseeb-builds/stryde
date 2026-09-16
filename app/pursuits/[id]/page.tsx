@@ -60,7 +60,8 @@ export default function PursuitPage() {
   const [pursuit, setPursuit] = useState<Pursuit | null>(null);
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
   const [input, setInput] = useState("");
-  const [showOptions, setShowOptions] = useState(true);
+  const [suggestedOptions, setSuggestedOptions] = useState<ConversationOption[]>([]);
+  const [nextQuestion, setNextQuestion] = useState<string | null>(null);
   const [readyForReasoning, setReadyForReasoning] = useState(false);
   const [working, setWorking] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -103,7 +104,8 @@ export default function PursuitPage() {
     setWorking(true);
     setError("");
     setReadyForReasoning(false);
-    setShowOptions(false);
+    setSuggestedOptions([]);
+    setNextQuestion(null);
 
     const nextMessages = [...messages, { role: "user" as const, content }];
     setMessages(nextMessages);
@@ -131,11 +133,12 @@ export default function PursuitPage() {
 
       setMessages((current) => [...current, { role: "stryde", content: body.turn!.message }]);
       setReadyForReasoning(body.turn.ready_for_reasoning);
-      setShowOptions(body.turn.options.length > 0);
+      setSuggestedOptions(body.turn.options);
+      setNextQuestion(body.turn.question);
     } catch (err) {
       setMessages((current) => current.slice(0, -1));
       setError(err instanceof Error ? err.message : "Stryde couldn't continue the conversation.");
-      setShowOptions(true);
+      if (messages.length === 0) setSuggestedOptions(STARTING_SIGNALS);
     } finally {
       setWorking(false);
     }
@@ -170,6 +173,8 @@ export default function PursuitPage() {
       if (!response.ok) throw new Error(body.error || "Reasoning failed.");
       setResult(body as ReasoningResult);
       setReadyForReasoning(false);
+      setSuggestedOptions([]);
+      setNextQuestion(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Reasoning failed.");
     } finally {
@@ -240,6 +245,30 @@ export default function PursuitPage() {
               </div>
             )}
 
+            {!working && nextQuestion && (
+              <div className="max-w-[92%] rounded-2xl rounded-bl-md bg-zinc-50 px-4 py-3 text-sm font-medium leading-6 text-zinc-800">
+                {nextQuestion}
+              </div>
+            )}
+
+            {!working && suggestedOptions.length > 0 && (
+              <div className="max-w-2xl space-y-2">
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-400">You can choose one, or say it your own way</p>
+                <div className="flex flex-wrap gap-2">
+                  {suggestedOptions.map((option) => (
+                    <button
+                      key={`${option.label}-${option.value}`}
+                      type="button"
+                      onClick={() => void sendMessage(option.value)}
+                      className="rounded-full border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-700 transition hover:border-zinc-400 hover:bg-zinc-50"
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {readyForReasoning && !working && (
               <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 sm:flex sm:items-center sm:justify-between sm:gap-4">
                 <div>
@@ -277,7 +306,7 @@ export default function PursuitPage() {
 
           {!result && (
             <div className="border-t border-zinc-200 p-4 sm:p-5">
-              {showOptions && messages.length > 0 && (
+              {messages.length > 0 && !working && (
                 <div className="mb-3 flex flex-wrap gap-2">
                   <button type="button" onClick={() => void sendMessage("That's not quite what I mean. Let me explain it differently.")} className="rounded-full border border-zinc-200 px-3 py-1.5 text-xs text-zinc-600 hover:border-zinc-400">
                     That's not quite it
