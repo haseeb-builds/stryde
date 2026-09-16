@@ -13,10 +13,12 @@ The gateway is responsible for provider transport and structured-output parsing 
 
 ## Provider configuration
 
-- `STRYDE_MODEL_PROVIDER` — currently `openai`.
-- `STRYDE_MODEL_API_KEY` — preferred server-only provider credential; `OPENAI_API_KEY` is accepted as a compatibility fallback.
-- `STRYDE_MODEL_BASE_URL` — optional OpenAI-compatible base URL; defaults to `https://api.openai.com/v1`.
-- `STRYDE_MODEL_NAME` — preferred model id; `OPENAI_MODEL` is accepted as a compatibility fallback; default is `gpt-5.6-luna`.
+- `STRYDE_MODEL_PROVIDER` — currently `openrouter`.
+- `STRYDE_MODEL_API_KEY` — preferred server-only OpenRouter credential.
+- `STRYDE_MODEL_BASE_URL` — optional OpenRouter-compatible base URL; defaults to `https://openrouter.ai/api/v1`.
+- `STRYDE_MODEL_NAME` — preferred OpenRouter model id; defaults to `openrouter/free`.
+
+For the initial no-budget validation phase, `openrouter/free` is the default. OpenRouter describes this router as free inference that selects among available free models and filters for requested capabilities such as structured outputs.
 
 Credentials are read only server-side and are never returned to the browser.
 
@@ -26,7 +28,9 @@ The gateway requests a strict JSON-schema `ModelProposal` matching the existing 
 
 ## Application behavior
 
-`POST /api/v1/pursuits/:id/reason` now calls the gateway when `model_proposal` is omitted. A supplied `model_proposal` remains available only as a development/testing override.
+`POST /api/v1/pursuits/:id/reason` calls the gateway when `model_proposal` is omitted. A supplied `model_proposal` remains available only as a development/testing override.
+
+The adaptive conversation layer uses the same gateway and structured-output boundary. It treats conversation as bounded working memory rather than canonical domain state.
 
 ## Health
 
@@ -39,8 +43,8 @@ The gateway requests a strict JSON-schema `ModelProposal` matching the existing 
 - No model-generated authorization.
 - No model-generated epistemic upgrades.
 - No provider credential persistence.
-- No multi-model routing policy yet.
+- No fixed multi-model policy.
 
 ## Current first adapter
 
-OpenAI Responses API. OpenAI's current model catalogue lists GPT-5.6 Luna as a cost-sensitive workload model and states that the latest OpenAI models are available through the Responses API. The adapter therefore uses the Responses endpoint while keeping provider selection outside the orchestration contract.
+OpenRouter via its OpenAI-compatible chat completions endpoint. The model id is configuration rather than architecture, allowing Stryde to move from free validation models to paid or self-hosted models without changing the reasoning/control contract.
