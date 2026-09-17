@@ -122,25 +122,23 @@ export default function PursuitPage() {
         return;
       }
 
-      const [pursuitResponse, pursuitsResponse, sessionsResponse] = await Promise.all([
-        fetch(`/api/v1/pursuits/${params.id}`, { headers: { Authorization: `Bearer ${token}` } }),
+      const [pursuitResult, pursuitsResponse, sessionsResponse] = await Promise.all([
+        supabase
+          .from("pursuit")
+          .select("id, title, status")
+          .eq("id", params.id)
+          .eq("owner_user_id", sessionData.session.user.id)
+          .single(),
         fetch("/api/v1/pursuits", { headers: { Authorization: `Bearer ${token}` } }),
         fetch(`/api/v1/pursuits/${params.id}/conversations`, { headers: { Authorization: `Bearer ${token}` } }),
       ]);
 
-      if (!pursuitResponse.ok) {
+      if (pursuitResult.error || !pursuitResult.data) {
         setError("Pursuit not found.");
         setLoading(false);
         return;
       }
-
-      const pursuitBody = (await pursuitResponse.json()) as { pursuit?: Pursuit };
-      if (!pursuitBody.pursuit) {
-        setError("Pursuit not found.");
-        setLoading(false);
-        return;
-      }
-      setPursuit(pursuitBody.pursuit);
+      setPursuit(pursuitResult.data as Pursuit);
 
       if (pursuitsResponse.ok) {
         const body = (await pursuitsResponse.json()) as { pursuits?: Pursuit[] };
@@ -171,25 +169,14 @@ export default function PursuitPage() {
 
       setSessions(availableSessions);
       const selected = availableSessions.find((session) => session.status === "ACTIVE") ?? availableSessions[0] ?? null;
-      setActiveSession(selected);
-      if (selected) await loadConversation(selected.id, token);
+      if (selected) await loadConversation(selected.id);
       setLoading(false);
     }
 
-    async function loadConversation(sessionId: string, token: string) {
-      const response = await fetch(`/api/v1/pursuits/${params.id}/conversations/${sessionId}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!response.ok) throw new Error("Unable to load conversation");
-      const body = (await response.json()) as { session?: ConversationSession; messages?: ConversationMessage[] };
-      const loadedMessages = body.messages ?? [];
-      setMessages(loadedMessages);
-      const latestStryde = [...loadedMessages].reverse().find((message) => message.role === "stryde");
-      setSuggestedOptions(latestStryde?.metadata?.options ?? []);
-      setReadyForReasoning(latestStryde?.metadata?.ready_for_reasoning === true);
-    }
-
-    void bootstrap();
+    void bootstrap().catch((err) => {
+      setError(err instanceof Error ? err.message : "Unable to load Stryde.");
+      setLoading(false);
+    });
   }, [params.id, router]);
 
   useEffect(() => {
@@ -213,8 +200,9 @@ export default function PursuitPage() {
     const loadedMessages = body.messages ?? [];
     setActiveSession(body.session);
     setMessages(loadedMessages);
-    setSuggestedOptions([...loadedMessages].reverse().find((message) => message.role === "stryde")?.metadata?.options ?? []);
-    setReadyForReasoning([...loadedMessages].reverse().find((message) => message.role === "stryde")?.metadata?.ready_for_reasoning === true);
+    const latestStryde = [...loadedMessages].reverse().find((message) => message.role === "stryde");
+    setSuggestedOptions(latestStryde?.metadata?.options ?? []);
+    setReadyForReasoning(latestStryde?.metadata?.ready_for_reasoning === true);
     setResult(null);
     setError("");
   }
@@ -265,20 +253,13 @@ export default function PursuitPage() {
     setSuggestedOptions([]);
     setReadyForReasoning(false);
     setInput("");
-    setMessages((current) => [
-      ...current,
-      { role: "user", content },
-      { role: "stryde", content: "" },
-    ]);
+    setMessages((current) => [...current, { role: "user", content }, { role: "stryde", content: "" }]);
 
     try {
       const token = await getAccessToken();
       const response = await fetch(`/api/v1/pursuits/${params.id}/conversation`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ message: content, session_id: activeSession.id }),
       });
 
@@ -339,8 +320,7 @@ export default function PursuitPage() {
         for (const frame of parsed.frames) processFrame(frame);
       }
       buffer += decoder.decode();
-      const finalFrames = parseStreamFrames(`${buffer}\n\n`).frames;
-      for (const frame of finalFrames) processFrame(frame);
+      for (const frame of parseStreamFrames(`${buffer}\n\n`).frames) processFrame(frame);
       if (!completed) throw new Error("Stryde's response ended before completion.");
     } catch (err) {
       setMessages((current) => current.filter((message, index) => !(index === current.length - 1 && message.role === "stryde" && !message.content)));
@@ -388,13 +368,12 @@ export default function PursuitPage() {
     if (message.role !== "stryde" || index !== messages.length - 1 || working) return null;
     const metadata = message.metadata;
     const question = metadata?.question?.trim();
-    const options = suggestedOptions;
     return (
       <>
         {question && !message.content.includes(question) && <p className="mt-4 font-medium text-zinc-900">{question}</p>}
-        {options.length > 0 && (
+        {suggestedOptions.length > 0 && (
           <div className="mt-4 flex flex-wrap gap-2">
-            {options.map((option) => (
+            {suggestedOptions.map((option) => (
               <button key={`${option.label}-${option.value}`} type="button" onClick={() => void sendMessage(option.value)} className="rounded-full border border-zinc-200 bg-white px-3.5 py-2 text-sm text-zinc-700 transition hover:border-zinc-400 hover:bg-zinc-50">
                 {option.label}
               </button>
@@ -405,12 +384,8 @@ export default function PursuitPage() {
     );
   }
 
-  if (loading && !pursuit) {
-    return <main className="min-h-screen bg-[#f7f7f8] p-8 text-sm text-zinc-500">Loading…</main>;
-  }
-  if (!pursuit) {
-    return <main className="min-h-screen bg-[#f7f7f8] p-8 text-sm text-red-600">{error || "Not found."}</main>;
-  }
+  if (loading && !pursuit) return <main className="min-h-screen bg-[#f7f7f8] p-8 text-sm text-zinc-500">Loading…</main>;
+  if (!pursuit) return <main className="min-h-screen bg-[#f7f7f8] p-8 text-sm text-red-600">{error || "Not found."}</main>;
 
   return (
     <main className="min-h-screen bg-[#f7f7f8] text-zinc-950">
@@ -523,9 +498,7 @@ export default function PursuitPage() {
                 )}
 
                 {archived && (
-                  <div className="mb-8 rounded-xl border border-dashed border-zinc-300 bg-white/70 px-4 py-3 text-sm text-zinc-500">
-                    This conversation is archived. Start a new conversation to continue working on this Pursuit.
-                  </div>
+                  <div className="mb-8 rounded-xl border border-dashed border-zinc-300 bg-white/70 px-4 py-3 text-sm text-zinc-500">This conversation is archived. Start a new conversation to continue working on this Pursuit.</div>
                 )}
 
                 {result && (
