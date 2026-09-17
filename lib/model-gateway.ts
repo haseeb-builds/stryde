@@ -37,17 +37,26 @@ const MODEL_PROPOSAL_SCHEMA = {
   properties: {
     path: { type: "string", enum: ["CLEAR", "UNCLEAR"] },
     understanding: { type: "string", minLength: 1, maxLength: 8000 },
-    diagnosis: { type: ["string", "null"], maxLength: 8000 },
-    intervention: {
-      type: ["object", "null"],
-      additionalProperties: false,
-      required: ["kind", "rationale"],
-      properties: {
-        kind: { type: "string", enum: ["ANSWER", "DECISION", "HUMAN_ACTION", "CONTROLLED_ACTION", "WAIT"] },
-        rationale: { type: "string", minLength: 1, maxLength: 8000 },
-      },
+    diagnosis: {
+      anyOf: [{ type: "string", maxLength: 8000 }, { type: "null" }],
     },
-    proposed_response: { type: ["string", "null"], maxLength: 8000 },
+    intervention: {
+      anyOf: [
+        {
+          type: "object",
+          additionalProperties: false,
+          required: ["kind", "rationale"],
+          properties: {
+            kind: { type: "string", enum: ["ANSWER", "DECISION", "HUMAN_ACTION", "CONTROLLED_ACTION", "WAIT"] },
+            rationale: { type: "string", minLength: 1, maxLength: 8000 },
+          },
+        },
+        { type: "null" },
+      ],
+    },
+    proposed_response: {
+      anyOf: [{ type: "string", maxLength: 8000 }, { type: "null" }],
+    },
   },
 } as const;
 
@@ -57,7 +66,9 @@ const CONVERSATION_TURN_SCHEMA = {
   required: ["message", "question", "options", "ready_for_reasoning", "focus"],
   properties: {
     message: { type: "string", minLength: 1, maxLength: 8000 },
-    question: { type: ["string", "null"], maxLength: 4000 },
+    question: {
+      anyOf: [{ type: "string", maxLength: 4000 }, { type: "null" }],
+    },
     options: {
       type: "array",
       maxItems: 5,
@@ -72,7 +83,9 @@ const CONVERSATION_TURN_SCHEMA = {
       },
     },
     ready_for_reasoning: { type: "boolean" },
-    focus: { type: ["string", "null"], maxLength: 2000 },
+    focus: {
+      anyOf: [{ type: "string", maxLength: 2000 }, { type: "null" }],
+    },
   },
 } as const;
 
@@ -143,7 +156,13 @@ async function callStructuredModel(
           schema,
         },
       },
+      provider: {
+        require_parameters: true,
+        allow_fallbacks: true,
+      },
+      plugins: [{ id: "response-healing" }],
       temperature: 0,
+      stream: false,
     }),
     cache: "no-store",
   });
