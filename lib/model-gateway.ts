@@ -164,6 +164,7 @@ async function callStructuredModel(
       temperature: 0,
       stream: false,
     }),
+    signal: AbortSignal.timeout(90_000),
     cache: "no-store",
   });
 
