@@ -142,8 +142,14 @@ async function callStructuredModel(
   input: string,
 ): Promise<{ parsed: unknown; provider: string; model: string }> {
   void schemaName;
-  void schema;
   const { provider, apiKey, baseUrl, model } = getModelConfig();
+  const contractPrompt = [
+    input,
+    "",
+    "Return one JSON object only.",
+    "The JSON object MUST conform to this contract:",
+    JSON.stringify(schema),
+  ].join("\n");
 
   const response = await fetch(`${baseUrl}/chat/completions`, {
     method: "POST",
@@ -154,7 +160,7 @@ async function callStructuredModel(
     },
     body: JSON.stringify({
       model,
-      messages: [{ role: "user", content: input }],
+      messages: [{ role: "user", content: contractPrompt }],
       // Use JSON mode here and validate the exact contract ourselves below.
       // The selected free model supports JSON output, but does not guarantee
       // provider-side JSON-schema enforcement.
