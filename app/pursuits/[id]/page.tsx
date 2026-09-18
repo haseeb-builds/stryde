@@ -181,8 +181,15 @@ export default function PursuitPage() {
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${access}` },
         body: JSON.stringify({ input: transcript }),
       });
-      const body = (await response.json()) as { error?: string } & Partial<ReasoningResult>;
-      if (!response.ok) throw new Error(body.error || "Reasoning failed.");
+      const raw = await response.text();
+      let body: ({ error?: string } & Partial<ReasoningResult>) | null = null;
+      try {
+        body = raw ? (JSON.parse(raw) as { error?: string } & Partial<ReasoningResult>) : null;
+      } catch {
+        throw new Error(raw.trim() || `Reasoning failed (HTTP ${response.status}).`);
+      }
+      if (!response.ok) throw new Error(body?.error || raw.trim() || `Reasoning failed (HTTP ${response.status}).`);
+      if (!body?.reasoning) throw new Error("Reasoning returned an incomplete response.");
       setReasoning(body as ReasoningResult);
       setReady(false);
       setOptions([]);
