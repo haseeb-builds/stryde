@@ -3,7 +3,7 @@ import { validateModelProposal, type ModelProposal } from "@/lib/orchestration";
 const DEFAULT_OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 const DEFAULT_OPENROUTER_MODEL = "openrouter/free";
 const DEFAULT_GROQ_BASE_URL = "https://api.groq.com/openai/v1";
-const DEFAULT_GROQ_MODEL = "openai/gpt-oss-20b";
+const DEFAULT_GROQ_MODEL = "openai/gpt-oss-120b";
 const MAX_OUTPUT_CHARS = 20_000;
 const MAX_CONVERSATION_MESSAGES = 16;
 const MAX_MESSAGE_CHARS = 8_000;
