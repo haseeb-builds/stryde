@@ -132,6 +132,13 @@ function getModelConfig() {
   const model = (process.env.STRYDE_MODEL_NAME ?? defaultModel).trim();
   if (!model) throw new Error("Missing model configuration: STRYDE_MODEL_NAME");
 
+  if (provider === "groq" && /openrouter\.ai/i.test(baseUrl)) {
+    throw new Error("Invalid model configuration: Groq provider cannot use an OpenRouter base URL");
+  }
+  if (provider === "openrouter" && /groq\.com/i.test(baseUrl)) {
+    throw new Error("Invalid model configuration: OpenRouter provider cannot use a Groq base URL");
+  }
+
   return { provider, apiKey, baseUrl, model };
 }
 
