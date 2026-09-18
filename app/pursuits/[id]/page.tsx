@@ -154,8 +154,14 @@ export default function PursuitPage() {
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${access}` },
         body: JSON.stringify({ message: content, session_id: session.id }),
       });
-      const body = (await response.json()) as { turn?: { message: string; question: string | null; options: Option[]; ready_for_reasoning: boolean }; error?: string };
-      if (!response.ok || !body.turn) throw new Error(body.error || "Stryde couldn't continue the conversation.");
+      const raw = await response.text();
+      let body: { turn?: { message: string; question: string | null; options: Option[]; ready_for_reasoning: boolean }; error?: string } | null = null;
+      try {
+        body = raw ? (JSON.parse(raw) as { turn?: { message: string; question: string | null; options: Option[]; ready_for_reasoning: boolean }; error?: string }) : null;
+      } catch {
+        throw new Error(raw.trim() || `Conversation failed (HTTP ${response.status}).`);
+      }
+      if (!response.ok || !body?.turn) throw new Error(body?.error || raw.trim() || `Conversation failed (HTTP ${response.status}).`);
       const turn = body.turn;
       setMessages((current) => [...current, { role: "stryde", content: turn.message, metadata: { options: turn.options, ready_for_reasoning: turn.ready_for_reasoning } }]);
       setOptions(turn.options);
@@ -163,7 +169,6 @@ export default function PursuitPage() {
       setSessions((current) => current.map((item) => item.id === session.id ? { ...item, title: item.title || content.slice(0, 72), updated_at: new Date().toISOString() } : item));
       setSession((current) => current ? { ...current, title: current.title || content.slice(0, 72), updated_at: new Date().toISOString() } : current);
     } catch (err) {
-      setMessages((current) => current.slice(0, -1));
       setError(err instanceof Error ? err.message : "Stryde couldn't continue the conversation.");
     } finally {
       setWorking(false);
