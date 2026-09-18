@@ -272,7 +272,6 @@ async function callStructuredModel(
     };
   }
 
-  const { provider, apiKey, baseUrl, model } = getModelConfig();
   const modelInput = provider === "openrouter"
     ? [
         input,
