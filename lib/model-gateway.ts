@@ -2,6 +2,7 @@ import { validateModelProposal, type ModelProposal } from "@/lib/orchestration";
 
 const DEFAULT_OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 const DEFAULT_OPENROUTER_MODEL = "openrouter/free";
+const FAST_FREE_MODEL = "mistralai/mistral-small-3.2-24b-instruct:free";
 const MAX_OUTPUT_CHARS = 20_000;
 const MAX_CONVERSATION_MESSAGES = 16;
 const MAX_MESSAGE_CHARS = 8_000;
@@ -125,8 +126,12 @@ function getModelConfig() {
   if (!apiKey) throw new Error("Missing model configuration: STRYDE_MODEL_API_KEY");
 
   const baseUrl = (process.env.STRYDE_MODEL_BASE_URL ?? DEFAULT_OPENROUTER_BASE_URL).replace(/\/$/, "");
-  const model = (process.env.STRYDE_MODEL_NAME ?? DEFAULT_OPENROUTER_MODEL).trim();
-  if (!model) throw new Error("Missing model configuration: STRYDE_MODEL_NAME");
+  const configuredModel = (process.env.STRYDE_MODEL_NAME ?? DEFAULT_OPENROUTER_MODEL).trim();
+  if (!configuredModel) throw new Error("Missing model configuration: STRYDE_MODEL_NAME");
+
+  // The free router may select a very slow model. Keep the current env contract,
+  // but pin the V1 default path to a bounded free model with structured-output support.
+  const model = configuredModel === DEFAULT_OPENROUTER_MODEL ? FAST_FREE_MODEL : configuredModel;
 
   return { provider, apiKey, baseUrl, model };
 }
@@ -162,9 +167,10 @@ async function callStructuredModel(
       },
       plugins: [{ id: "response-healing" }],
       temperature: 0,
+      max_tokens: 1_200,
       stream: false,
     }),
-    signal: AbortSignal.timeout(90_000),
+    signal: AbortSignal.timeout(45_000),
     cache: "no-store",
   });
 
