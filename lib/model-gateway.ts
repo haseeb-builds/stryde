@@ -119,7 +119,7 @@ function toGeminiSchema(schema: unknown): unknown {
     if (nonNull && typeof nonNull === "object" && hasNull) {
       const converted = toGeminiSchema(nonNull) as Record<string, unknown>;
       if (typeof converted.type === "string") {
-        return { ...converted, type: [converted.type, "NULL"] };
+        return { ...converted, type: [converted.type, "null"] };
       }
       return converted;
     }
@@ -127,9 +127,9 @@ function toGeminiSchema(schema: unknown): unknown {
 
   const converted: Record<string, unknown> = {};
   const type = source.type;
-  if (typeof type === "string") converted.type = type.toUpperCase();
+  if (typeof type === "string") converted.type = type;
   else if (Array.isArray(type)) {
-    converted.type = type.map((item) => typeof item === "string" ? item.toUpperCase() : item);
+    converted.type = type;
   }
 
   for (const key of ["description", "title", "enum", "format", "minimum", "maximum"]) {
