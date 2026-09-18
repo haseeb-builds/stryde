@@ -4,6 +4,8 @@ const DEFAULT_OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 const DEFAULT_OPENROUTER_MODEL = "openrouter/free";
 const DEFAULT_GROQ_BASE_URL = "https://api.groq.com/openai/v1";
 const DEFAULT_GROQ_MODEL = "openai/gpt-oss-120b";
+const DEFAULT_GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta";
+const DEFAULT_GEMINI_MODEL = "gemini-2.5-flash";
 const MAX_OUTPUT_CHARS = 20_000;
 const MAX_CONVERSATION_MESSAGES = 16;
 const MAX_MESSAGE_CHARS = 8_000;
@@ -99,6 +101,76 @@ function parseJsonText(text: string): unknown {
   }
 }
 
+function toGeminiSchema(schema: unknown): unknown {
+  if (typeof schema !== "object" || schema === null) return schema;
+  if (Array.isArray(schema)) return schema.map(toGeminiSchema);
+
+  const source = schema as Record<string, unknown>;
+  const variants = Array.isArray(source.anyOf) ? source.anyOf as unknown[] : null;
+  if (variants) {
+    const nonNull = variants.find((item) => {
+      if (typeof item !== "object" || item === null) return false;
+      return (item as Record<string, unknown>).type !== "null";
+    });
+    const hasNull = variants.some((item) =>
+      item === null ||
+      (typeof item === "object" && item !== null && (item as Record<string, unknown>).type === "null"),
+    );
+    if (nonNull && typeof nonNull === "object" && hasNull) {
+      const converted = toGeminiSchema(nonNull) as Record<string, unknown>;
+      if (typeof converted.type === "string") {
+        return { ...converted, type: [converted.type, "NULL"] };
+      }
+      return converted;
+    }
+  }
+
+  const converted: Record<string, unknown> = {};
+  const type = source.type;
+  if (typeof type === "string") converted.type = type.toUpperCase();
+  else if (Array.isArray(type)) {
+    converted.type = type.map((item) => typeof item === "string" ? item.toUpperCase() : item);
+  }
+
+  for (const key of ["description", "title", "enum", "format", "minimum", "maximum"]) {
+    if (source[key] !== undefined) converted[key] = source[key];
+  }
+  if (source.properties && typeof source.properties === "object") {
+    converted.properties = Object.fromEntries(
+      Object.entries(source.properties as Record<string, unknown>).map(([key, value]) => [key, toGeminiSchema(value)]),
+    );
+  }
+  if (Array.isArray(source.required)) converted.required = source.required;
+  if (source.additionalProperties !== undefined) converted.additionalProperties = source.additionalProperties;
+  if (source.items !== undefined) converted.items = toGeminiSchema(source.items);
+  if (source.prefixItems !== undefined) converted.prefixItems = toGeminiSchema(source.prefixItems);
+
+  return converted;
+}
+
+function extractGeminiText(response: unknown): string {
+  if (typeof response !== "object" || response === null) {
+    throw new Error("Gemini returned an invalid response envelope");
+  }
+  const candidates = (response as { candidates?: unknown }).candidates;
+  if (!Array.isArray(candidates) || candidates.length === 0) {
+    throw new Error("Gemini response is missing candidates");
+  }
+  const content = candidates[0] && typeof candidates[0] === "object"
+    ? (candidates[0] as { content?: unknown }).content
+    : null;
+  const parts = content && typeof content === "object" ? (content as { parts?: unknown }).parts : null;
+  if (!Array.isArray(parts)) throw new Error("Gemini response is missing content");
+  const text = parts
+    .filter((part) => part && typeof part === "object" && typeof (part as { text?: unknown }).text === "string")
+    .map((part) => (part as { text: string }).text)
+    .join("")
+    .trim();
+  if (!text) throw new Error("Gemini returned no text output");
+  if (text.length > MAX_OUTPUT_CHARS) throw new Error("Model output exceeded the allowed size");
+  return text;
+}
+
 function extractChatText(response: unknown): string {
   if (typeof response !== "object" || response === null) {
     throw new Error("Model returned an invalid response envelope");
@@ -118,16 +190,24 @@ function extractChatText(response: unknown): string {
 }
 
 function getModelConfig() {
-  const provider = (process.env.STRYDE_MODEL_PROVIDER ?? "groq").trim().toLowerCase();
-  if (provider !== "openrouter" && provider !== "groq") {
+  const provider = (process.env.STRYDE_MODEL_PROVIDER ?? "gemini").trim().toLowerCase();
+  if (provider !== "openrouter" && provider !== "groq" && provider !== "gemini") {
     throw new Error(`Unsupported STRYDE_MODEL_PROVIDER: ${provider}`);
   }
 
   const apiKey = process.env.STRYDE_MODEL_API_KEY?.trim();
   if (!apiKey) throw new Error("Missing model configuration: STRYDE_MODEL_API_KEY");
 
-  const defaultBaseUrl = provider === "groq" ? DEFAULT_GROQ_BASE_URL : DEFAULT_OPENROUTER_BASE_URL;
-  const defaultModel = provider === "groq" ? DEFAULT_GROQ_MODEL : DEFAULT_OPENROUTER_MODEL;
+  const defaultBaseUrl = provider === "groq"
+    ? DEFAULT_GROQ_BASE_URL
+    : provider === "gemini"
+      ? DEFAULT_GEMINI_BASE_URL
+      : DEFAULT_OPENROUTER_BASE_URL;
+  const defaultModel = provider === "groq"
+    ? DEFAULT_GROQ_MODEL
+    : provider === "gemini"
+      ? DEFAULT_GEMINI_MODEL
+      : DEFAULT_OPENROUTER_MODEL;
   const baseUrl = (process.env.STRYDE_MODEL_BASE_URL ?? defaultBaseUrl).replace(/\/$/, "");
   const model = (process.env.STRYDE_MODEL_NAME ?? defaultModel).trim();
   if (!model) throw new Error("Missing model configuration: STRYDE_MODEL_NAME");
@@ -147,6 +227,43 @@ async function callStructuredModel(
   schema: object,
   input: string,
 ): Promise<{ parsed: unknown; provider: string; model: string }> {
+  if (provider === "gemini") {
+    const response = await fetch(
+      `${baseUrl}/models/${encodeURIComponent(model)}:generateContent`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-goog-api-key": apiKey,
+        },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: input }] }],
+          generationConfig: {
+            temperature: 0,
+            maxOutputTokens: 1_000,
+            thinkingConfig: { thinkingBudget: 1_024 },
+            responseMimeType: "application/json",
+            responseSchema: toGeminiSchema(schema),
+          },
+        }),
+        signal: AbortSignal.timeout(45_000),
+        cache: "no-store",
+      },
+    );
+
+    if (!response.ok) {
+      const detail = (await response.text()).slice(0, 1000);
+      throw new Error(`Model request failed (${response.status}): ${detail}`);
+    }
+
+    const envelope: unknown = await response.json();
+    return {
+      parsed: parseJsonText(extractGeminiText(envelope)),
+      provider,
+      model,
+    };
+  }
+
   const { provider, apiKey, baseUrl, model } = getModelConfig();
   const modelInput = provider === "openrouter"
     ? [
