@@ -141,13 +141,15 @@ async function callStructuredModel(
   input: string,
 ): Promise<{ parsed: unknown; provider: string; model: string }> {
   const { provider, apiKey, baseUrl, model } = getModelConfig();
-  const contractPrompt = [
-    input,
-    "",
-    "Return one JSON object only.",
-    "The JSON object MUST conform to this contract:",
-    JSON.stringify(schema),
-  ].join("\n");
+  const modelInput = provider === "openrouter"
+    ? [
+        input,
+        "",
+        "Return one JSON object only.",
+        "The JSON object MUST conform to this contract:",
+        JSON.stringify(schema),
+      ].join("\n")
+    : input;
 
   const response = await fetch(`${baseUrl}/chat/completions`, {
     method: "POST",
@@ -158,7 +160,7 @@ async function callStructuredModel(
     },
     body: JSON.stringify({
       model,
-      messages: [{ role: "user", content: contractPrompt }],
+      messages: [{ role: "user", content: modelInput }],
       ...(provider === "groq"
         ? {
             response_format: {
@@ -185,10 +187,11 @@ async function callStructuredModel(
           }
         : {}),
       temperature: 0,
-      max_tokens: provider === "groq" ? 1_000 : 1_000,
+      ...(provider === "groq" ? { reasoning_effort: "low" } : {}),
+      max_tokens: provider === "groq" ? 800 : 1_000,
       stream: false,
     }),
-    signal: AbortSignal.timeout(30_000),
+    signal: AbortSignal.timeout(45_000),
     cache: "no-store",
   });
 
