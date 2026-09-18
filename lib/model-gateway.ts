@@ -2,7 +2,8 @@ import { validateModelProposal, type ModelProposal } from "@/lib/orchestration";
 
 const DEFAULT_OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 const DEFAULT_OPENROUTER_MODEL = "openrouter/free";
-const FAST_FREE_MODEL = "google/gemma-4-26b-a4b-it:free";
+const DEFAULT_GROQ_BASE_URL = "https://api.groq.com/openai/v1";
+const DEFAULT_GROQ_MODEL = "openai/gpt-oss-20b";
 const MAX_OUTPUT_CHARS = 20_000;
 const MAX_CONVERSATION_MESSAGES = 16;
 const MAX_MESSAGE_CHARS = 8_000;
@@ -118,20 +119,18 @@ function extractChatText(response: unknown): string {
 
 function getModelConfig() {
   const provider = (process.env.STRYDE_MODEL_PROVIDER ?? "openrouter").trim().toLowerCase();
-  if (provider !== "openrouter") {
+  if (provider !== "openrouter" && provider !== "groq") {
     throw new Error(`Unsupported STRYDE_MODEL_PROVIDER: ${provider}`);
   }
 
   const apiKey = process.env.STRYDE_MODEL_API_KEY?.trim();
   if (!apiKey) throw new Error("Missing model configuration: STRYDE_MODEL_API_KEY");
 
-  const baseUrl = (process.env.STRYDE_MODEL_BASE_URL ?? DEFAULT_OPENROUTER_BASE_URL).replace(/\/$/, "");
-  const configuredModel = (process.env.STRYDE_MODEL_NAME ?? DEFAULT_OPENROUTER_MODEL).trim();
-  if (!configuredModel) throw new Error("Missing model configuration: STRYDE_MODEL_NAME");
-
-  // The free router may select a very slow model. Keep the current env contract,
-  // but pin the V1 default path to a bounded free model with structured-output support.
-  const model = configuredModel === DEFAULT_OPENROUTER_MODEL ? FAST_FREE_MODEL : configuredModel;
+  const defaultBaseUrl = provider === "groq" ? DEFAULT_GROQ_BASE_URL : DEFAULT_OPENROUTER_BASE_URL;
+  const defaultModel = provider === "groq" ? DEFAULT_GROQ_MODEL : DEFAULT_OPENROUTER_MODEL;
+  const baseUrl = (process.env.STRYDE_MODEL_BASE_URL ?? defaultBaseUrl).replace(/\/$/, "");
+  const model = (process.env.STRYDE_MODEL_NAME ?? defaultModel).trim();
+  if (!model) throw new Error("Missing model configuration: STRYDE_MODEL_NAME");
 
   return { provider, apiKey, baseUrl, model };
 }
@@ -141,7 +140,6 @@ async function callStructuredModel(
   schema: object,
   input: string,
 ): Promise<{ parsed: unknown; provider: string; model: string }> {
-  void schemaName;
   const { provider, apiKey, baseUrl, model } = getModelConfig();
   const contractPrompt = [
     input,
@@ -161,22 +159,36 @@ async function callStructuredModel(
     body: JSON.stringify({
       model,
       messages: [{ role: "user", content: contractPrompt }],
-      // Use JSON mode here and validate the exact contract ourselves below.
-      // The selected free model supports JSON output, but does not guarantee
-      // provider-side JSON-schema enforcement.
-      response_format: {
-        type: "json_object",
-      },
-      provider: {
-        require_parameters: true,
-        allow_fallbacks: true,
-      },
-      plugins: [{ id: "response-healing" }],
+      ...(provider === "groq"
+        ? {
+            response_format: {
+              type: "json_schema",
+              json_schema: {
+                name: schemaName,
+                strict: true,
+                schema,
+              },
+            },
+          }
+        : {
+            response_format: {
+              type: "json_object",
+            },
+          }),
+      ...(provider === "openrouter"
+        ? {
+            provider: {
+              require_parameters: true,
+              allow_fallbacks: true,
+            },
+            plugins: [{ id: "response-healing" }],
+          }
+        : {}),
       temperature: 0,
-      max_tokens: 1_000,
+      max_tokens: provider === "groq" ? 1_000 : 1_000,
       stream: false,
     }),
-    signal: AbortSignal.timeout(45_000),
+    signal: AbortSignal.timeout(30_000),
     cache: "no-store",
   });
 
