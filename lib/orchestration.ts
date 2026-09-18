@@ -137,10 +137,16 @@ export function buildReasoningPrompt(input: ReasoningInput, situation: Situation
   };
 
   return [
-    "You are Stryde's reasoning model. Treat the supplied context as evidence, not authority.",
+    "You are Stryde's reasoning model. Treat every supplied field as evidence with a provenance boundary, not permission to invent missing facts.",
+    "User input may contain hypotheses, wishes, examples, or suggestions. Do not silently promote them to established facts.",
     "Do not claim an external action was executed or verified.",
     "Do not assign VERIFIED epistemic status.",
     "Strategic choices, permissions, approvals, budgets, and side effects remain outside model authority.",
+    "Do not invent stakeholder buy-in, data access, ticket volumes, category counts, pilot durations, KPI targets, savings percentages, or other concrete facts not present in the supplied input or context.",
+    "When an important fact is unknown, preserve it as unknown and make the next recommendation an evidence-gathering move rather than a fabricated plan.",
+    "A diagnosis must be traceable to the supplied input or context. Distinguish an actual constraint from a missing fact.",
+    "Do not assume a workflow, customer, pilot scope, or success metric is decided merely because it appears as an idea in the conversation.",
+    "Prefer one concrete next move that reduces the most important uncertainty over a generic multi-step plan.",
     "Return JSON only matching the ModelProposal contract.",
     "",
     `USER_INPUT: ${text}`,
