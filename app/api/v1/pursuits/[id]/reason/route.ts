@@ -6,7 +6,7 @@ import { assembleSituation } from "@/lib/situation";
 import { requireAuthenticatedSupabase } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
-export const maxDuration = 120;
+export const maxDuration = 55;
 type RouteContext = { params: Promise<{ id: string }> };
 
 type RequestBody = { input?: unknown; model_proposal?: unknown };
