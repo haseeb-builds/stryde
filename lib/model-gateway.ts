@@ -215,8 +215,14 @@ function getModelConfig() {
   if (provider === "groq" && /openrouter\.ai/i.test(baseUrl)) {
     throw new Error("Invalid model configuration: Groq provider cannot use an OpenRouter base URL");
   }
-  if (provider === "openrouter" && /groq\.com/i.test(baseUrl)) {
-    throw new Error("Invalid model configuration: OpenRouter provider cannot use a Groq base URL");
+  if (provider === "openrouter" && /groq\.com|googleapis\.com/i.test(baseUrl)) {
+    throw new Error("Invalid model configuration: OpenRouter provider cannot use a Groq or Gemini base URL");
+  }
+  if (provider === "groq" && /googleapis\.com/i.test(baseUrl)) {
+    throw new Error("Invalid model configuration: Groq provider cannot use a Gemini base URL");
+  }
+  if (provider === "gemini" && /openrouter\.ai|groq\.com/i.test(baseUrl)) {
+    throw new Error("Invalid model configuration: Gemini provider cannot use an OpenRouter or Groq base URL");
   }
 
   return { provider, apiKey, baseUrl, model };
@@ -227,6 +233,8 @@ async function callStructuredModel(
   schema: object,
   input: string,
 ): Promise<{ parsed: unknown; provider: string; model: string }> {
+  const { provider, apiKey, baseUrl, model } = getModelConfig();
+
   if (provider === "gemini") {
     const response = await fetch(
       `${baseUrl}/models/${encodeURIComponent(model)}:generateContent`,
