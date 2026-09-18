@@ -2,7 +2,7 @@ import { validateModelProposal, type ModelProposal } from "@/lib/orchestration";
 
 const DEFAULT_OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 const DEFAULT_OPENROUTER_MODEL = "openrouter/free";
-const FAST_FREE_MODEL = "mistralai/mistral-small-3.2-24b-instruct:free";
+const FAST_FREE_MODEL = "google/gemma-4-26b-a4b-it:free";
 const MAX_OUTPUT_CHARS = 20_000;
 const MAX_CONVERSATION_MESSAGES = 16;
 const MAX_MESSAGE_CHARS = 8_000;
@@ -141,6 +141,8 @@ async function callStructuredModel(
   schema: object,
   input: string,
 ): Promise<{ parsed: unknown; provider: string; model: string }> {
+  void schemaName;
+  void schema;
   const { provider, apiKey, baseUrl, model } = getModelConfig();
 
   const response = await fetch(`${baseUrl}/chat/completions`, {
@@ -153,13 +155,11 @@ async function callStructuredModel(
     body: JSON.stringify({
       model,
       messages: [{ role: "user", content: input }],
+      // Use JSON mode here and validate the exact contract ourselves below.
+      // The selected free model supports JSON output, but does not guarantee
+      // provider-side JSON-schema enforcement.
       response_format: {
-        type: "json_schema",
-        json_schema: {
-          name: schemaName,
-          strict: true,
-          schema,
-        },
+        type: "json_object",
       },
       provider: {
         require_parameters: true,
@@ -167,7 +167,7 @@ async function callStructuredModel(
       },
       plugins: [{ id: "response-healing" }],
       temperature: 0,
-      max_tokens: 1_200,
+      max_tokens: 1_000,
       stream: false,
     }),
     signal: AbortSignal.timeout(45_000),
