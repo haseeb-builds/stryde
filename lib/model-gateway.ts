@@ -118,7 +118,7 @@ function extractChatText(response: unknown): string {
 }
 
 function getModelConfig() {
-  const provider = (process.env.STRYDE_MODEL_PROVIDER ?? "openrouter").trim().toLowerCase();
+  const provider = (process.env.STRYDE_MODEL_PROVIDER ?? "groq").trim().toLowerCase();
   if (provider !== "openrouter" && provider !== "groq") {
     throw new Error(`Unsupported STRYDE_MODEL_PROVIDER: ${provider}`);
   }
