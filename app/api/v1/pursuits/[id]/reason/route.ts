@@ -25,6 +25,15 @@ export async function POST(request: Request, context: RouteContext) {
     }
 
     const requestBody = body as RequestBody;
+    if (requestBody.model_proposal !== undefined) {
+      const developmentInputAllowed =
+        process.env.NODE_ENV !== "production" &&
+        process.env.STRYDE_ALLOW_DEVELOPMENT_MODEL_INPUT === "true";
+      if (!developmentInputAllowed) {
+        return NextResponse.json({ error: "model_proposal is only available in explicitly enabled development environments" }, { status: 403 });
+      }
+    }
+
     const input = typeof requestBody.input === "string"
       ? { text: requestBody.input, pursuit_id: id }
       : requestBody.input && typeof requestBody.input === "object"
