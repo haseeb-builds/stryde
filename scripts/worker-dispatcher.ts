@@ -3,7 +3,7 @@ import { assertWorkerToolBinding, parseWorkerJobArguments } from "../lib/worker-
 import { getWorkerProvider, type WorkerResult } from "../lib/worker-gateway.ts";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
-const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
+const serviceRoleKey = (process.env.SUPABASE_SECRET_KEY ?? process.env.SUPABASE_SERVICE_ROLE_KEY)?.trim();
 const workerId = process.env.STRYDE_WORKER_ID?.trim() || `stryde-worker-${process.pid}`;
 const pollMs = Number.parseInt(process.env.STRYDE_WORKER_POLL_MS || "1000", 10);
 const leaseSeconds = Math.min(900, Math.max(60, Number.parseInt(process.env.STRYDE_WORKER_LEASE_SECONDS || "600", 10)));
@@ -11,7 +11,7 @@ const maxRuntimeMs = Math.min(540_000, Math.max(5_000, Number.parseInt(process.e
 const once = process.env.STRYDE_WORKER_ONCE === "1";
 
 if (!supabaseUrl || !serviceRoleKey) {
-  throw new Error("NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required for the worker dispatcher");
+  throw new Error("NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SECRET_KEY or SUPABASE_SERVICE_ROLE_KEY are required for the worker dispatcher");
 }
 
 const supabase = createClient(supabaseUrl, serviceRoleKey, { auth: { autoRefreshToken: false, persistSession: false } });
