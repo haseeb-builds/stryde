@@ -50,7 +50,6 @@ export async function POST(request: Request, context: RouteContext) {
       .maybeSingle();
     if (sessionError) return errorResponse("Unable to load conversation", 500);
     if (!session) return errorResponse("Conversation not found", 404);
-    if (session.status !== "ACTIVE") return errorResponse("Conversation is archived. Start a new conversation to continue.", 409);
     if (session.status !== "ACTIVE") return errorResponse("This conversation is archived. Start a new conversation to continue.", 409);
 
     const { data: priorMessages, error: messagesError } = await supabase
