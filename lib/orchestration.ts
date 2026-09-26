@@ -125,8 +125,19 @@ export function validateModelProposal(value: unknown): ModelProposal {
   };
 }
 
-export function buildReasoningPrompt(input: ReasoningInput, situation: Situation): string {
+export function buildReasoningPrompt(
+  input: ReasoningInput,
+  situation: Situation,
+  conversation: Array<{ role: "user" | "stryde"; content: string }> = [],
+): string {
   const text = nonEmptyString(input.text, "text", MAX_INPUT_LENGTH);
+  const workingConversation = conversation
+    .slice(-16)
+    .map((message) => ({
+      role: message.role,
+      content: message.content.trim().slice(0, 8_000),
+    }))
+    .filter((message) => message.content.length > 0);
 
   const boundedContext = {
     pursuit: situation.pursuit,
@@ -134,6 +145,7 @@ export function buildReasoningPrompt(input: ReasoningInput, situation: Situation
     decisions: situation.decisions,
     actions: situation.actions,
     events: situation.events,
+    conversation: workingConversation,
   };
 
   return [
@@ -146,6 +158,7 @@ export function buildReasoningPrompt(input: ReasoningInput, situation: Situation
     "When an important fact is unknown, preserve it as unknown and make the next recommendation an evidence-gathering move rather than a fabricated plan.",
     "A diagnosis must be traceable to the supplied input or context. Distinguish an actual constraint from a missing fact.",
     "Do not assume a workflow, customer, pilot scope, or success metric is decided merely because it appears as an idea in the conversation.",
+    "Conversation is working context only; it does not become canonical fact merely because it is included here.",
     "Prefer one concrete next move that reduces the most important uncertainty over a generic multi-step plan.",
     "Return JSON only matching the ModelProposal contract.",
     "",
