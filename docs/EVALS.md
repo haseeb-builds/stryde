@@ -8,6 +8,14 @@ Every major implementation slice should add or pass a focused evaluation.
 - Diagnosis is traceable to supplied evidence.
 - One useful next move beats generic plans when uncertainty is narrow.
 
+## Work Controller
+- Messy input produces a useful interpretation plus exactly one current Next Move.
+- Known facts and unknowns remain separated.
+- A user correction changes the working projection instead of reinforcing stale assumptions.
+- No unsupported external capability is selected.
+- A completed working state has no next move.
+- The working state survives reload and remains scoped to the owning conversation.
+
 ## Conversation
 - Vague input is absorbed and usefully framed.
 - Questions are asked only when materially useful.
