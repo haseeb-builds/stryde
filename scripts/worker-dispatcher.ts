@@ -85,7 +85,7 @@ async function processJob(job: LeaseJob) {
 
   const { data: action, error: actionError } = await supabase
     .from("action")
-    .select("id, execution_mode, status")
+    .select("id, pursuit_id, execution_mode, status")
     .eq("id", job.action_id)
     .eq("owner_user_id", job.owner_user_id)
     .maybeSingle();
@@ -106,7 +106,7 @@ async function processJob(job: LeaseJob) {
 
   try {
     const submission = await provider.submit({
-      pursuitId: job.owner_user_id,
+      pursuitId: action.pursuit_id,
       actionId: job.action_id,
       workerType: args.worker_type,
       instruction: args.instruction,
