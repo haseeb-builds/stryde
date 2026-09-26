@@ -12,6 +12,7 @@ const DEFAULT_GROQ_MODEL = "openai/gpt-oss-120b";
 const DEFAULT_GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta";
 const DEFAULT_GEMINI_MODEL = "gemini-2.5-flash";
 const MAX_OUTPUT_CHARS = 30_000;
+const MODEL_TIMEOUT_MS = 24_000;
 
 export const SOURCE_ADAPTATION_SCHEMA = {
   type: "object",
@@ -254,7 +255,7 @@ async function callStructuredModel(
             responseSchema: toGeminiSchema(schema),
           },
         }),
-        signal: AbortSignal.timeout(55_000),
+        signal: AbortSignal.timeout(MODEL_TIMEOUT_MS),
         cache: "no-store",
       },
     );
