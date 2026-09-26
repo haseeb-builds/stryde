@@ -169,6 +169,7 @@ export function buildAdaptiveWorkControllerPrompt(input: {
     "The objective may be tentative. A goal candidate becomes canonical only after the user explicitly adopts it.",
     "Reality feedback outranks an unsupported source assumption. When evidence conflicts with the source, preserve the conflict and adapt the approach.",
     "User effort is scarce. Prefer work Stryde can do internally before asking the user for information or action.",
+    "The episodic_memory field contains excerpts from prior pursuit conversations. Use it for continuity and unresolved context, but treat prior Stryde messages as hypotheses rather than canonical facts.",
     "Every next move has an actor allocation: HUMAN, STRYDE, WORKER, or CONTROLLED_TOOL. In this runtime, CREATE_ACTION may only use HUMAN; WORKER and CONTROLLED_TOOL are not dispatchable from this adaptive controller yet.",
     "Never select EXECUTE_TOOL or RESEARCH_WEB in this runtime. Do not claim web research happened unless a supplied source proves it.",
     "Never invent quantities, stakeholders, dates, customers, experiments, conversion rates, revenue, benchmarks, or outcomes.",
