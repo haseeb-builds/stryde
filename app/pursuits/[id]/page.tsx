@@ -210,7 +210,6 @@ export default function PursuitPage() {
 
     setWorking(true);
     setError("");
-    setOptions([]);
     setInput("");
     setMessages((current) => [...current, { role: "user", content }]);
 
