@@ -31,7 +31,7 @@ Updated: 2026-09-26
 - Model health defaults now match the Gemini-primary gateway.
 - Work Controller is implemented as a derived conversation_session.working_state projection; it is not canonical domain truth.
 
-## Newly implemented in this branch
+## Newly implemented on main
 - Durable Pursuit source records for public URLs and pasted material, including content hashes, fetch status, and provenance metadata.
 - Source adaptation records that preserve extracted claims, methods, assumptions, prerequisites, fit, conflicts, gaps, adapted strategy, and goal candidates.
 - Explicit goal adoption creates/refines the Pursuit OBJECTIVE Claim and binds it to the Pursuit with lineage.
