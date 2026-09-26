@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import type { WorkingState } from "@/lib/work-controller";
@@ -57,7 +57,6 @@ export default function PursuitPage() {
   const [session, setSession] = useState<Session | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [workingState, setWorkingState] = useState<WorkingState | null>(null);
-  const [options, setOptions] = useState<Option[]>([]);
   const [input, setInput] = useState("");
   const [working, setWorking] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -66,8 +65,8 @@ export default function PursuitPage() {
   const title = useMemo(() => pursuit?.title || "Untitled pursuit", [pursuit]);
 
   useEffect(() => {
-    void bootstrap();
-  }, [params.id]);
+    void Promise.resolve().then(bootstrap);
+  }, [bootstrap]);
 
   async function token() {
     const { data } = await supabase.auth.getSession();
@@ -139,7 +138,6 @@ export default function PursuitPage() {
     setSession(body.session);
     setMessages(loaded);
     setWorkingState(restoredWork);
-    setOptions(lastAssistant?.metadata?.options ?? []);
     setError("");
   }
 
@@ -171,7 +169,6 @@ export default function PursuitPage() {
       setSession(body.session);
       setMessages([]);
       setWorkingState(null);
-      setOptions([]);
       setError("");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to start a new conversation.");
@@ -267,8 +264,7 @@ export default function PursuitPage() {
           },
         },
       ]);
-      setOptions(turn.options);
-      setWorkingState(turn.work);
+        setWorkingState(turn.work);
       setSessions((current) => current.map((item) =>
         item.id === session.id
           ? {
@@ -380,7 +376,7 @@ export default function PursuitPage() {
               {messages.length === 0 ? (
                 <div className="flex min-h-[58vh] flex-col justify-center">
                   <h2 className="text-3xl font-semibold tracking-tight">What needs to move?</h2>
-                  <p className="mt-3 max-w-xl text-sm leading-6 text-zinc-500">You don't need to explain it perfectly. Start wherever your thinking is.</p>
+                  <p className="mt-3 max-w-xl text-sm leading-6 text-zinc-500">There’s no need to explain it perfectly. Start wherever your thinking is.</p>
                   <div className="mt-7 grid gap-2 sm:grid-cols-2">
                     {STARTERS.map((item) => (
                       <button
