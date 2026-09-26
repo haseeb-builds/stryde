@@ -64,20 +64,38 @@ export default function PursuitPage() {
 
   const title = useMemo(() => pursuit?.title || "Untitled pursuit", [pursuit]);
 
-  useEffect(() => {
-    void Promise.resolve().then(bootstrap);
-  }, [bootstrap]);
-
-  async function token() {
+  const token = useCallback(async () => {
     const { data } = await supabase.auth.getSession();
     if (!data.session) {
       router.replace("/");
       throw new Error("Session expired. Please sign in again.");
     }
     return data.session.access_token;
-  }
+  }, [router]);
 
-  async function bootstrap() {
+  const openSession = useCallback(async (sessionId: string, accessToken?: string) => {
+    const access = accessToken ?? (await token());
+    const response = await fetch(`/api/v1/pursuits/${params.id}/conversations/${sessionId}`, {
+      headers: { Authorization: `Bearer ${access}` },
+    });
+    const body = (await response.json()) as {
+      session?: Session;
+      messages?: Message[];
+      error?: string;
+    };
+    if (!response.ok || !body.session) throw new Error(body.error || "Unable to load conversation.");
+
+    const loaded = body.messages ?? [];
+    const lastAssistant = [...loaded].reverse().find((item) => item.role === "stryde");
+    const restoredWork = body.session.working_state ?? lastAssistant?.metadata?.work ?? null;
+
+    setSession(body.session);
+    setMessages(loaded);
+    setWorkingState(restoredWork);
+    setError("");
+  }, [params.id, token]);
+
+  const bootstrap = useCallback(async () => {
     try {
       setLoading(true);
       setError("");
@@ -117,29 +135,11 @@ export default function PursuitPage() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [openSession, params.id, token]);
 
-  async function openSession(sessionId: string, accessToken?: string) {
-    const access = accessToken ?? (await token());
-    const response = await fetch(`/api/v1/pursuits/${params.id}/conversations/${sessionId}`, {
-      headers: { Authorization: `Bearer ${access}` },
-    });
-    const body = (await response.json()) as {
-      session?: Session;
-      messages?: Message[];
-      error?: string;
-    };
-    if (!response.ok || !body.session) throw new Error(body.error || "Unable to load conversation.");
-
-    const loaded = body.messages ?? [];
-    const lastAssistant = [...loaded].reverse().find((item) => item.role === "stryde");
-    const restoredWork = body.session.working_state ?? lastAssistant?.metadata?.work ?? null;
-
-    setSession(body.session);
-    setMessages(loaded);
-    setWorkingState(restoredWork);
-    setError("");
-  }
+  useEffect(() => {
+    void Promise.resolve().then(bootstrap);
+  }, [bootstrap]);
 
   async function selectConversation(item: Session) {
     if (working) return;
