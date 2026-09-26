@@ -51,6 +51,7 @@ export async function POST(request: Request, context: RouteContext) {
       .maybeSingle();
     if (sessionError) return NextResponse.json({ error: "Unable to load conversation" }, { status: 500 });
     if (!session) return NextResponse.json({ error: "Conversation not found" }, { status: 404 });
+    if (session.status !== "ACTIVE") return NextResponse.json({ error: "This conversation is archived. Start a new conversation to continue." }, { status: 409 });
 
     const { data: priorMessages, error: messagesError } = await supabase
       .from("conversation_message")
