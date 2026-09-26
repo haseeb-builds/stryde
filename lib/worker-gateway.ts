@@ -30,6 +30,43 @@ export interface WorkerProvider {
   result(externalWorkId: string): Promise<WorkerResult>;
 }
 
+class CliWorkerProvider implements WorkerProvider {
+  private readonly jobs = new Map<string, { child: import("node:child_process").ChildProcessWithoutNullStreams; stdout: string; stderr: string }>();
+
+  constructor(private readonly workerType: WorkerType, private readonly command: string) {}
+
+  async submit(work: WorkerWork): Promise<WorkerSubmission> {
+    const { spawn } = await import("node:child_process");
+    const prompt = `${work.instruction}\n\nReturn a structured acknowledgement and environment summary. Context:\n${JSON.stringify(work.context)}`;
+    const args = this.workerType === "HERMES" ? ["-z", prompt, "--safe-mode"] : ["run", "--format", "json", prompt, "--pure"];
+    const child = spawn(this.command, args, { stdio: "pipe", windowsHide: true });
+    const id = `${this.workerType.toLowerCase()}-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const job = { child, stdout: "", stderr: "" };
+    child.stdout.on("data", (chunk: Buffer) => { job.stdout += chunk.toString(); });
+    child.stderr.on("data", (chunk: Buffer) => { job.stderr += chunk.toString(); });
+    this.jobs.set(id, job);
+    child.on("close", () => undefined);
+    return { provider: this.workerType, externalWorkId: id };
+  }
+
+  async status(id: string) {
+    const job = this.jobs.get(id);
+    if (!job) return "UNKNOWN" as const;
+    if (job.child.exitCode === null && !job.child.killed) return "RUNNING" as const;
+    return job.child.exitCode === 0 ? "SUCCEEDED" as const : "FAILED" as const;
+  }
+
+  async cancel(id: string) { this.jobs.get(id)?.child.kill(); }
+
+  async result(id: string): Promise<WorkerResult> {
+    const job = this.jobs.get(id);
+    if (!job) return { provider: this.workerType, externalWorkId: id, status: "UNKNOWN", result: null };
+    const observed = await this.status(id);
+    const status = observed === "RUNNING" ? "UNKNOWN" : observed;
+    return { provider: this.workerType, externalWorkId: id, status, result: { stdout: job.stdout, stderr: job.stderr } };
+  }
+}
+
 class HttpWorkerProvider implements WorkerProvider {
   constructor(
     private readonly workerType: WorkerType,
@@ -99,6 +136,8 @@ class HttpWorkerProvider implements WorkerProvider {
 
 export function getWorkerProvider(type: WorkerType, env: NodeJS.ProcessEnv = process.env): WorkerProvider {
   const prefix = type === "HERMES" ? "STRYDE_HERMES" : "STRYDE_OPENCODE";
+  const command = env[`${prefix}_COMMAND`]?.trim();
+  if (command) return new CliWorkerProvider(type, command);
   const baseUrl = env[`${prefix}_URL`]?.trim();
   if (!baseUrl) throw new Error(`Worker provider ${type} is not configured`);
   const token = env[`${prefix}_TOKEN`]?.trim() || null;
