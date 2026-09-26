@@ -1,1 +1,32 @@
-import assert from "node:assert/strict";\nimport test from "node:test";\nimport { assertWorkerToolBinding, parseWorkerJobArguments, workerTypeForToolKey } from "../lib/worker-contract.ts";\n\ntest("worker job arguments are bounded and typed", () => {\n  const args = parseWorkerJobArguments({\n    worker_type: "HERMES",\n    instruction: "Research the supplied question.",\n    context: { pursuit_id: "p1" },\n    idempotency_key: "job-1",\n  });\n  assert.equal(args.worker_type, "HERMES");\n  assert.equal(args.instruction, "Research the supplied question.");\n});\n\ntest("worker arguments reject malformed context and unsupported workers", () => {\n  assert.throws(() => parseWorkerJobArguments({ worker_type: "NOPE", instruction: "x", context: {}, idempotency_key: "1" }), /worker_type/);\n  assert.throws(() => parseWorkerJobArguments({ worker_type: "HERMES", instruction: "x", context: [], idempotency_key: "1" }), /context/);\n});\n\ntest("tool binding must match the frozen worker type", () => {\n  const args = parseWorkerJobArguments({\n    worker_type: "OPENCODE",\n    instruction: "Implement the requested code change.",\n    context: { repo: "stryde" },\n    idempotency_key: "job-2",\n  });\n  assert.equal(workerTypeForToolKey("worker.opencode"), "OPENCODE");\n  assert.doesNotThrow(() => assertWorkerToolBinding("worker.opencode", "v1", args));\n  assert.throws(() => assertWorkerToolBinding("worker.hermes", "v1", args), /do not match/);\n  assert.throws(() => assertWorkerToolBinding("worker.opencode", "v2", args), /version/);\n});\n
+import assert from "node:assert/strict";
+import test from "node:test";
+import { assertWorkerToolBinding, parseWorkerJobArguments, workerTypeForToolKey } from "../lib/worker-contract.ts";
+
+test("worker job arguments are bounded and typed", () => {
+  const args = parseWorkerJobArguments({
+    worker_type: "HERMES",
+    instruction: "Research the supplied question.",
+    context: { pursuit_id: "p1" },
+    idempotency_key: "job-1",
+  });
+  assert.equal(args.worker_type, "HERMES");
+  assert.equal(args.instruction, "Research the supplied question.");
+});
+
+test("worker arguments reject malformed context and unsupported workers", () => {
+  assert.throws(() => parseWorkerJobArguments({ worker_type: "NOPE", instruction: "x", context: {}, idempotency_key: "1" }), /worker_type/);
+  assert.throws(() => parseWorkerJobArguments({ worker_type: "HERMES", instruction: "x", context: [], idempotency_key: "1" }), /context/);
+});
+
+test("tool binding must match the frozen worker type", () => {
+  const args = parseWorkerJobArguments({
+    worker_type: "OPENCODE",
+    instruction: "Implement the requested code change.",
+    context: { repo: "stryde" },
+    idempotency_key: "job-2",
+  });
+  assert.equal(workerTypeForToolKey("worker.opencode"), "OPENCODE");
+  assert.doesNotThrow(() => assertWorkerToolBinding("worker.opencode", "v1", args));
+  assert.throws(() => assertWorkerToolBinding("worker.hermes", "v1", args), /do not match/);
+  assert.throws(() => assertWorkerToolBinding("worker.opencode", "v2", args), /version/);
+});
