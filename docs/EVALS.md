@@ -23,7 +23,22 @@ Every major implementation slice should add or pass a focused evaluation.
 - Session history survives reload.
 - New conversation archives the previous session.
 - No client-supplied transcript can become canonical context by itself.
-- Streaming displays partial response promptly and persists the final message exactly once.
+- Streaming displays partial response promptly and persists the final message exactly once (active route still requires implementation).
+
+## Source-grounded pursuit
+- A source remains distinct from canonical Situation truth.
+- Source extraction records provenance and preserves explicit-vs-inferred distinctions.
+- Unsupported/binary source content is not hallucinated into usable text.
+- Source methods are adapted against the current Situation rather than copied blindly.
+- Goal candidates do not mutate the canonical objective until the user explicitly adopts one.
+- Source conflicts remain visible instead of being silently flattened.
+
+## HUMAN feedback loop
+- A CREATE_ACTION move cannot start without explicit user approval.
+- Starting a HUMAN Action creates a durable Action in IN_PROGRESS.
+- A human result creates an Observation before the Action becomes terminal.
+- A human-reported result does not directly create VERIFIED Claims.
+- After a human result, the next working state is recomputed from updated Situation evidence.
 
 ## Authorization / execution
 - Model proposals cannot bypass deterministic authorization.
