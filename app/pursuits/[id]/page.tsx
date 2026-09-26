@@ -229,7 +229,7 @@ export default function PursuitPage() {
       });
 
       const raw = await response.text();
-      let body: {
+      type ConversationResponse = {
         turn?: {
           message: string;
           question: string | null;
@@ -239,16 +239,17 @@ export default function PursuitPage() {
           work: WorkingState;
         };
         error?: string;
-      } | null = null;
+      };
 
+      let body: ConversationResponse = {};
       try {
-        body = raw ? (JSON.parse(raw) as typeof body) : null;
+        body = raw ? (JSON.parse(raw) as ConversationResponse) : {};
       } catch {
         throw new Error(raw.trim() || `Conversation failed (HTTP ${response.status}).`);
       }
 
-      if (!response.ok || !body?.turn) {
-        throw new Error(body?.error || raw.trim() || `Conversation failed (HTTP ${response.status}).`);
+      if (!response.ok || !body.turn) {
+        throw new Error(body.error || raw.trim() || `Conversation failed (HTTP ${response.status}).`);
       }
 
       const turn = body.turn;
