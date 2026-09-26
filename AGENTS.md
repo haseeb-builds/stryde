@@ -45,3 +45,30 @@ Do not spend build time on decorative UI while the underlying loop is incomplete
 
 ## Definition of done
 A feature is not done because code exists or an agent says it is done. It is done when the intended runtime behavior is demonstrated by tests or production evidence and `docs/STATE.md` remains truthful.
+
+## Codex execution mode
+When Codex is used as the implementation worker, optimize its scarce context for execution rather than product planning.
+
+1. Read the canonical docs once: `docs/PRD.md`, `docs/ARCHITECTURE.md`, `docs/STATE.md`, `docs/DECISIONS.md`, `docs/EVALS.md`.
+2. Do not invent a second product plan, rename the domain, or spend the turn restating strategy already encoded in those docs.
+3. Pick the highest-priority unfinished implementation item from `docs/STATE.md` / `docs/ROADMAP.md`, inspect the existing code, then implement it.
+4. Work in the assigned branch/worktree. Keep changes small enough to review and revert.
+5. Prefer a complete vertical slice over scaffolding: schema → server contract → UI integration → deterministic error path → tests.
+6. Use current Next.js/Supabase APIs from the installed project, not remembered APIs. Check the local dependency docs when uncertain.
+7. Never treat model output as authorization. Never add a new side-effect capability without an explicit capability boundary and owner authorization path.
+8. After implementation run typecheck, lint, build, and focused tests relevant to the slice. Fix failures before declaring the slice complete.
+9. Update `docs/STATE.md` only with verified facts. Never mark work complete because code compiles or because the model believes it works.
+10. End with a compact execution report: changed files, migrations, tests run, remaining failures, and exact next implementation target.
+
+### Current Codex priority
+Do not spend Codex turns redesigning the product. The remaining high-value implementation sequence is:
+
+- streaming conversation transport and durable final-message persistence;
+- robust source ingestion (files and richer web/source retrieval) with provenance;
+- source comparison/lineage for multiple and conflicting sources;
+- controlled Action capability registration/grants and one real safe external tool;
+- deterministic outcome verification and UNKNOWN reconciliation;
+- end-to-end eval harness and authenticated production-path tests;
+- final premium UX pass only after the underlying loop is proven.
+
+The parent integration process owns product/architecture judgment. Codex owns code execution and verification.
