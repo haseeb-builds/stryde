@@ -1,3 +1,5 @@
+import { ACTOR_TYPES, normalizeActor, type ActorType } from "@/lib/actor";
+
 export const WORK_MODES = [
   "ASK_USER",
   "RESEARCH_WEB",
@@ -38,6 +40,7 @@ export const AVAILABLE_WORK_MODES = [
 
 export type NextMove = {
   mode: WorkMode;
+  actor: ActorType;
   title: string;
   why: string;
   expected_change: string;
@@ -103,6 +106,7 @@ export const WORKING_STATE_SCHEMA = {
           additionalProperties: false,
           required: [
             "mode",
+            "actor",
             "title",
             "why",
             "expected_change",
@@ -112,6 +116,7 @@ export const WORKING_STATE_SCHEMA = {
           ],
           properties: {
             mode: { type: "string", enum: WORK_MODES },
+            actor: { type: "string", enum: ACTOR_TYPES },
             title: { type: "string", minLength: 1, maxLength: 300 },
             why: { type: "string", minLength: 1, maxLength: MAX_TEXT },
             expected_change: { type: "string", minLength: 1, maxLength: MAX_TEXT },
@@ -178,6 +183,7 @@ export function validateWorkingState(value: unknown): WorkingState {
     }
     next_move = {
       mode: move.mode as WorkMode,
+      actor: normalizeActor(move.mode as WorkMode, move.actor),
       title: text(move.title, "next_move.title", 300),
       why: text(move.why, "next_move.why"),
       expected_change: text(move.expected_change, "next_move.expected_change"),
