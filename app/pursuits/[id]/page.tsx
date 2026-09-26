@@ -80,6 +80,12 @@ function statusLabel(status: WorkingState["status"]) {
 function moveLabel(mode: NonNullable<WorkingState["next_move"]>["mode"]) {
   return mode.replaceAll("_", " ").toLowerCase();
 }
+function actorLabel(actor: NonNullable<WorkingState["next_move"]>["actor"]) {
+  if (actor === "HUMAN") return "You";
+  if (actor === "WORKER") return "Assigned worker";
+  if (actor === "CONTROLLED_TOOL") return "Connected capability";
+  return "Stryde";
+}
 
 export default function PursuitPage() {
   const params = useParams<{ id: string }>();
@@ -571,7 +577,7 @@ export default function PursuitPage() {
                       <div className="border-b border-zinc-100 px-5 py-4">
                         <div className="flex flex-wrap items-center justify-between gap-2">
                           <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-400">Current move</p>
-                          <span className="text-[11px] text-zinc-400">{statusLabel(workingState.status)} · {moveLabel(currentMove.mode)}</span>
+                          <span className="text-[11px] text-zinc-400">{statusLabel(workingState.status)} · {moveLabel(currentMove.mode)} · {actorLabel(currentMove.actor)}</span>
                         </div>
                         <h3 className="mt-2 text-[17px] font-medium tracking-tight text-zinc-950">{currentMove.title}</h3>
                         <p className="mt-2 text-sm leading-6 text-zinc-600">{currentMove.why}</p>
