@@ -1,4 +1,4 @@
-import type { WorkerType } from "@/lib/worker-gateway";
+import type { WorkerType } from "./worker-gateway";
 
 const MAX_INSTRUCTION = 12_000;
 const MAX_KEY = 500;
