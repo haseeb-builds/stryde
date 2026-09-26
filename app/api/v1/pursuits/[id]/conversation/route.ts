@@ -138,7 +138,7 @@ export async function POST(request: Request, context: RouteContext) {
       } catch {
         // Preserve the last safe working state rather than failing the user's conversation
         // because adaptive reassessment was temporarily unavailable.
-        work = session.working_state as Parameters<typeof runAdaptiveWorkController>[0]["previousWorkingState"];
+        work = session.working_state as Parameters<typeof runAdaptiveWorkController>[0]["previousWorkingState"] & {};
       }
     }
 
