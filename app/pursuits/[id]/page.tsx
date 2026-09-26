@@ -330,7 +330,7 @@ export default function PursuitPage() {
         }
         setMessages((current) => [...current,
           { role: "user", content },
-          { role: "stryde", content: body.assistant_message!, metadata: body.metadata ?? { work: body.working_state } },
+          { role: "stryde", content: body.assistant_message!, metadata: body.metadata ?? undefined },
         ]);
         setWorkingState(body.working_state);
         setSession((current) => current
