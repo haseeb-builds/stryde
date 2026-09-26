@@ -18,7 +18,7 @@ export async function assembleAdaptiveSituation(
   const [sourcesResult, actionsResult, observationsResult] = await Promise.all([
     supabase
       .from("pursuit_source")
-      .select("id, source_kind, uri, title, content_type, fetch_status, content_text, content_sha256, source_metadata, created_at, updated_at")
+      .select("id, source_kind, uri, title, content_type, fetch_status, content_sha256, source_metadata, created_at, updated_at")
       .eq("owner_user_id", ownerUserId)
       .eq("pursuit_id", pursuitId)
       .order("created_at", { ascending: false })
@@ -41,18 +41,21 @@ export async function assembleAdaptiveSituation(
     return { situation: null, error: "Unable to assemble adaptive Situation" };
   }
 
-  const sourceIds = (sourcesResult.data ?? []).map((source) => source.id);
+  const sourceRows = sourcesResult.data ?? [];
+  const sourceUris = new Set(
+    sourceRows.map((source) => source.uri).filter((value): value is string => typeof value === "string"),
+  );
   const actionIds = new Set((actionsResult.data ?? []).map((action) => action.id as string));
   const observations = (observationsResult.data ?? []).filter((observation) => {
     const content = observation.content;
-    return typeof content === "object" && content !== null && "action_id" in content
-      ? typeof content.action_id === "string" && actionIds.has(content.action_id)
-      : observation.source_uri
-        ? (sourcesResult.data ?? []).some((source) => source.uri === observation.source_uri)
-        : false;
+    if (typeof content === "object" && content !== null && "action_id" in content) {
+      return typeof content.action_id === "string" && actionIds.has(content.action_id);
+    }
+    return typeof observation.source_uri === "string" && sourceUris.has(observation.source_uri);
   });
 
   let adaptations: unknown[] = [];
+  const sourceIds = sourceRows.map((source) => source.id);
   if (sourceIds.length) {
     const adaptationResult = await supabase
       .from("pursuit_source_adaptation")
@@ -62,6 +65,7 @@ export async function assembleAdaptiveSituation(
       .in("source_id", sourceIds)
       .order("version", { ascending: false })
       .limit(50);
+
     if (adaptationResult.error) return { situation: null, error: "Unable to load source adaptations" };
 
     const latestBySource = new Map<string, unknown>();
@@ -74,7 +78,7 @@ export async function assembleAdaptiveSituation(
   return {
     situation: {
       ...base.situation,
-      sources: sourcesResult.data ?? [],
+      sources: sourceRows,
       source_adaptations: adaptations,
       observations,
     },
