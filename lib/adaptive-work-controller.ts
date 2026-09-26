@@ -1,4 +1,4 @@
-import { WORK_STATUSES, type NextMove, type WorkingState, validateWorkingState } from "@/lib/work-controller";
+import { WORK_STATUSES, type NextMove, type WorkingState } from "@/lib/work-controller";
 
 export const ADAPTIVE_WORK_MODES = [
   "ASK_USER",
