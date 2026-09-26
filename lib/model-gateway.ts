@@ -1,5 +1,6 @@
 import { validateModelProposal, type ModelProposal } from "@/lib/orchestration";
 import { WORKING_STATE_SCHEMA, buildWorkControllerPrompt, validateWorkingState, type WorkingState } from "@/lib/work-controller";
+import { extractMessagePrefix, readSseData, readSseFrames } from "@/lib/conversation-stream";
 
 const DEFAULT_OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 const DEFAULT_OPENROUTER_MODEL = "openrouter/free";
@@ -35,6 +36,11 @@ export type ConversationTurn = {
   focus: string | null;
   work: WorkingState;
 };
+
+export type ConversationStreamEvent =
+  | { type: "message_delta"; content: string }
+  | { type: "complete"; turn: ConversationTurn; provider: string; model: string }
+  | { type: "error"; message: string };
 
 const MODEL_PROPOSAL_SCHEMA = {
   type: "object",
@@ -190,6 +196,29 @@ function extractChatText(response: unknown): string {
   const text = content.trim();
   if (text.length > MAX_OUTPUT_CHARS) throw new Error("Model output exceeded the allowed size");
   return text;
+}
+
+function extractChatDelta(response: unknown): string {
+  if (typeof response !== "object" || response === null) return "";
+  const choices = (response as { choices?: unknown }).choices;
+  if (!Array.isArray(choices) || choices.length === 0 || typeof choices[0] !== "object" || choices[0] === null) return "";
+  const delta = (choices[0] as { delta?: unknown }).delta;
+  if (typeof delta !== "object" || delta === null) return "";
+  const content = (delta as { content?: unknown }).content;
+  return typeof content === "string" ? content : "";
+}
+
+function extractGeminiDelta(response: unknown): string {
+  if (typeof response !== "object" || response === null) return "";
+  const candidates = (response as { candidates?: unknown }).candidates;
+  if (!Array.isArray(candidates) || candidates.length === 0 || typeof candidates[0] !== "object" || candidates[0] === null) return "";
+  const content = (candidates[0] as { content?: unknown }).content;
+  const parts = content && typeof content === "object" ? (content as { parts?: unknown }).parts : null;
+  if (!Array.isArray(parts)) return "";
+  return parts
+    .filter((part) => part && typeof part === "object" && typeof (part as { text?: unknown }).text === "string")
+    .map((part) => (part as { text: string }).text)
+    .join("");
 }
 
 function getModelConfig() {
@@ -371,17 +400,14 @@ function validateConversationTurn(value: unknown): ConversationTurn {
   return { message: candidate.message.trim().slice(0, 8000), question, options, ready_for_reasoning: candidate.ready_for_reasoning, focus, work };
 }
 
-export async function runConversationTurn(input: {
+function buildConversationPrompt(input: {
   pursuitTitle: string;
   situation: unknown;
   conversation: ConversationMessage[];
   userMessage: string;
   workingState?: WorkingState | null;
-}): Promise<{ turn: ConversationTurn; provider: string; model: string }> {
+}): string {
   const userMessage = input.userMessage.trim();
-  if (!userMessage) throw new Error("userMessage must be non-empty");
-  if (userMessage.length > MAX_MESSAGE_CHARS) throw new Error("userMessage is too long");
-
   const history = sanitizeConversation([...input.conversation, { role: "user", content: userMessage }]);
   const workingContext = JSON.stringify({
     pursuit_title: input.pursuitTitle,
@@ -390,7 +416,7 @@ export async function runConversationTurn(input: {
     conversation: history,
   });
 
-  const prompt = [
+  return [
     "You are Stryde, a persistent situational-intelligence system.",
     "Your job in this turn is conversational situation discovery, not questionnaire completion.",
     "The user may be vague, contradictory, emotional, incomplete, or unsure how to explain themselves. Treat that as useful signal.",
@@ -414,6 +440,130 @@ export async function runConversationTurn(input: {
     "",
     `WORKING_CONTEXT: ${workingContext}`,
   ].join("\n");
+}
+
+async function readStructuredStream(
+  response: Response,
+  provider: string,
+  onText: (text: string) => void,
+): Promise<string> {
+  if (!response.body) throw new Error("Model streaming response has no body");
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let structuredText = "";
+
+  const consume = (frame: string) => {
+    const data = readSseData(frame);
+    if (!data || data === "[DONE]") return;
+    let payload: unknown;
+    try {
+      payload = JSON.parse(data);
+    } catch {
+      throw new Error("Model returned malformed streaming data");
+    }
+    const delta = provider === "gemini" ? extractGeminiDelta(payload) : extractChatDelta(payload);
+    if (!delta) return;
+    structuredText += delta;
+    onText(structuredText);
+    if (structuredText.length > MAX_OUTPUT_CHARS) throw new Error("Model output exceeded the allowed size");
+  };
+
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const parsed = readSseFrames(buffer);
+      buffer = parsed.remainder;
+      parsed.frames.forEach(consume);
+    }
+    buffer += decoder.decode();
+    if (buffer.trim()) consume(buffer);
+  } finally {
+    reader.releaseLock();
+  }
+  if (!structuredText.trim()) throw new Error("Model returned no structured output");
+  return structuredText;
+}
+
+export async function streamConversationTurn(
+  input: {
+    pursuitTitle: string;
+    situation: unknown;
+    conversation: ConversationMessage[];
+    userMessage: string;
+    workingState?: WorkingState | null;
+  },
+  emit: (event: ConversationStreamEvent) => void,
+  signal?: AbortSignal,
+): Promise<{ turn: ConversationTurn; provider: string; model: string }> {
+  const userMessage = input.userMessage.trim();
+  if (!userMessage) throw new Error("userMessage must be non-empty");
+  if (userMessage.length > MAX_MESSAGE_CHARS) throw new Error("userMessage is too long");
+
+  const { provider, apiKey, baseUrl, model } = getModelConfig();
+  const schema = CONVERSATION_TURN_SCHEMA;
+  const prompt = buildConversationPrompt(input);
+  const modelInput = provider === "openrouter"
+    ? [prompt, "", "Return one JSON object only.", "The JSON object MUST conform to this contract:", JSON.stringify(schema)].join("\n")
+    : prompt;
+  const body = provider === "gemini"
+    ? {
+        contents: [{ parts: [{ text: modelInput }] }],
+        generationConfig: { temperature: 0, maxOutputTokens: 1_000, thinkingConfig: { thinkingBudget: 1_024 }, responseMimeType: "application/json", responseSchema: toGeminiSchema(schema) },
+      }
+    : {
+        model,
+        messages: [{ role: "user", content: modelInput }],
+        ...(provider === "groq"
+          ? { response_format: { type: "json_schema", json_schema: { name: "stryde_conversation_turn", strict: true, schema } } }
+          : { response_format: { type: "json_object" } }),
+        ...(provider === "openrouter" ? { provider: { require_parameters: true, allow_fallbacks: true }, plugins: [{ id: "response-healing" }] } : {}),
+        temperature: 0,
+        ...(provider === "groq" ? { reasoning_effort: "low" } : {}),
+        max_tokens: provider === "groq" ? 800 : 1_000,
+        stream: true,
+      };
+  const url = provider === "gemini"
+    ? `${baseUrl}/models/${encodeURIComponent(model)}:streamGenerateContent?alt=sse`
+    : `${baseUrl}/chat/completions`;
+  const response = await fetch(url, {
+    method: "POST",
+    headers: provider === "gemini"
+      ? { "Content-Type": "application/json", "x-goog-api-key": apiKey }
+      : { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json", "X-Title": "Stryde" },
+    body: JSON.stringify(body),
+    signal,
+    cache: "no-store",
+  });
+  if (!response.ok) throw new Error(`Model request failed (${response.status}): ${(await response.text()).slice(0, 1000)}`);
+
+  let previousMessage = "";
+  const structuredText = await readStructuredStream(response, provider, (text) => {
+    const message = extractMessagePrefix(text);
+    if (message.length > previousMessage.length && message.startsWith(previousMessage)) {
+      emit({ type: "message_delta", content: message.slice(previousMessage.length) });
+      previousMessage = message;
+    }
+  });
+  const turn = validateConversationTurn(parseJsonText(structuredText));
+  emit({ type: "complete", turn, provider, model });
+  return { turn, provider, model };
+}
+
+export async function runConversationTurn(input: {
+  pursuitTitle: string;
+  situation: unknown;
+  conversation: ConversationMessage[];
+  userMessage: string;
+  workingState?: WorkingState | null;
+}): Promise<{ turn: ConversationTurn; provider: string; model: string }> {
+  const userMessage = input.userMessage.trim();
+  if (!userMessage) throw new Error("userMessage must be non-empty");
+  if (userMessage.length > MAX_MESSAGE_CHARS) throw new Error("userMessage is too long");
+
+  const prompt = buildConversationPrompt(input);
 
   const result = await callStructuredModel("stryde_conversation_turn", CONVERSATION_TURN_SCHEMA, prompt);
   return { turn: validateConversationTurn(result.parsed), provider: result.provider, model: result.model };

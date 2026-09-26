@@ -45,20 +45,7 @@ export async function POST(request: Request, context: RouteContext) {
     if (pursuitError) return NextResponse.json({ error: "Unable to load Pursuit" }, { status: 500 });
     if (!pursuit) return NextResponse.json({ error: "Pursuit not found" }, { status: 404 });
 
-    const now = new Date().toISOString();
-    const { error: archiveError } = await supabase
-      .from("conversation_session")
-      .update({ status: "ARCHIVED", updated_at: now })
-      .eq("pursuit_id", id)
-      .eq("owner_user_id", user.id)
-      .eq("status", "ACTIVE");
-    if (archiveError) return NextResponse.json({ error: "Unable to start a new conversation" }, { status: 500 });
-
-    const { data: session, error: createError } = await supabase
-      .from("conversation_session")
-      .insert({ owner_user_id: user.id, pursuit_id: id, status: "ACTIVE", working_state: null, updated_at: now })
-      .select("id, pursuit_id, title, status, working_state, created_at, updated_at")
-      .single();
+    const { data: session, error: createError } = await supabase.rpc("stryde_create_conversation_session", { p_pursuit_id: id });
     if (createError) return NextResponse.json({ error: "Unable to start a new conversation" }, { status: 500 });
     return NextResponse.json({ session }, { status: 201 });
   } catch (error) {

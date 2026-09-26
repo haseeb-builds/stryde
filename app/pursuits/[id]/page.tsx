@@ -3,6 +3,7 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import { consumeConversationStream } from "@/lib/conversation-client-stream";
 import type { WorkingState } from "@/lib/work-controller";
 import PursuitWorkPanels from "./work-panels";
 
@@ -213,6 +214,8 @@ export default function PursuitPage() {
     setError("");
     setInput("");
     setMessages((current) => [...current, { role: "user", content }]);
+    const assistantId = "streaming-assistant";
+    setMessages((current) => [...current, { id: assistantId, role: "stryde", content: "" }]);
 
     try {
       const access = await token();
@@ -222,10 +225,8 @@ export default function PursuitPage() {
           "Content-Type": "application/json",
           Authorization: `Bearer ${access}`,
         },
-        body: JSON.stringify({ message: content, session_id: session.id }),
+        body: JSON.stringify({ message: content, session_id: session.id, turn_key: crypto.randomUUID() }),
       });
-
-      const raw = await response.text();
       type ConversationResponse = {
         turn?: {
           message: string;
@@ -237,34 +238,29 @@ export default function PursuitPage() {
         };
         error?: string;
       };
-
-      let body: ConversationResponse = {};
-      try {
-        body = raw ? (JSON.parse(raw) as ConversationResponse) : {};
-      } catch {
-        throw new Error(raw.trim() || `Conversation failed (HTTP ${response.status}).`);
+      if (!response.ok) {
+        const body = (await response.json().catch(() => ({}))) as ConversationResponse;
+        throw new Error(body.error || `Conversation failed (HTTP ${response.status}).`);
       }
-
-      if (!response.ok || !body.turn) {
-        throw new Error(body.error || raw.trim() || `Conversation failed (HTTP ${response.status}).`);
-      }
-
-      const turn = body.turn;
-      setMessages((current) => [
-        ...current,
-        {
-          role: "stryde",
-          content: turn.message,
-          metadata: {
-            options: turn.options,
-            question: turn.question,
-            ready_for_reasoning: turn.ready_for_reasoning,
-            focus: turn.focus,
-            work: turn.work,
-          },
-        },
-      ]);
-        setWorkingState(turn.work);
+      const turn = await consumeConversationStream<NonNullable<ConversationResponse["turn"]>>(
+        response,
+        (delta) => setMessages((current) => current.map((item) => item.id === assistantId ? { ...item, content: item.content + delta } : item)),
+        () => undefined,
+      );
+      setMessages((current) => current.map((item) => item.id === assistantId
+        ? {
+            ...item,
+            content: turn.message,
+            metadata: {
+              options: turn.options,
+              question: turn.question,
+              ready_for_reasoning: turn.ready_for_reasoning,
+              focus: turn.focus,
+              work: turn.work,
+            },
+          }
+        : item));
+      setWorkingState(turn.work);
       setSessions((current) => current.map((item) =>
         item.id === session.id
           ? {
@@ -284,6 +280,7 @@ export default function PursuitPage() {
           }
         : current);
     } catch (err) {
+      setMessages((current) => current.filter((item) => item.id !== assistantId));
       setError(err instanceof Error ? err.message : "Stryde couldn't continue the conversation.");
     } finally {
       setWorking(false);
