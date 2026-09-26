@@ -283,7 +283,7 @@ export async function ingestUrlSource(rawUrl: string): Promise<IngestedSource> {
       contentSha256: contentText ? hash(contentText) : null,
       sourceMetadata: {
         ingestion: "URL",
-        final_url: fetched.response.url,
+        final_url: fetched.finalUrl ?? fetched.response.url,
         youtube_video_id: videoId,
         truncated: contentText ? contentText.length >= MAX_SOURCE_CHARS : false,
       },
