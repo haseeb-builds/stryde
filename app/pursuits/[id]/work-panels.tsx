@@ -4,6 +4,12 @@ import { useCallback, useEffect, useState } from "react";
 import type { WorkingState } from "@/lib/work-controller";
 import { supabase } from "@/lib/supabase";
 
+async function getAuthToken() {
+  const { data } = await supabase.auth.getSession();
+  if (!data.session) throw new Error("Session expired. Please sign in again.");
+  return data.session.access_token;
+}
+
 type Source = { id:string; source_kind:"URL"|"PASTED"; uri:string|null; title:string|null; fetch_status:string };
 type Adaptation = { id:string; source_id:string; summary:string; methods:Array<{title:string;sequence:number;description:string;expected_change:string}>; fit:{status:string}; gaps:string[]; conflicts:string[]; goal_candidates:Array<{goal:string;why:string;conditions:string[]}> };
 type Action = { id:string; intent_summary:string; status:string };
@@ -21,10 +27,9 @@ export default function PursuitWorkPanels(props:{
   const [result,setResult]=useState(""); const [note,setNote]=useState(""); const [resultStatus,setResultStatus]=useState<"COMPLETED"|"FAILED">("COMPLETED");
   const [busy,setBusy]=useState(false); const [error,setError]=useState("");
 
-  const auth=async()=>{const {data}=await supabase.auth.getSession();if(!data.session)throw new Error("Session expired. Please sign in again.");return data.session.access_token;};
   const refresh=useCallback(async()=>{
     if(!sessionId)return;
-    const access=await auth();
+    const access=await getAuthToken();
     const [sr,ar]=await Promise.all([
       fetch(`/api/v1/pursuits/${pursuitId}/sources`,{headers:{Authorization:`Bearer ${access}`}}),
       fetch(`/api/v1/pursuits/${pursuitId}/actions?status=IN_PROGRESS`,{headers:{Authorization:`Bearer ${access}`}})
@@ -46,7 +51,7 @@ export default function PursuitWorkPanels(props:{
   const addSource=async()=>{
     if(busy||!sessionActive||(mode==="URL"?!url.trim():!text.trim()))return; setBusy(true);setError("");
     try{
-      const access=await auth();
+      const access=await getAuthToken();
       const r=await fetch(`/api/v1/pursuits/${pursuitId}/sources`,{method:"POST",headers:{"Content-Type":"application/json",Authorization:`Bearer ${access}`},body:JSON.stringify(mode==="URL"?{url:url.trim(),title:title.trim()||undefined}:{content:text.trim(),title:title.trim()||undefined})});
       const b=await r.json() as {source?:Source;adaptation?:Adaptation|null;warning?:string|null;error?:string};
       if(!r.ok||!b.source)throw new Error(b.error||"Unable to add source.");
@@ -58,17 +63,17 @@ export default function PursuitWorkPanels(props:{
 
   const adoptGoal=async(sourceId:string,goal:string)=>{
     if(busy||!sessionId||!sessionActive)return;setBusy(true);setError("");
-    try{const access=await auth();const r=await fetch(`/api/v1/pursuits/${pursuitId}/objective`,{method:"POST",headers:{"Content-Type":"application/json",Authorization:`Bearer ${access}`},body:JSON.stringify({content:goal,source_id:sourceId})});const b=await r.json() as {error?:string};if(!r.ok)throw new Error(b.error||"Unable to set the goal.");await reassess(access);}catch(e){setError(e instanceof Error?e.message:"Unable to set the goal.");}finally{setBusy(false);}
+    try{const access=await getAuthToken();const r=await fetch(`/api/v1/pursuits/${pursuitId}/objective`,{method:"POST",headers:{"Content-Type":"application/json",Authorization:`Bearer ${access}`},body:JSON.stringify({content:goal,source_id:sourceId})});const b=await r.json() as {error?:string};if(!r.ok)throw new Error(b.error||"Unable to set the goal.");await reassess(access);}catch(e){setError(e instanceof Error?e.message:"Unable to set the goal.");}finally{setBusy(false);}
   };
 
   const startAction=async()=>{
     if(busy||!sessionId||!sessionActive||activeAction)return;setBusy(true);setError("");
-    try{const access=await auth();const r=await fetch(`/api/v1/pursuits/${pursuitId}/actions/start`,{method:"POST",headers:{"Content-Type":"application/json",Authorization:`Bearer ${access}`},body:JSON.stringify({session_id:sessionId,approved:true})});const b=await r.json() as {action?:Action;working_state?:WorkingState;error?:string};if(!r.ok||!b.action)throw new Error(b.error||"Unable to start the Action.");setActiveAction(b.action);if(b.working_state)onWorkingStateChange(b.working_state);}catch(e){setError(e instanceof Error?e.message:"Unable to start the Action.");}finally{setBusy(false);}
+    try{const access=await getAuthToken();const r=await fetch(`/api/v1/pursuits/${pursuitId}/actions/start`,{method:"POST",headers:{"Content-Type":"application/json",Authorization:`Bearer ${access}`},body:JSON.stringify({session_id:sessionId,approved:true})});const b=await r.json() as {action?:Action;working_state?:WorkingState;error?:string};if(!r.ok||!b.action)throw new Error(b.error||"Unable to start the Action.");setActiveAction(b.action);if(b.working_state)onWorkingStateChange(b.working_state);}catch(e){setError(e instanceof Error?e.message:"Unable to start the Action.");}finally{setBusy(false);}
   };
 
   const recordResult=async()=>{
     if(busy||!sessionId||!activeAction)return;if(!result.trim()){setError("Record what actually happened before closing the Action.");return;}setBusy(true);setError("");
-    try{const access=await auth();const r=await fetch(`/api/v1/pursuits/${pursuitId}/actions/${activeAction.id}/complete`,{method:"POST",headers:{"Content-Type":"application/json",Authorization:`Bearer ${access}`},body:JSON.stringify({session_id:sessionId,terminal_status:resultStatus,result:{text:result.trim()},note:note.trim()||undefined})});const b=await r.json() as {working_state?:WorkingState;error?:string};if(!r.ok||!b.working_state)throw new Error(b.error||"Unable to record the Action result.");setActiveAction(null);setResult("");setNote("");onWorkingStateChange(b.working_state);}catch(e){setError(e instanceof Error?e.message:"Unable to record the Action result.");}finally{setBusy(false);}
+    try{const access=await getAuthToken();const r=await fetch(`/api/v1/pursuits/${pursuitId}/actions/${activeAction.id}/complete`,{method:"POST",headers:{"Content-Type":"application/json",Authorization:`Bearer ${access}`},body:JSON.stringify({session_id:sessionId,terminal_status:resultStatus,result:{text:result.trim()},note:note.trim()||undefined})});const b=await r.json() as {working_state?:WorkingState;error?:string};if(!r.ok||!b.working_state)throw new Error(b.error||"Unable to record the Action result.");setActiveAction(null);setResult("");setNote("");onWorkingStateChange(b.working_state);}catch(e){setError(e instanceof Error?e.message:"Unable to record the Action result.");}finally{setBusy(false);}
   };
 
   const move=workingState?.next_move;
