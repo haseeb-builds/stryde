@@ -59,4 +59,4 @@ Every major implementation slice should add or pass a focused evaluation.
 - Build/typecheck passes.
 - No stale provider configuration.
 - No secrets in client bundles or model context.
-- RLS/security advisors are clean for changed database surfaces.
+- RLS/security advisors have been inspected for changed database surfaces; pre-existing findings remain tracked and are not silently treated as clean.
