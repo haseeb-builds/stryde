@@ -48,12 +48,6 @@ export default function PursuitWorkPanels(props:{
     return () => window.clearTimeout(timer);
   },[refresh]);
 
-  useEffect(() => {
-    if (completedActionId && activeAction?.id === completedActionId) {
-      setActiveAction(null);
-    }
-  }, [completedActionId, activeAction?.id]);
-
   const reassess=async(access:string)=>{
     if(!sessionId)return;
     const r=await fetch(`/api/v1/pursuits/${pursuitId}/work`,{method:"POST",headers:{"Content-Type":"application/json",Authorization:`Bearer ${access}`},body:JSON.stringify({session_id:sessionId})});
