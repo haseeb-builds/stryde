@@ -239,7 +239,6 @@ export default function PursuitPage() {
       return;
     }
 
-    const startingInput = input.trim();
     const recognition = new Recognition();
     recognition.continuous = true;
     recognition.interimResults = false;
