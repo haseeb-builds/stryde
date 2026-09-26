@@ -38,7 +38,12 @@ export default function PursuitWorkPanels(props:{
     const sb=await sr.json() as {sources?:Source[];adaptations?:Adaptation[]}; const ab=await ar.json() as {actions?:Action[]};
     setSources(sb.sources??[]);setAdaptations(sb.adaptations??[]);setActiveAction(ab.actions?.[0]??null);
   },[pursuitId,sessionId]);
-  useEffect(()=>{void refresh().catch(e=>setError(e instanceof Error?e.message:"Unable to refresh work state."));},[refresh]);
+  useEffect(()=>{
+    const timer = window.setTimeout(() => {
+      void refresh().catch(e=>setError(e instanceof Error?e.message:"Unable to refresh work state."));
+    }, 0);
+    return () => window.clearTimeout(timer);
+  },[refresh]);
 
   const reassess=async(access:string)=>{
     if(!sessionId)return;
