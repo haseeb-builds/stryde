@@ -37,7 +37,7 @@ The workspace should support:
 - server-side context assembly so the client cannot define the model's history;
 - capability-gated research/source retrieval;
 - deterministic Action/Decision/Claim mutations;
-- one real controlled execution path;
+- capability-gated controlled execution infrastructure;
 - evidence capture and deterministic verification.
 
 The user-facing contract is:
