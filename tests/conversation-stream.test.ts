@@ -3,6 +3,7 @@ import test from "node:test";
 import { extractMessagePrefix, readSseData, readSseFrames } from "../lib/conversation-stream.ts";
 import { createConversationCommitter } from "../lib/conversation-commit.ts";
 import { consumeConversationStream } from "../lib/conversation-client-stream.ts";
+import { createModelProvider, readModelProviderConfig } from "../lib/model-provider.ts";
 
 test("SSE frames reconstruct across arbitrary transport chunks", () => {
   let buffer = "";
@@ -99,4 +100,34 @@ test("client consumes progressive deltas before the final turn", async () => {
   const turn = await consumeConversationStream<{ message: string }>(response, (delta) => deltas.push(delta), () => undefined);
   assert.deepEqual(deltas, ["Hel", "lo"]);
   assert.equal(turn.message, "Hello");
+});
+
+test("provider adapter maps structured OpenAI-compatible responses", async () => {
+  const provider = createModelProvider({ provider: "groq", apiKey: "key", baseUrl: "https://api.groq.com/openai/v1", model: "test" }, async () => new Response(JSON.stringify({ choices: [{ message: { content: '{"ok":true}' } }] }), { status: 200 }));
+  assert.deepEqual(await provider.generateStructured({ schemaName: "test", schema: { type: "object" }, prompt: "x" }), { ok: true });
+});
+
+test("provider adapter streams Gemini and OpenAI-compatible deltas", async () => {
+  const sse = (value: unknown) => `data: ${JSON.stringify(value)}\n\n`;
+  const provider = createModelProvider({ provider: "groq", apiKey: "key", baseUrl: "https://api.groq.com/openai/v1", model: "test" }, async () => {
+    return new Response(new ReadableStream({ start(controller) { controller.enqueue(new TextEncoder().encode(sse({ choices: [{ delta: { content: '{"' } }] }) + sse({ choices: [{ delta: { content: 'ok":true}' } }] }))); controller.close(); } }), { status: 200 });
+  });
+  let text = "";
+  await provider.streamStructured({ schemaName: "test", schema: { type: "object" }, prompt: "x", onText: (delta) => { text += delta; } });
+  assert.equal(text, '{"ok":true}');
+});
+
+test("provider configuration rejects mismatched endpoints and malformed output", async () => {
+  assert.throws(() => readModelProviderConfig({ STRYDE_MODEL_PROVIDER: "gemini", STRYDE_MODEL_API_KEY: "key", STRYDE_MODEL_BASE_URL: "https://api.groq.com" } as unknown as NodeJS.ProcessEnv), /Invalid model configuration/);
+  const provider = createModelProvider({ provider: "groq", apiKey: "key", baseUrl: "https://api.groq.com", model: "test" }, async () => new Response("{}", { status: 200 }));
+  await assert.rejects(provider.generateStructured({ schemaName: "test", schema: {}, prompt: "x" }), /no text output|missing choices/);
+});
+
+test("provider adapter propagates cancellation", async () => {
+  const controller = new AbortController();
+  const provider = createModelProvider({ provider: "groq", apiKey: "key", baseUrl: "https://api.groq.com", model: "test" }, async (_url, init) => {
+    assert.equal(init?.signal, controller.signal);
+    throw new DOMException("Aborted", "AbortError");
+  });
+  await assert.rejects(provider.generateStructured({ schemaName: "test", schema: {}, prompt: "x", signal: controller.signal }), /Aborted/);
 });

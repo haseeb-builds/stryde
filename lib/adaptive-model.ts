@@ -4,6 +4,7 @@ import {
   validateAdaptiveWorkingState,
 } from "@/lib/adaptive-work-controller";
 import type { WorkingState } from "@/lib/work-controller";
+import { getModelProvider } from "@/lib/model-provider";
 
 const DEFAULT_OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 const DEFAULT_OPENROUTER_MODEL = "openrouter/free";
@@ -237,6 +238,9 @@ async function callStructuredModel(
   prompt: string,
   maxOutputTokens: number,
 ): Promise<{ parsed: unknown; provider: string; model: string }> {
+  const providerClient = getModelProvider();
+  return { parsed: await providerClient.generateStructured({ schemaName: name, schema, prompt, maxOutputTokens }), provider: providerClient.name, model: providerClient.model };
+  /* legacy transport retained below only as a temporary source reference */
   const { provider, apiKey, baseUrl, model } = getModelConfig();
 
   if (provider === "gemini") {

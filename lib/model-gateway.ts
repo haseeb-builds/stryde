@@ -1,6 +1,7 @@
 import { validateModelProposal, type ModelProposal } from "@/lib/orchestration";
 import { WORKING_STATE_SCHEMA, buildWorkControllerPrompt, validateWorkingState, type WorkingState } from "@/lib/work-controller";
 import { extractMessagePrefix, readSseData, readSseFrames } from "@/lib/conversation-stream";
+import { getModelProvider } from "@/lib/model-provider";
 
 const DEFAULT_OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 const DEFAULT_OPENROUTER_MODEL = "openrouter/free";
@@ -266,6 +267,9 @@ async function callStructuredModel(
   input: string,
   maxOutputTokens = 1_000,
 ): Promise<{ parsed: unknown; provider: string; model: string }> {
+  const providerClient = getModelProvider();
+  return { parsed: await providerClient.generateStructured({ schemaName, schema, prompt: input, maxOutputTokens }), provider: providerClient.name, model: providerClient.model };
+  /* legacy transport retained below only as a temporary source reference */
   const { provider, apiKey, baseUrl, model } = getModelConfig();
 
   if (provider === "gemini") {
@@ -501,6 +505,21 @@ export async function streamConversationTurn(
   const userMessage = input.userMessage.trim();
   if (!userMessage) throw new Error("userMessage must be non-empty");
   if (userMessage.length > MAX_MESSAGE_CHARS) throw new Error("userMessage is too long");
+
+  const providerClient = getModelProvider();
+  let streamedText = "";
+  let streamedPreviousMessage = "";
+  await providerClient.streamStructured({ schemaName: "stryde_conversation_turn", schema: CONVERSATION_TURN_SCHEMA, prompt: buildConversationPrompt(input), maxOutputTokens: 1_000, signal, onText: (delta) => {
+    streamedText += delta;
+    const message = extractMessagePrefix(streamedText);
+    if (message.length > streamedPreviousMessage.length && message.startsWith(streamedPreviousMessage)) {
+      emit({ type: "message_delta", content: message.slice(streamedPreviousMessage.length) });
+      streamedPreviousMessage = message;
+    }
+  }});
+  const streamedTurn = validateConversationTurn(parseJsonText(streamedText));
+  emit({ type: "complete", turn: streamedTurn, provider: providerClient.name, model: providerClient.model });
+  return { turn: streamedTurn, provider: providerClient.name, model: providerClient.model };
 
   const { provider, apiKey, baseUrl, model } = getModelConfig();
   const schema = CONVERSATION_TURN_SCHEMA;
