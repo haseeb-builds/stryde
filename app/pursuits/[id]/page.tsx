@@ -44,7 +44,7 @@ function statusLabel(status: WorkingState["status"]) {
   return status.replaceAll("_", " ").toLowerCase();
 }
 
-function moveLabel(mode: WorkingState["next_move"]["mode"]) {
+function moveLabel(mode: NonNullable<WorkingState["next_move"]>["mode"]) {
   return mode.replaceAll("_", " ").toLowerCase();
 }
 
