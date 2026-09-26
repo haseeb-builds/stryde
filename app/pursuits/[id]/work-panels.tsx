@@ -19,8 +19,9 @@ export default function PursuitWorkPanels(props:{
   pursuitId:string; sessionId:string|null; sessionActive:boolean;
   workingState:WorkingState|null; onWorkingStateChange:(state:WorkingState)=>void;
   onActionStatusRequest:(actionId:string,status:"COMPLETED"|"FAILED")=>void;
+  completedActionId?:string|null;
 }) {
-  const { pursuitId, sessionId, sessionActive, workingState, onWorkingStateChange, onActionStatusRequest } = props;
+  const { pursuitId, sessionId, sessionActive, workingState, onWorkingStateChange, onActionStatusRequest, completedActionId } = props;
   const [sources,setSources]=useState<Source[]>([]);
   const [adaptations,setAdaptations]=useState<Adaptation[]>([]);
   const [activeAction,setActiveAction]=useState<Action|null>(null);
@@ -47,6 +48,12 @@ export default function PursuitWorkPanels(props:{
     }, 0);
     return () => window.clearTimeout(timer);
   },[refresh]);
+
+  useEffect(() => {
+    if (completedActionId && activeAction?.id === completedActionId) {
+      setActiveAction(null);
+    }
+  }, [completedActionId, activeAction?.id]);
 
   const reassess=async(access:string)=>{
     if(!sessionId)return;
