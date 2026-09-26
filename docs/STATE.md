@@ -4,7 +4,7 @@ Updated: 2026-09-26
 
 ## Current repository
 - GitHub: haseeb-builds/stryde
-- Branch: feature/adaptive-pursuit-source-execution
+- Branch: main
 - Baseline audited at: 5125b1ae84a6abfe4f0591c8d820a5b5878df34d4
 - Control-plane docs and model-health wiring were added after that baseline; those changes still require runtime/build verification.
 - Next.js 16.2.9 / React 19.2.4
@@ -39,12 +39,17 @@ Updated: 2026-09-26
 - Workspace controls now expose source ingestion, goal adoption, human Action start, and result recording.
 - URL ingestion validates public HTTP(S) hosts and every redirect before following them; binary sources are saved as unsupported rather than fabricated into text.
 
+## Verified adaptive pursuit slice
+- Merged as commit `f35bef7b34c17a18fb686a1226c23dddadd48a46` after CI run 78 passed TypeScript, ESLint, and production build.
+- Live Supabase migration `adaptive_pursuit_sources_and_human_feedback` is applied; new source/adaptation RLS policies and public INVOKER wrappers were verified from the live catalog.
+- The associated Vercel status on the merge commit is still `pending` as of the latest check; deployment completion has not been assumed.
+
 ## Known incomplete / next
 - Production Gemini configuration still requires live environment verification.
 - Conversation transport is currently non-streaming in the active route.
 - Conversation and reasoning now load persisted session context server-side; no arbitrary client transcript is accepted as the reasoning source.
 - The Work Controller projection is persisted and shown as one current move. HUMAN CREATE_ACTION is wired through deterministic approval; autonomous research, controlled tools, and arbitrary file extraction remain capability-gated/unavailable.
-- The preceding merged Work Controller change passed CI; the current adaptive pursuit branch is separately gated by its own CI run before merge.
+- The Work Controller baseline and adaptive pursuit slice have both passed the repository CI gate.
 - The workspace now drives the real HUMAN Action lifecycle; model reasoning still does not directly authorize side effects.
 - Tool registry and capability grants are currently empty in the connected database, so no genuine controlled external action exists yet.
 - Controlled verification remains unproven end-to-end; the HUMAN path records an Observation after user-reported results, but user reports are not automatically VERIFIED.
@@ -53,7 +58,7 @@ Updated: 2026-09-26
 
 ## Evidence note
 - The adaptive source/human-feedback migration has been applied to the connected Supabase project and its tables, functions, and RLS policies were verified by live catalog queries.
-- Runtime/CI verification for this branch is still required before merge; this document deliberately does not mark the full adaptive loop as production-proven yet.
+- The end-to-end adaptive loop is implemented, but real production behavior still requires exercising authenticated source ingestion, human execution, and result/replan flows on the deployed app.
 
 ## Working rule
 Never report an item as complete because a file, endpoint, database table, or agent claim exists. Accept only test/runtime evidence.
