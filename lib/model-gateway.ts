@@ -1,5 +1,5 @@
 import { validateModelProposal, type ModelProposal } from "@/lib/orchestration";
-import { WORKING_STATE_SCHEMA, validateWorkingState, type WorkingState } from "@/lib/work-controller";
+import { WORKING_STATE_SCHEMA, buildWorkControllerPrompt, validateWorkingState, type WorkingState } from "@/lib/work-controller";
 
 const DEFAULT_OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 const DEFAULT_OPENROUTER_MODEL = "openrouter/free";
@@ -416,6 +416,27 @@ export async function runConversationTurn(input: {
 
   const result = await callStructuredModel("stryde_conversation_turn", CONVERSATION_TURN_SCHEMA, prompt);
   return { turn: validateConversationTurn(result.parsed), provider: result.provider, model: result.model };
+}
+
+
+export async function runWorkController(input: {
+  pursuitTitle: string;
+  situation: unknown;
+  conversation: ConversationMessage[];
+  previousWorkingState: WorkingState | null;
+}): Promise<{ workingState: WorkingState; provider: string; model: string }> {
+  const prompt = buildWorkControllerPrompt({
+    pursuitTitle: input.pursuitTitle,
+    situation: input.situation,
+    conversation: input.conversation,
+    previousWorkingState: input.previousWorkingState,
+  });
+  const result = await callStructuredModel("stryde_work_controller", WORKING_STATE_SCHEMA, prompt);
+  return {
+    workingState: validateWorkingState(result.parsed),
+    provider: result.provider,
+    model: result.model,
+  };
 }
 
 export type { ConversationMessage };
