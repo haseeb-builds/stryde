@@ -92,25 +92,44 @@ function youtubeVideoId(url: URL) {
 }
 
 async function fetchBody(url: URL) {
-  const response = await fetch(url, {
-    redirect: "follow",
-    cache: "no-store",
-    headers: {
-      "User-Agent": "StrydeSourceFetcher/1.0",
-      Accept: "text/html,text/plain,application/json,application/xml,text/xml,text/vtt,*/*;q=0.1",
-    },
-    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-  });
-  const contentType = response.headers.get("content-type")?.split(";")[0].trim().toLowerCase() || null;
-  const contentLength = Number(response.headers.get("content-length") || "0");
-  if (contentLength > MAX_SOURCE_BYTES) {
-    return { response, contentType, status: "UNSUPPORTED" as const, body: "" };
+  let current = url;
+  for (let redirectCount = 0; redirectCount < 4; redirectCount += 1) {
+    const response = await fetch(current, {
+      redirect: "manual",
+      cache: "no-store",
+      headers: {
+        "User-Agent": "StrydeSourceFetcher/1.0",
+        Accept: "text/html,text/plain,application/json,application/xml,text/xml,text/vtt,*/*;q=0.1",
+      },
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+    });
+
+    if (response.status >= 300 && response.status < 400) {
+      const location = response.headers.get("location");
+      if (!location) return { response, contentType: null, status: "FAILED" as const, body: "" };
+      current = await assertPublicHttpUrl(new URL(location, current).toString());
+      continue;
+    }
+
+    const contentType = response.headers.get("content-type")?.split(";")[0].trim().toLowerCase() || null;
+    const contentLength = Number(response.headers.get("content-length") || "0");
+    if (contentLength > MAX_SOURCE_BYTES) {
+      return { response, contentType, status: "UNSUPPORTED" as const, body: "", finalUrl: current.toString() };
+    }
+
+    const buffer = new Uint8Array(await response.arrayBuffer());
+    if (buffer.byteLength > MAX_SOURCE_BYTES) {
+      return { response, contentType, status: "UNSUPPORTED" as const, body: "", finalUrl: current.toString() };
+    }
+    return {
+      response,
+      contentType,
+      status: "OK" as const,
+      body: new TextDecoder("utf-8", { fatal: false }).decode(buffer),
+      finalUrl: current.toString(),
+    };
   }
-  const buffer = new Uint8Array(await response.arrayBuffer());
-  if (buffer.byteLength > MAX_SOURCE_BYTES) {
-    return { response, contentType, status: "UNSUPPORTED" as const, body: "" };
-  }
-  return { response, contentType, status: "OK" as const, body: new TextDecoder("utf-8", { fatal: false }).decode(buffer) };
+  throw new Error("Source URL redirected too many times");
 }
 
 function extractYouTubeTranscript(html: string) {
