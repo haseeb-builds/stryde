@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { consumeConversationStream } from "@/lib/conversation-client-stream";
@@ -29,6 +29,35 @@ type Session = {
   working_state: WorkingState | null;
   created_at: string;
   updated_at: string;
+};
+
+type ActionReportState = {
+  actionId: string;
+  terminalStatus: "COMPLETED" | "FAILED";
+};
+
+type VoiceRecognitionEvent = {
+  results: ArrayLike<{ length: number; [index: number]: { transcript?: unknown } }>;
+};
+
+type VoiceRecognition = {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  start: () => void;
+  stop: () => void;
+  onresult: ((event: VoiceRecognitionEvent) => void) | null;
+  onend: (() => void) | null;
+  onerror: (() => void) | null;
+};
+
+type VoiceRecognitionConstructor = new () => VoiceRecognition;
+
+declare global {
+  interface Window {
+    SpeechRecognition?: VoiceRecognitionConstructor;
+    webkitSpeechRecognition?: VoiceRecognitionConstructor;
+  }
 };
 
 const STARTERS: Option[] = [
@@ -63,6 +92,11 @@ export default function PursuitPage() {
   const [working, setWorking] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [actionReport, setActionReport] = useState<ActionReportState | null>(null);
+  const [listening, setListening] = useState(false);
+  const [voiceSupported, setVoiceSupported] = useState(false);
+  const composerRef = useRef<HTMLTextAreaElement | null>(null);
+  const voiceRef = useRef<VoiceRecognition | null>(null);
 
   const title = useMemo(() => pursuit?.title || "Untitled pursuit", [pursuit]);
 
@@ -179,6 +213,59 @@ export default function PursuitPage() {
     }
   }
 
+  useEffect(() => {
+    setVoiceSupported(Boolean(window.SpeechRecognition || window.webkitSpeechRecognition));
+    return () => {
+      voiceRef.current?.stop();
+      voiceRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (actionReport) window.setTimeout(() => composerRef.current?.focus(), 0);
+  }, [actionReport]);
+
+  function toggleVoice() {
+    if (listening) {
+      voiceRef.current?.stop();
+      return;
+    }
+
+    const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!Recognition) {
+      setError("Voice input is not available in this browser. You can still use the same composer with typing.");
+      return;
+    }
+
+    const startingInput = input.trim();
+    const recognition = new Recognition();
+    recognition.continuous = true;
+    recognition.interimResults = false;
+    recognition.lang = navigator.language || "en-US";
+    recognition.onresult = (event) => {
+      const spokenParts: string[] = [];
+      for (let index = 0; index < event.results.length; index += 1) {
+        const transcript = event.results[index]?.[0]?.transcript;
+        if (typeof transcript === "string" && transcript.trim()) spokenParts.push(transcript.trim());
+      }
+      const spoken = spokenParts.join(" ").trim();
+      if (spoken) setInput([startingInput, spoken].filter(Boolean).join(" "));
+    };
+    recognition.onerror = () => {
+      setListening(false);
+      voiceRef.current = null;
+      setError("Voice input stopped. You can continue with the same composer.");
+    };
+    recognition.onend = () => {
+      setListening(false);
+      voiceRef.current = null;
+    };
+
+    voiceRef.current = recognition;
+    setListening(true);
+    setError("");
+    recognition.start();
+  }
   async function startWorking() {
     if (working || !session || session.status !== "ACTIVE") return;
     setWorking(true);
@@ -210,6 +297,51 @@ export default function PursuitPage() {
     const content = text.trim();
     if (!content || working || !session || session.status !== "ACTIVE") return;
 
+    if (actionReport) {
+      setWorking(true);
+      setError("");
+      setInput("");
+      try {
+        const access = await token();
+        const response = await fetch(`/api/v1/pursuits/${params.id}/actions/${actionReport.actionId}/complete`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${access}`,
+          },
+          body: JSON.stringify({
+            session_id: session.id,
+            terminal_status: actionReport.terminalStatus,
+            report: content,
+            turn_key: crypto.randomUUID(),
+          }),
+        });
+        const body = (await response.json()) as {
+          working_state?: WorkingState | null;
+          assistant_message?: string;
+          metadata?: Message["metadata"];
+          error?: string;
+        };
+        if (!response.ok || !body.working_state || !body.assistant_message) {
+          throw new Error(body.error || "Stryde could not record what happened.");
+        }
+        setMessages((current) => [...current,
+          { role: "user", content },
+          { role: "stryde", content: body.assistant_message!, metadata: body.metadata ?? { work: body.working_state } },
+        ]);
+        setWorkingState(body.working_state);
+        setSession((current) => current
+          ? { ...current, working_state: body.working_state!, updated_at: new Date().toISOString() }
+          : current,
+        );
+        setActionReport(null);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Stryde could not record what happened.");
+      } finally {
+        setWorking(false);
+      }
+      return;
+    }
     setWorking(true);
     setError("");
     setInput("");
@@ -493,6 +625,11 @@ export default function PursuitPage() {
                 sessionActive={session?.status === "ACTIVE"}
                 workingState={workingState}
                 onWorkingStateChange={setWorkingState}
+                onActionStatusRequest={(actionId, terminalStatus) => {
+                  setActionReport({ actionId, terminalStatus });
+                  setError("");
+                  window.setTimeout(() => composerRef.current?.focus(), 0);
+                }}
               />
 
               {error && <div className="mb-8 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
@@ -501,8 +638,18 @@ export default function PursuitPage() {
 
           <div className="fixed bottom-0 left-0 right-0 border-t border-zinc-200/80 bg-[#f7f7f8]/95 px-3 py-3 backdrop-blur lg:left-72 sm:px-6">
             <div className="mx-auto max-w-3xl">
+              {actionReport && (
+                <div className="mb-2 flex items-center justify-between gap-3 rounded-xl border border-zinc-200 bg-white px-3.5 py-2.5 shadow-sm">
+                  <div className="min-w-0">
+                    <p className="text-xs font-medium text-zinc-800">{actionReport.terminalStatus === "COMPLETED" ? "Action finished" : "Action blocked"}</p>
+                    <p className="mt-0.5 truncate text-[11px] text-zinc-500">Tell Stryde what happened. You do not need to structure it.</p>
+                  </div>
+                  <button type="button" onClick={() => setActionReport(null)} className="shrink-0 text-xs text-zinc-400 hover:text-zinc-800">Cancel</button>
+                </div>
+              )}
               <form onSubmit={submit} className="rounded-2xl border border-zinc-300 bg-white p-2 shadow-[0_8px_30px_rgba(0,0,0,0.06)]">
                 <textarea
+                  ref={composerRef}
                   value={input}
                   onChange={(event) => setInput(event.target.value)}
                   onKeyDown={(event) => {
@@ -513,12 +660,31 @@ export default function PursuitPage() {
                   }}
                   rows={2}
                   disabled={working || session?.status !== "ACTIVE"}
-                  placeholder={session?.status === "ACTIVE" ? "Tell Stryde what's happening…" : "Conversation archived"}
+                  placeholder={
+                    actionReport
+                      ? "Tell Stryde what happened…"
+                      : session?.status === "ACTIVE"
+                        ? "Tell Stryde what's happening…"
+                        : "Conversation archived"
+                  }
                   className="min-h-14 w-full resize-none bg-transparent px-2 py-1 text-[15px] leading-6 outline-none placeholder:text-zinc-400"
                 />
                 <div className="flex items-center justify-between px-1.5 pt-2">
-                  <span className="text-[11px] text-zinc-400">Enter to send · Shift+Enter for a new line</span>
-                  <button type="submit" disabled={working || !input.trim() || session?.status !== "ACTIVE"} className="rounded-xl bg-zinc-900 px-3.5 py-2 text-xs font-medium text-white disabled:opacity-30">Send</button>
+                  <div className="flex min-w-0 items-center gap-2">
+                    {voiceSupported && (
+                      <button
+                        type="button"
+                        onClick={toggleVoice}
+                        disabled={working || session?.status !== "ACTIVE"}
+                        className={`shrink-0 rounded-lg border px-2.5 py-1.5 text-[11px] font-medium ${listening ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-200 text-zinc-500 hover:text-zinc-900"} disabled:opacity-30`}
+                        aria-label={listening ? "Stop voice input" : "Start voice input"}
+                      >
+                        {listening ? "Stop listening" : "Voice"}
+                      </button>
+                    )}
+                    <span className="truncate text-[11px] text-zinc-400">{actionReport ? "Say it naturally · Stryde will structure what matters" : "Enter to send · Shift+Enter for a new line"}</span>
+                  </div>
+                  <button type="submit" disabled={working || !input.trim() || session?.status !== "ACTIVE"} className="shrink-0 rounded-xl bg-zinc-900 px-3.5 py-2 text-xs font-medium text-white disabled:opacity-30">{actionReport ? "Send report" : "Send"}</button>
                 </div>
               </form>
             </div>
