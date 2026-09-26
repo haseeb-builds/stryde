@@ -156,10 +156,11 @@ export function validateWorkingState(value: unknown): WorkingState {
   const candidate = value as Record<string, unknown>;
   if (candidate.version !== 1) throw new Error("Working state version must be 1");
 
-  const status = candidate.status;
-  if (!WORK_STATUSES.includes(status as WorkStatus)) {
+  const rawStatus = candidate.status;
+  if (!WORK_STATUSES.includes(rawStatus as WorkStatus)) {
     throw new Error("Invalid working state status");
   }
+  const status = rawStatus as WorkStatus;
 
   const objective = optionalText(candidate.objective, "objective");
   const understanding = text(candidate.understanding, "understanding");
