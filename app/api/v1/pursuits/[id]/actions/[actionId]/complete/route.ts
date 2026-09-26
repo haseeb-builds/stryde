@@ -46,10 +46,13 @@ export async function POST(request: Request, context: RouteContext) {
       return errorResponse("result must be a JSON object", 400);
     }
     const note = body.note === undefined || body.note === null ? null : typeof body.note === "string" ? body.note.trim().slice(0, 4000) : null;
+    const legacyObject = legacyResult && typeof legacyResult === "object" && !Array.isArray(legacyResult)
+      ? legacyResult as Record<string, unknown>
+      : null;
     const report = typeof body.report === "string"
       ? body.report.trim().slice(0, 12000)
-      : legacyResult && typeof legacyResult.text === "string"
-        ? legacyResult.text.trim().slice(0, 12000)
+      : typeof legacyObject?.text === "string"
+        ? legacyObject.text.trim().slice(0, 12000)
         : legacyResult
           ? JSON.stringify(legacyResult).slice(0, 12000)
           : "";
@@ -69,7 +72,7 @@ export async function POST(request: Request, context: RouteContext) {
 
     const { data: action, error: actionError } = await supabase
       .from("action")
-      .select("id, pursuit_id, execution_mode, status")
+      .select("id, pursuit_id, execution_mode, status, intent_summary")
       .eq("id", actionId)
       .eq("owner_user_id", user.id)
       .maybeSingle();
