@@ -91,7 +91,15 @@ function youtubeVideoId(url: URL) {
   return null;
 }
 
-async function fetchBody(url: URL) {
+type FetchedBody = {
+  response: Response;
+  contentType: string | null;
+  status: "OK" | "UNSUPPORTED" | "FAILED";
+  body: string;
+  finalUrl: string;
+};
+
+async function fetchBody(url: URL): Promise<FetchedBody> {
   let current = url;
   for (let redirectCount = 0; redirectCount < 4; redirectCount += 1) {
     const response = await fetch(current, {
@@ -106,7 +114,7 @@ async function fetchBody(url: URL) {
 
     if (response.status >= 300 && response.status < 400) {
       const location = response.headers.get("location");
-      if (!location) return { response, contentType: null, status: "FAILED" as const, body: "" };
+      if (!location) return { response, contentType: null, status: "FAILED", body: "", finalUrl: current.toString() };
       current = await assertPublicHttpUrl(new URL(location, current).toString());
       continue;
     }
@@ -147,7 +155,8 @@ function extractYouTubeTranscript(html: string) {
 
 async function tryYoutubeTranscript(captionUrl: string) {
   try {
-    const response = await fetch(captionUrl, {
+    const safeCaptionUrl = await assertPublicHttpUrl(captionUrl);
+    const response = await fetch(safeCaptionUrl, {
       redirect: "follow",
       cache: "no-store",
       headers: { "User-Agent": "StrydeSourceFetcher/1.0" },
@@ -203,7 +212,7 @@ export async function ingestUrlSource(rawUrl: string): Promise<IngestedSource> {
     if (!fetched.response.ok) {
       return {
         sourceKind: "URL",
-        uri: url.toString(),
+        uri: fetched.finalUrl || url.toString(),
         title: null,
         contentType: fetched.contentType,
         fetchStatus: "FAILED",
@@ -216,7 +225,7 @@ export async function ingestUrlSource(rawUrl: string): Promise<IngestedSource> {
     if (fetched.status === "UNSUPPORTED") {
       return {
         sourceKind: "URL",
-        uri: url.toString(),
+        uri: fetched.finalUrl || url.toString(),
         title: null,
         contentType: fetched.contentType,
         fetchStatus: "UNSUPPORTED",
@@ -226,15 +235,12 @@ export async function ingestUrlSource(rawUrl: string): Promise<IngestedSource> {
       };
     }
 
-    const isTextual = !!fetched.contentType && (
-      fetched.contentType.includes("text/") ||
-      fetched.contentType.includes("json") ||
-      fetched.contentType.includes("xml")
-    );
+    const fetchedContentType = fetched.contentType ?? "";
+    const isTextual = fetchedContentType.includes("text/") || fetchedContentType.includes("json") || fetchedContentType.includes("xml");
     if (!isTextual) {
       return {
         sourceKind: "URL",
-        uri: url.toString(),
+        uri: fetched.finalUrl || url.toString(),
         title: null,
         contentType: fetched.contentType,
         fetchStatus: "UNSUPPORTED",
@@ -244,8 +250,8 @@ export async function ingestUrlSource(rawUrl: string): Promise<IngestedSource> {
       };
     }
 
-    let title = fetched.contentType.includes("html") ? htmlTitle(fetched.body) : null;
-    let contentText = fetched.contentType.includes("html") ? stripHtml(fetched.body) : normalizeWhitespace(fetched.body);
+    let title = fetchedContentType.includes("html") ? htmlTitle(fetched.body) : null;
+    let contentText: string | null = fetchedContentType.includes("html") ? stripHtml(fetched.body) : normalizeWhitespace(fetched.body);
     let fetchStatus: IngestedSource["fetchStatus"] = "FETCHED";
     const videoId = youtubeVideoId(url);
 
@@ -275,7 +281,7 @@ export async function ingestUrlSource(rawUrl: string): Promise<IngestedSource> {
 
     return {
       sourceKind: "URL",
-      uri: url.toString(),
+      uri: fetched.finalUrl || url.toString(),
       title,
       contentType: fetched.contentType,
       fetchStatus,
