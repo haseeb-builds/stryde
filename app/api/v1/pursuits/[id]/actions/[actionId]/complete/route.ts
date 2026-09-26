@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { runAdaptiveWorkController } from "@/lib/adaptive-model";
+import { fallbackHumanObservation, interpretHumanActionReport } from "@/lib/human-observation";
 import { assembleAdaptiveSituation } from "@/lib/adaptive-situation";
 import { requireAuthenticatedSupabase } from "@/lib/supabase/server";
 
@@ -12,6 +13,20 @@ function errorResponse(message: string, status: number) {
   return NextResponse.json({ error: message }, { status });
 }
 
+function buildActionCompletionMessage(
+  observation: ReturnType<typeof fallbackHumanObservation>,
+  workingState: Awaited<ReturnType<typeof runAdaptiveWorkController>>["workingState"],
+): string {
+  const next = workingState.next_move;
+  const followUp = observation.suggested_follow_up;
+  return [
+    "Got it. I recorded what happened and treated it as user-reported evidence, not verified fact.",
+    observation.summary,
+    next ? `Next, ${next.title.toLowerCase()}.` : "There is no safe next move yet.",
+    followUp ? `One thing would materially help: ${followUp}` : "",
+  ].filter(Boolean).join("\n\n");
+}
+
 export async function POST(request: Request, context: RouteContext) {
   try {
     const { supabase, user } = await requireAuthenticatedSupabase(request.headers.get("authorization"));
@@ -22,13 +37,26 @@ export async function POST(request: Request, context: RouteContext) {
     if (body.terminal_status !== "COMPLETED" && body.terminal_status !== "FAILED" && body.terminal_status !== "CANCELLED") {
       return errorResponse("terminal_status must be COMPLETED, FAILED, or CANCELLED", 400);
     }
+    if (body.turn_key !== undefined && (typeof body.turn_key !== "string" || !body.turn_key.trim())) {
+      return errorResponse("turn_key must be a non-empty string when provided", 400);
+    }
 
-    const result = body.result === undefined ? {} : body.result;
-    if (typeof result !== "object" || result === null || Array.isArray(result)) {
+    const legacyResult = body.result === undefined ? null : body.result;
+    if (legacyResult !== null && (typeof legacyResult !== "object" || Array.isArray(legacyResult))) {
       return errorResponse("result must be a JSON object", 400);
     }
     const note = body.note === undefined || body.note === null ? null : typeof body.note === "string" ? body.note.trim().slice(0, 4000) : null;
+    const report = typeof body.report === "string"
+      ? body.report.trim().slice(0, 12000)
+      : legacyResult && typeof legacyResult.text === "string"
+        ? legacyResult.text.trim().slice(0, 12000)
+        : legacyResult
+          ? JSON.stringify(legacyResult).slice(0, 12000)
+          : "";
+    if (!report) return errorResponse("report is required; tell Stryde what happened", 400);
 
+    const terminalStatus = body.terminal_status as "COMPLETED" | "FAILED" | "CANCELLED";
+    const turnKey = typeof body.turn_key === "string" && body.turn_key.trim() ? body.turn_key.trim() : crypto.randomUUID();
     const sessionId = body.session_id.trim();
     const { data: pursuit, error: pursuitError } = await supabase
       .from("pursuit")
@@ -59,10 +87,68 @@ export async function POST(request: Request, context: RouteContext) {
     if (!session) return errorResponse("Conversation not found", 404);
     if (session.status !== "ACTIVE") return errorResponse("Conversation is archived", 409);
 
+    const { data: recorded, error: recordError } = await supabase.rpc("stryde_record_conversation_user_input", {
+      p_session_id: sessionId,
+      p_turn_key: turnKey,
+      p_content: report,
+    });
+    if (recordError) return errorResponse("Unable to save your Action report", 500);
+    const existingAssistant = recorded?.assistant as { content?: string; metadata?: Record<string, unknown> } | null;
+    if (existingAssistant?.content) {
+      return NextResponse.json({
+        already_recorded: true,
+        assistant_message: existingAssistant.content,
+        metadata: existingAssistant.metadata ?? {},
+        working_state: session.working_state ?? null,
+      }, { status: 200 });
+    }
+
+    const situationBeforeResult = await assembleAdaptiveSituation(supabase, user.id, id);
+    if (situationBeforeResult.error || !situationBeforeResult.situation) {
+      return errorResponse(situationBeforeResult.error ?? "Unable to assemble current Situation", 500);
+    }
+
+    const { data: priorMessages, error: messageError } = await supabase
+      .from("conversation_message")
+      .select("role, content")
+      .eq("session_id", sessionId)
+      .eq("owner_user_id", user.id)
+      .order("sequence_no", { ascending: false })
+      .limit(16);
+    if (messageError) return errorResponse("Unable to load conversation history", 500);
+
+    const conversationBeforeResult = (priorMessages ?? []).reverse().map((item) => ({
+      role: item.role === "USER" ? "user" as const : "stryde" as const,
+      content: item.content,
+    }));
+
+    let observation = fallbackHumanObservation({ report, terminalStatus });
+    let interpretationMeta: { provider: string; model: string } | null = null;
+    try {
+      const interpreted = await interpretHumanActionReport({
+        pursuitTitle: pursuit.title ?? "Untitled pursuit",
+        actionSummary: action.intent_summary,
+        terminalStatus,
+        report,
+        situation: situationBeforeResult.situation,
+        conversation: conversationBeforeResult,
+      });
+      observation = interpreted.observation;
+      interpretationMeta = { provider: interpreted.provider, model: interpreted.model };
+    } catch {
+      // The action must remain recordable even when the model is unavailable.
+    }
+
+    const completionResult = {
+      raw_report: report,
+      interpretation: observation,
+      ...(legacyResult ? { legacy_result: legacyResult } : {}),
+    };
+
     const { data: completion, error: completionError } = await supabase.rpc("stryde_complete_human_action", {
       p_action_id: actionId,
-      p_terminal_status: body.terminal_status,
-      p_result: result,
+      p_terminal_status: terminalStatus,
+      p_result: completionResult,
       p_note: note,
     });
     if (completionError) {
@@ -73,19 +159,7 @@ export async function POST(request: Request, context: RouteContext) {
     const situationResult = await assembleAdaptiveSituation(supabase, user.id, id);
     if (situationResult.error || !situationResult.situation) return errorResponse(situationResult.error ?? "Unable to assemble updated Situation", 500);
 
-    const { data: messages, error: messageError } = await supabase
-      .from("conversation_message")
-      .select("role, content")
-      .eq("session_id", sessionId)
-      .eq("owner_user_id", user.id)
-      .order("sequence_no", { ascending: false })
-      .limit(16);
-    if (messageError) return errorResponse("Unable to load conversation history", 500);
-
-    const conversation = (messages ?? []).reverse().map((item) => ({
-      role: item.role === "USER" ? "user" as const : "stryde" as const,
-      content: item.content,
-    }));
+    const conversation = [...conversationBeforeResult];
 
     let nextWorkingState = session.working_state as Parameters<typeof runAdaptiveWorkController>[0]["previousWorkingState"];
     let modelMeta: { provider: string; model: string } | null = null;
@@ -124,9 +198,35 @@ export async function POST(request: Request, context: RouteContext) {
 
     if (persistError) return errorResponse("Action was recorded, but the next move could not be persisted", 500);
 
+    const assistantMessage = buildActionCompletionMessage(observation, nextWorkingState);
+    const metadata = {
+      question: observation.suggested_follow_up,
+      options: [],
+      ready_for_reasoning: true,
+      focus: "ACTION_REPORT",
+      work: nextWorkingState,
+      observation_interpretation: observation,
+      ...(interpretationMeta ? { observation_model: interpretationMeta } : {}),
+      ...(modelMeta ? { work_model: modelMeta } : {}),
+    };
+
+    const { data: committedTurn, error: commitTurnError } = await supabase.rpc("stryde_commit_conversation_turn", {
+      p_session_id: sessionId,
+      p_turn_key: turnKey,
+      p_content: assistantMessage,
+      p_metadata: metadata,
+      p_working_state: nextWorkingState,
+    });
+    if (commitTurnError) return errorResponse("Action was recorded, but the conversation response could not be saved", 500);
+
     return NextResponse.json({
       completion,
       working_state: nextWorkingState,
+      assistant_message: assistantMessage,
+      metadata,
+      committed_turn: committedTurn,
+      observation_interpretation: observation,
+      ...(interpretationMeta ? { observation_model: interpretationMeta } : {}),
       ...(modelMeta ? { model: modelMeta } : {}),
     }, { status: 200 });
   } catch (error) {
