@@ -1,4 +1,4 @@
-import { ACTOR_TYPES, normalizeActor } from "@/lib/actor";
+import { ACTOR_TYPES, normalizeActor, normalizeWorkerType, WORKER_TYPES, type WorkerType } from "@/lib/actor";
 import { WORK_STATUSES, type NextMove, type WorkingState } from "@/lib/work-controller";
 
 export const ADAPTIVE_WORK_MODES = [
@@ -54,6 +54,7 @@ export const ADAPTIVE_WORKING_STATE_SCHEMA = {
           required: [
             "mode",
             "actor",
+            "worker_type",
             "title",
             "why",
             "expected_change",
@@ -64,6 +65,7 @@ export const ADAPTIVE_WORKING_STATE_SCHEMA = {
           properties: {
             mode: { type: "string", enum: ADAPTIVE_WORK_MODES },
             actor: { type: "string", enum: ACTOR_TYPES },
+            worker_type: { anyOf: [{ type: "string", enum: WORKER_TYPES }, { type: "null" }] },
             title: { type: "string", minLength: 1, maxLength: 300 },
             why: { type: "string", minLength: 1, maxLength: MAX_TEXT },
             expected_change: { type: "string", minLength: 1, maxLength: MAX_TEXT },
@@ -127,9 +129,15 @@ function validateWorkingStateShape(value: unknown): WorkingState {
     if (!ADAPTIVE_WORK_MODES.includes(mode as AdaptiveWorkMode)) {
       throw new Error("Requested adaptive work mode is not enabled");
     }
+    const actor = normalizeActor(mode, move.actor);
+    const worker_type = normalizeWorkerType(actor, move.worker_type);
+    if (actor === "WORKER" && !worker_type) {
+      throw new Error("WORKER next move requires worker_type");
+    }
     next_move = {
       mode: mode as NextMove["mode"],
-      actor: normalizeActor(mode, move.actor),
+      actor,
+      worker_type,
       title: readText(move.title, "next_move.title", 300),
       why: readText(move.why, "next_move.why"),
       expected_change: readText(move.expected_change, "next_move.expected_change"),
@@ -170,8 +178,8 @@ export function buildAdaptiveWorkControllerPrompt(input: {
     "Reality feedback outranks an unsupported source assumption. When evidence conflicts with the source, preserve the conflict and adapt the approach.",
     "User effort is scarce. Prefer work Stryde can do internally before asking the user for information or action.",
     "The episodic_memory field contains excerpts from prior pursuit conversations. Use it for continuity and unresolved context, but treat prior Stryde messages as hypotheses rather than canonical facts.",
-    "Every next move has an actor allocation: HUMAN, STRYDE, WORKER, or CONTROLLED_TOOL. In this runtime, CREATE_ACTION may only use HUMAN; WORKER and CONTROLLED_TOOL are not dispatchable from this adaptive controller yet.",
-    "Never select EXECUTE_TOOL or RESEARCH_WEB in this runtime. Do not claim web research happened unless a supplied source proves it.",
+    "Every next move has an actor allocation: HUMAN, STRYDE, WORKER, or CONTROLLED_TOOL. Use WORKER only when the supplied situation shows an active worker capability, and include its worker_type. Do not allocate a worker merely because delegation sounds useful.",
+    "Never select EXECUTE_TOOL or RESEARCH_WEB unless the supplied runtime explicitly exposes those capabilities. Worker delegation is separate from CONTROLLED_TOOL execution.",
     "Never invent quantities, stakeholders, dates, customers, experiments, conversion rates, revenue, benchmarks, or outcomes.",
     "Sources are retrieved through the source-ingestion pathway; the controller must not claim it can fetch new sources in this runtime. For FAILED or UNSUPPORTED sources, choose ASK_USER and ask for usable material.",
     "Use RECHECK after an action/result exists and the next move is to reassess what reality says.",
