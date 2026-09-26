@@ -4,6 +4,7 @@ import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import type { WorkingState } from "@/lib/work-controller";
+import PursuitWorkPanels from "./work-panels";
 
 type Pursuit = { id: string; title: string | null; status: string };
 type Option = { label: string; value: string };
@@ -488,6 +489,14 @@ export default function PursuitPage() {
                   )}
                 </>
               )}
+
+              <PursuitWorkPanels
+                pursuitId={pursuit.id}
+                sessionId={session?.id ?? null}
+                sessionActive={session?.status === "ACTIVE"}
+                workingState={workingState}
+                onWorkingStateChange={setWorkingState}
+              />
 
               {error && <div className="mb-8 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
             </div>

@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
+import { runAdaptiveWorkController } from "@/lib/adaptive-model";
 import { runConversationTurn, type ConversationMessage } from "@/lib/model-gateway";
+import { assembleAdaptiveSituation } from "@/lib/adaptive-situation";
 import { assembleSituation } from "@/lib/situation";
 import { requireAuthenticatedSupabase } from "@/lib/supabase/server";
 
@@ -78,18 +80,34 @@ export async function POST(request: Request, context: RouteContext) {
 
     const { error: insertUserError } = await supabase
       .from("conversation_message")
-      .insert({ session_id: sessionId, owner_user_id: user.id, role: "USER", content: message, sequence_no: sequenceNo });
+      .insert({
+        session_id: sessionId,
+        owner_user_id: user.id,
+        role: "USER",
+        content: message,
+        sequence_no: sequenceNo,
+      });
     if (insertUserError) return errorResponse("Unable to save your message", 500);
 
     const { error: touchError } = await supabase
       .from("conversation_session")
-      .update({ updated_at: new Date().toISOString(), ...(sequenceNo === 1 && !session.title ? { title: sessionTitle(message) } : {}) })
+      .update({
+        updated_at: new Date().toISOString(),
+        ...(sequenceNo === 1 && !session.title ? { title: sessionTitle(message) } : {}),
+      })
       .eq("id", sessionId)
       .eq("owner_user_id", user.id);
     if (touchError) return errorResponse("Unable to update conversation", 500);
 
     const situationResult = await assembleSituation(supabase, user.id, id);
-    if (situationResult.error || !situationResult.situation) return errorResponse(situationResult.error ?? "Unable to assemble Situation", 500);
+    if (situationResult.error || !situationResult.situation) {
+      return errorResponse(situationResult.error ?? "Unable to assemble Situation", 500);
+    }
+
+    const conversationWithUser: ConversationMessage[] = [
+      ...conversation,
+      { role: "user", content: message },
+    ];
 
     const result = await runConversationTurn({
       pursuitTitle: pursuit.title ?? "Untitled pursuit",
@@ -98,6 +116,31 @@ export async function POST(request: Request, context: RouteContext) {
       userMessage: message,
       workingState: (session.working_state ?? null) as Parameters<typeof runConversationTurn>[0]["workingState"],
     });
+
+    let work = result.turn.work;
+    let workModel = { provider: result.provider, model: result.model };
+
+    if (session.working_state) {
+      try {
+        const adaptiveSituationResult = await assembleAdaptiveSituation(supabase, user.id, id);
+        if (adaptiveSituationResult.error || !adaptiveSituationResult.situation) {
+          throw new Error(adaptiveSituationResult.error ?? "Unable to assemble adaptive Situation");
+        }
+
+        const adaptive = await runAdaptiveWorkController({
+          pursuitTitle: pursuit.title ?? "Untitled pursuit",
+          situation: adaptiveSituationResult.situation,
+          conversation: conversationWithUser,
+          previousWorkingState: session.working_state as Parameters<typeof runAdaptiveWorkController>[0]["previousWorkingState"],
+        });
+        work = adaptive.workingState;
+        workModel = { provider: adaptive.provider, model: adaptive.model };
+      } catch {
+        // Preserve the last safe working state rather than failing the user's conversation
+        // because adaptive reassessment was temporarily unavailable.
+        work = session.working_state as Parameters<typeof runAdaptiveWorkController>[0]["previousWorkingState"] & {};
+      }
+    }
 
     const { error: insertAssistantError } = await supabase
       .from("conversation_message")
@@ -112,7 +155,7 @@ export async function POST(request: Request, context: RouteContext) {
           options: result.turn.options,
           ready_for_reasoning: result.turn.ready_for_reasoning,
           focus: result.turn.focus,
-          work: result.turn.work,
+          work,
         },
       });
     if (insertAssistantError) return errorResponse("Unable to save Stryde's response", 500);
@@ -120,7 +163,7 @@ export async function POST(request: Request, context: RouteContext) {
     const { error: workingStateError } = await supabase
       .from("conversation_session")
       .update({
-        working_state: result.turn.work,
+        working_state: work,
         updated_at: new Date().toISOString(),
       })
       .eq("id", sessionId)
@@ -128,8 +171,8 @@ export async function POST(request: Request, context: RouteContext) {
     if (workingStateError) return errorResponse("Unable to persist Stryde's working state", 500);
 
     return NextResponse.json({
-      turn: result.turn,
-      model: { provider: result.provider, model: result.model },
+      turn: { ...result.turn, work },
+      model: workModel,
     });
   } catch (error) {
     if (error instanceof SyntaxError) return errorResponse("Request body must be valid JSON", 400);

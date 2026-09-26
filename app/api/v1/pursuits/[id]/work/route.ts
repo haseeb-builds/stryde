@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { runWorkController, type ConversationMessage } from "@/lib/model-gateway";
-import { assembleSituation } from "@/lib/situation";
+import { runAdaptiveWorkController } from "@/lib/adaptive-model";
+import { assembleAdaptiveSituation } from "@/lib/adaptive-situation";
 import { requireAuthenticatedSupabase } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
@@ -46,7 +46,9 @@ export async function POST(request: Request, context: RouteContext) {
       .maybeSingle();
     if (sessionError) return errorResponse("Unable to load conversation", 500);
     if (!session) return errorResponse("Conversation not found", 404);
-    if (session.status !== "ACTIVE") return errorResponse("Conversation is archived. Start a new conversation to continue.", 409);
+    if (session.status !== "ACTIVE") {
+      return errorResponse("Conversation is archived. Start a new conversation to continue.", 409);
+    }
 
     const { data: messages, error: messageError } = await supabase
       .from("conversation_message")
@@ -57,8 +59,8 @@ export async function POST(request: Request, context: RouteContext) {
       .limit(16);
     if (messageError) return errorResponse("Unable to load conversation history", 500);
 
-    const conversation: ConversationMessage[] = (messages ?? []).reverse().map((item) => ({
-      role: item.role === "USER" ? "user" : "stryde",
+    const conversation = (messages ?? []).reverse().map((item) => ({
+      role: item.role === "USER" ? "user" as const : "stryde" as const,
       content: item.content,
     }));
 
@@ -66,16 +68,16 @@ export async function POST(request: Request, context: RouteContext) {
       return errorResponse("There is no conversation to work from yet", 409);
     }
 
-    const situationResult = await assembleSituation(supabase, user.id, id);
+    const situationResult = await assembleAdaptiveSituation(supabase, user.id, id);
     if (situationResult.error || !situationResult.situation) {
-      return errorResponse(situationResult.error ?? "Unable to assemble Situation", 500);
+      return errorResponse(situationResult.error ?? "Unable to assemble adaptive Situation", 500);
     }
 
-    const result = await runWorkController({
+    const result = await runAdaptiveWorkController({
       pursuitTitle: pursuit.title ?? "Untitled pursuit",
       situation: situationResult.situation,
       conversation,
-      previousWorkingState: (session.working_state ?? null) as Parameters<typeof runWorkController>[0]["previousWorkingState"],
+      previousWorkingState: (session.working_state ?? null) as Parameters<typeof runAdaptiveWorkController>[0]["previousWorkingState"],
     });
 
     const { error: persistError } = await supabase
@@ -89,13 +91,26 @@ export async function POST(request: Request, context: RouteContext) {
 
     if (persistError) return errorResponse("Unable to persist Stryde's working state", 500);
 
+    const { data: activeAction, error: activeActionError } = await supabase
+      .from("action")
+      .select("id, execution_mode, intent_summary, status, created_at, updated_at")
+      .eq("owner_user_id", user.id)
+      .eq("pursuit_id", id)
+      .eq("status", "IN_PROGRESS")
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (activeActionError) return errorResponse("Unable to load active Action", 500);
+
     return NextResponse.json({
       working_state: result.workingState,
+      active_action: activeAction ?? null,
       model: { provider: result.provider, model: result.model },
     });
   } catch (error) {
     if (error instanceof SyntaxError) return errorResponse("Request body must be valid JSON", 400);
-    const message = error instanceof Error ? error.message : "Work Controller failed";
+    const message = error instanceof Error ? error.message : "Adaptive Work Controller failed";
     return errorResponse(message, message.includes("token") ? 401 : 500);
   }
 }

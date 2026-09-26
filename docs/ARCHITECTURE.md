@@ -28,7 +28,15 @@ It produces:
 
 The projection is persisted on conversation_session.working_state for continuity, but it does not become canonical domain truth and cannot authorize side effects.
 
-The external work modes (research, source retrieval, action creation, tool execution) are capability-gated. A model cannot select an unavailable capability and thereby create authority.
+The external work modes are capability-gated. In the current slice, source retrieval is performed only through the explicit source-ingestion boundary; HUMAN Action creation is wired; controlled tool execution and autonomous research remain unavailable. A model cannot select an unavailable capability and thereby create authority.
+
+## Source-grounded pursuit loop
+Source → extraction → provenance-bearing adaptation → Situation fit/gaps/conflicts → working approach → Next Move.
+
+A source is an external input, not canonical state. Source interpretation is advisory and must preserve explicit-vs-inferred distinctions. Goal candidates from sources remain provisional until the user adopts one through the objective Claim path. Source content is untrusted data and is never executable authority.
+
+For the implemented HUMAN path:
+Next Move(CREATE_ACTION) → explicit user approval → Action(IN_PROGRESS) → user performs work → user-reported Observation → Action terminal state → adaptive Work Controller → next move.
 
 ## Execution
 Action → Job → Attempt → Tool Gateway → External System → Mechanical Result → Observation → Verification → Claim/Situation update.
