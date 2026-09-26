@@ -438,8 +438,28 @@ export async function runAdaptiveWorkController(input: {
 }): Promise<{ workingState: WorkingState; provider: string; model: string }> {
   const prompt = buildAdaptiveWorkControllerPrompt(input);
   const result = await callStructuredModel("stryde_adaptive_work_controller", ADAPTIVE_WORKING_STATE_SCHEMA, prompt, 2_600);
+  const workingState = validateAdaptiveWorkingState(result.parsed);
+  const availableWorkers = new Set(
+    (input.situation && typeof input.situation === "object" && "worker_capabilities" in input.situation
+      ? (input.situation as { worker_capabilities?: unknown }).worker_capabilities
+      : []
+    )
+      ?.filter((item): item is { worker_type?: unknown } => typeof item === "object" && item !== null)
+      .map((item) => item.worker_type)
+      .filter((item): item is string => item === "HERMES" || item === "OPENCODE") ?? [],
+  );
+
+  if (workingState.next_move?.actor === "WORKER" && workingState.next_move.worker_type && !availableWorkers.has(workingState.next_move.worker_type)) {
+    workingState.next_move = {
+      ...workingState.next_move,
+      actor: "STRYDE",
+      worker_type: null,
+      stryde_can_do: "Stryde will handle this step internally until an authorized worker capability is available.",
+    };
+  }
+
   return {
-    workingState: validateAdaptiveWorkingState(result.parsed),
+    workingState,
     provider: result.provider,
     model: result.model,
   };
