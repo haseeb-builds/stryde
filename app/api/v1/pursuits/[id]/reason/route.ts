@@ -9,7 +9,7 @@ export const runtime = "nodejs";
 export const maxDuration = 55;
 type RouteContext = { params: Promise<{ id: string }> };
 
-type RequestBody = { input?: unknown; model_proposal?: unknown };
+type RequestBody = { session_id?: unknown; instruction?: unknown; model_proposal?: unknown };
 
 export async function POST(request: Request, context: RouteContext) {
   let supabaseForRecovery: Awaited<ReturnType<typeof requireAuthenticatedSupabase>>["supabase"] | null = null;
@@ -34,22 +34,51 @@ export async function POST(request: Request, context: RouteContext) {
       }
     }
 
-    const input = typeof requestBody.input === "string"
-      ? { text: requestBody.input, pursuit_id: id }
-      : requestBody.input && typeof requestBody.input === "object"
-        ? requestBody.input as { text?: unknown; pursuit_id?: unknown }
-        : null;
-
-    if (!input || typeof input.text !== "string" || input.text.trim().length === 0) {
-      return NextResponse.json({ error: "input must be a non-empty string or { text: string }" }, { status: 400 });
+    if (typeof requestBody.session_id !== "string" || !requestBody.session_id.trim()) {
+      return NextResponse.json({ error: "session_id must be provided" }, { status: 400 });
+    }
+    if (requestBody.instruction !== undefined && (typeof requestBody.instruction !== "string" || requestBody.instruction.trim().length > 2_000)) {
+      return NextResponse.json({ error: "instruction must be a string of at most 2000 characters" }, { status: 400 });
     }
 
-    const normalizedInput = { text: input.text.trim(), pursuit_id: typeof input.pursuit_id === "string" ? input.pursuit_id : id };
-    if (normalizedInput.pursuit_id !== id) {
-      return NextResponse.json({ error: "pursuit_id must match route id" }, { status: 400 });
-    }
+    const sessionId = requestBody.session_id.trim();
+    const { data: session, error: sessionError } = await supabase
+      .from("conversation_session")
+      .select("id, pursuit_id, status")
+      .eq("id", sessionId)
+      .eq("pursuit_id", id)
+      .eq("owner_user_id", user.id)
+      .maybeSingle();
+    if (sessionError) return NextResponse.json({ error: "Unable to load conversation" }, { status: 500 });
+    if (!session) return NextResponse.json({ error: "Conversation not found" }, { status: 404 });
 
-    const run = await createRun(supabase, "PURSUIT_REASON", { pursuit_id: id, input_text: normalizedInput.text });
+    const { data: priorMessages, error: messagesError } = await supabase
+      .from("conversation_message")
+      .select("role, content")
+      .eq("session_id", sessionId)
+      .eq("owner_user_id", user.id)
+      .order("sequence_no", { ascending: true })
+      .limit(16);
+    if (messagesError) return NextResponse.json({ error: "Unable to load conversation history" }, { status: 500 });
+
+    const conversation = (priorMessages ?? []).map((item) => ({
+      role: item.role === "USER" ? "user" as const : "stryde" as const,
+      content: item.content,
+    }));
+
+    const latestUserMessage = [...conversation].reverse().find((item) => item.role === "user")?.content;
+    const normalizedInput = {
+      text: (typeof requestBody.instruction === "string" && requestBody.instruction.trim())
+        ? requestBody.instruction.trim()
+        : latestUserMessage?.trim() || "Reassess the current situation and determine the next useful intervention.",
+      pursuit_id: id,
+    };
+
+    const run = await createRun(supabase, "PURSUIT_REASON", {
+      pursuit_id: id,
+      session_id: sessionId,
+      input_text: normalizedInput.text,
+    });
     runId = run.id;
 
     await transitionRun(supabase, run.id, "CONTEXT_ASSEMBLY");
@@ -62,7 +91,7 @@ export async function POST(request: Request, context: RouteContext) {
       return NextResponse.json({ error: situationResult.error ?? "Unable to assemble situation", run_id: run.id }, { status: 500 });
     }
 
-    const prompt = buildReasoningPrompt(normalizedInput, situationResult.situation);
+    const prompt = buildReasoningPrompt(normalizedInput, situationResult.situation, conversation);
     const modelResult = requestBody.model_proposal !== undefined
       ? { proposal: requestBody.model_proposal, provider: "development", model: "supplied" }
       : await runModelProposal(prompt);
