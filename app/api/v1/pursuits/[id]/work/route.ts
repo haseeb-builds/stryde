@@ -53,11 +53,11 @@ export async function POST(request: Request, context: RouteContext) {
       .select("role, content")
       .eq("session_id", sessionId)
       .eq("owner_user_id", user.id)
-      .order("sequence_no", { ascending: true })
+      .order("sequence_no", { ascending: false })
       .limit(16);
     if (messageError) return errorResponse("Unable to load conversation history", 500);
 
-    const conversation: ConversationMessage[] = (messages ?? []).map((item) => ({
+    const conversation: ConversationMessage[] = (messages ?? []).reverse().map((item) => ({
       role: item.role === "USER" ? "user" : "stryde",
       content: item.content,
     }));
