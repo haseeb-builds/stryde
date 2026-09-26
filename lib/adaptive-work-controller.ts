@@ -1,8 +1,7 @@
-import { WORK_MODES, WORK_STATUSES, type NextMove, type WorkingState, validateWorkingState } from "@/lib/work-controller";
+import { WORK_STATUSES, type NextMove, type WorkingState, validateWorkingState } from "@/lib/work-controller";
 
 export const ADAPTIVE_WORK_MODES = [
   "ASK_USER",
-  "RETRIEVE_SOURCE",
   "ANALYZE",
   "DRAFT",
   "DECIDE",
@@ -169,7 +168,7 @@ export function buildAdaptiveWorkControllerPrompt(input: {
     "When user action is required, choose CREATE_ACTION and make the human action concrete. CREATE_ACTION means a HUMAN action in this runtime; it does not grant controlled tool access.",
     "Never select EXECUTE_TOOL or RESEARCH_WEB in this runtime. Do not claim web research happened unless a supplied source proves it.",
     "Never invent quantities, stakeholders, dates, customers, experiments, conversion rates, revenue, benchmarks, or outcomes.",
-    "Use RETRIEVE_SOURCE only when a saved source lacks usable content and the next step is genuinely source retrieval. UNSUPPORTED sources should lead to a targeted user request to provide usable content.",
+    "Sources are retrieved through the source-ingestion pathway; the controller must not claim it can fetch new sources in this runtime. For FAILED or UNSUPPORTED sources, choose ASK_USER and ask for usable material.",
     "Use RECHECK after an action/result exists and the next move is to reassess what reality says.",
     "Exactly one current next move. Do not expose a giant roadmap as the UI. You may use the source's sequence internally, but the user sees the next move.",
     "Return JSON only matching the WorkingState contract.",
