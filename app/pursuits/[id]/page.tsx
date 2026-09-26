@@ -103,7 +103,6 @@ export default function PursuitPage() {
   const [actionReport, setActionReport] = useState<ActionReportState | null>(null);
   const [completedActionId, setCompletedActionId] = useState<string | null>(null);
   const [listening, setListening] = useState(false);
-  const [voiceSupported, setVoiceSupported] = useState(false);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const voiceRef = useRef<VoiceRecognition | null>(null);
 
@@ -223,12 +222,13 @@ export default function PursuitPage() {
   }
 
   useEffect(() => {
-    setVoiceSupported(Boolean(window.SpeechRecognition || window.webkitSpeechRecognition));
     return () => {
       voiceRef.current?.stop();
       voiceRef.current = null;
     };
   }, []);
+
+  const voiceSupported = typeof window !== "undefined" && Boolean(window.SpeechRecognition || window.webkitSpeechRecognition);
 
   useEffect(() => {
     if (actionReport) window.setTimeout(() => composerRef.current?.focus(), 0);
