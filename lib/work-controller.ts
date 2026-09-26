@@ -26,6 +26,16 @@ export const WORK_STATUSES = [
 
 export type WorkStatus = (typeof WORK_STATUSES)[number];
 
+export const AVAILABLE_WORK_MODES = [
+  "ASK_USER",
+  "ANALYZE",
+  "DRAFT",
+  "DECIDE",
+  "WAIT",
+  "RECHECK",
+  "STOP",
+] as const;
+
 export type NextMove = {
   mode: WorkMode;
   title: string;
@@ -162,6 +172,9 @@ export function validateWorkingState(value: unknown): WorkingState {
     if (typeof candidate.next_move !== "object") throw new Error("next_move must be an object or null");
     const move = candidate.next_move as Record<string, unknown>;
     if (!WORK_MODES.includes(move.mode as WorkMode)) throw new Error("Invalid next move mode");
+    if (!AVAILABLE_WORK_MODES.includes(move.mode as (typeof AVAILABLE_WORK_MODES)[number])) {
+      throw new Error("Requested work mode is not currently available");
+    }
     next_move = {
       mode: move.mode as WorkMode,
       title: text(move.title, "next_move.title", 300),
@@ -175,6 +188,9 @@ export function validateWorkingState(value: unknown): WorkingState {
 
   if (status === "COMPLETE" && next_move) {
     throw new Error("Complete working state cannot have a next move");
+  }
+  if (next_move?.mode === "STOP" && status !== "COMPLETE") {
+    throw new Error("STOP is only valid for a complete working state");
   }
   if (status !== "COMPLETE" && status !== "STALLED" && !next_move) {
     throw new Error("Active working state requires a next move");
