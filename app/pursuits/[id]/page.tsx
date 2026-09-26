@@ -18,7 +18,8 @@ type Message = {
     question?: string | null;
     ready_for_reasoning?: boolean;
     focus?: string | null;
-    work?: WorkingState;
+    work?: WorkingState | null;
+    [key: string]: unknown;
   } | null;
 };
 type Session = {
