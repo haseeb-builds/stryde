@@ -37,6 +37,7 @@ type ActionReportState = {
 };
 
 type VoiceRecognitionEvent = {
+  resultIndex: number;
   results: ArrayLike<{ length: number; [index: number]: { transcript?: unknown } }>;
 };
 
@@ -93,6 +94,7 @@ export default function PursuitPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [actionReport, setActionReport] = useState<ActionReportState | null>(null);
+  const [completedActionId, setCompletedActionId] = useState<string | null>(null);
   const [listening, setListening] = useState(false);
   const [voiceSupported, setVoiceSupported] = useState(false);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
@@ -244,12 +246,14 @@ export default function PursuitPage() {
     recognition.lang = navigator.language || "en-US";
     recognition.onresult = (event) => {
       const spokenParts: string[] = [];
-      for (let index = 0; index < event.results.length; index += 1) {
+      for (let index = event.resultIndex; index < event.results.length; index += 1) {
         const transcript = event.results[index]?.[0]?.transcript;
         if (typeof transcript === "string" && transcript.trim()) spokenParts.push(transcript.trim());
       }
       const spoken = spokenParts.join(" ").trim();
-      if (spoken) setInput([startingInput, spoken].filter(Boolean).join(" "));
+      if (spoken) {
+        setInput((current) => [current.trim(), spoken].filter(Boolean).join(" "));
+      }
     };
     recognition.onerror = () => {
       setListening(false);
@@ -335,6 +339,7 @@ export default function PursuitPage() {
           : current,
         );
         setActionReport(null);
+        setCompletedActionId(actionReport.actionId);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Stryde could not record what happened.");
       } finally {
@@ -625,7 +630,9 @@ export default function PursuitPage() {
                 sessionActive={session?.status === "ACTIVE"}
                 workingState={workingState}
                 onWorkingStateChange={setWorkingState}
+                completedActionId={completedActionId}
                 onActionStatusRequest={(actionId, terminalStatus) => {
+                  setCompletedActionId(null);
                   setActionReport({ actionId, terminalStatus });
                   setError("");
                   window.setTimeout(() => composerRef.current?.focus(), 0);
