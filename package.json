@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "preflight": "node --experimental-strip-types scripts/runtime-preflight.ts",
     "start": "next start",
     "lint": "eslint",
     "test": "node --experimental-strip-types --test tests/**/*.test.ts",
