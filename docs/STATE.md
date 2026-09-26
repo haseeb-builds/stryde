@@ -42,7 +42,7 @@ Updated: 2026-09-26
 ## Verified adaptive pursuit slice
 - Merged as commit `f35bef7b34c17a18fb686a1226c23dddadd48a46` after CI run 78 passed TypeScript, ESLint, and production build.
 - Live Supabase migration `adaptive_pursuit_sources_and_human_feedback` is applied; new source/adaptation RLS policies and public INVOKER wrappers were verified from the live catalog.
-- The associated Vercel status on the merge commit is still `pending` as of the latest check; deployment completion has not been assumed.
+- The associated Vercel status on the merged `main` commit is `success` as of the latest check.
 
 ## Known incomplete / next
 - Production Gemini configuration still requires live environment verification.
