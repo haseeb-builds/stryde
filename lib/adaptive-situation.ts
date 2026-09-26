@@ -10,11 +10,18 @@ export type MemoryEpisode = {
   latest_stryde_message: string | null;
 };
 
+export type WorkerCapability = {
+  worker_type: "HERMES" | "OPENCODE";
+  tool_id: string;
+  tool_version: string;
+};
+
 export type AdaptiveSituation = Situation & {
   sources: unknown[];
   source_adaptations: unknown[];
   observations: unknown[];
   episodic_memory: MemoryEpisode[];
+  worker_capabilities: WorkerCapability[];
 };
 
 export async function assembleAdaptiveSituation(
@@ -25,7 +32,7 @@ export async function assembleAdaptiveSituation(
   const base = await assembleSituation(supabase, ownerUserId, pursuitId);
   if (base.error || !base.situation) return { situation: null, error: base.error ?? "Unable to assemble Situation" };
 
-  const [sourcesResult, actionsResult, observationsResult, sessionsResult] = await Promise.all([
+  const [sourcesResult, actionsResult, observationsResult, sessionsResult, workerGrantsResult] = await Promise.all([
     supabase
       .from("pursuit_source")
       .select("id, source_kind, uri, title, content_type, fetch_status, content_sha256, source_metadata, created_at, updated_at")
@@ -52,9 +59,14 @@ export async function assembleAdaptiveSituation(
       .eq("pursuit_id", pursuitId)
       .order("updated_at", { ascending: false })
       .limit(8),
+    supabase
+      .from("capability_grant")
+      .select("tool_id, expires_at, revoked_at, tool:tool_id(tool_key, tool_version)")
+      .eq("owner_user_id", ownerUserId)
+      .is("revoked_at", null),
   ]);
 
-  if (sourcesResult.error || actionsResult.error || observationsResult.error || sessionsResult.error) {
+  if (sourcesResult.error || actionsResult.error || observationsResult.error || sessionsResult.error || workerGrantsResult.error) {
     return { situation: null, error: "Unable to assemble adaptive Situation" };
   }
 
@@ -90,6 +102,21 @@ export async function assembleAdaptiveSituation(
       if (!latestBySource.has(adaptation.source_id)) latestBySource.set(adaptation.source_id, adaptation);
     }
     adaptations = [...latestBySource.values()];
+  }
+
+  const now = Date.now();
+  const worker_capabilities: WorkerCapability[] = [];
+  for (const grant of workerGrantsResult.data ?? []) {
+    if (grant.expires_at && new Date(grant.expires_at).getTime() <= now) continue;
+    const tool = Array.isArray(grant.tool) ? grant.tool[0] : grant.tool;
+    const toolKey = tool && typeof tool === "object" ? tool.tool_key : null;
+    const toolVersion = tool && typeof tool === "object" ? tool.tool_version : null;
+    if (toolKey === "worker.hermes" && typeof grant.tool_id === "string" && toolVersion === "v1") {
+      worker_capabilities.push({ worker_type: "HERMES", tool_id: grant.tool_id, tool_version: toolVersion });
+    }
+    if (toolKey === "worker.opencode" && typeof grant.tool_id === "string" && toolVersion === "v1") {
+      worker_capabilities.push({ worker_type: "OPENCODE", tool_id: grant.tool_id, tool_version: toolVersion });
+    }
   }
 
   const sessionIds = (sessionsResult.data ?? []).map((session) => session.id as string);
@@ -133,6 +160,7 @@ export async function assembleAdaptiveSituation(
       source_adaptations: adaptations,
       observations,
       episodic_memory: episodicMemory,
+      worker_capabilities,
     },
     error: null,
   };
