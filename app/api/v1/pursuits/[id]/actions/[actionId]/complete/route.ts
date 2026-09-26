@@ -30,6 +30,15 @@ export async function POST(request: Request, context: RouteContext) {
     const note = body.note === undefined || body.note === null ? null : typeof body.note === "string" ? body.note.trim().slice(0, 4000) : null;
 
     const sessionId = body.session_id.trim();
+    const { data: pursuit, error: pursuitError } = await supabase
+      .from("pursuit")
+      .select("id, title")
+      .eq("id", id)
+      .eq("owner_user_id", user.id)
+      .maybeSingle();
+    if (pursuitError) return errorResponse("Unable to load Pursuit", 500);
+    if (!pursuit) return errorResponse("Pursuit not found", 404);
+
     const { data: session, error: sessionError } = await supabase
       .from("conversation_session")
       .select("id, status, working_state")
@@ -70,10 +79,10 @@ export async function POST(request: Request, context: RouteContext) {
     }));
 
     const resultState = await runAdaptiveWorkController({
-      pursuitTitle: id,
+      pursuitTitle: pursuit.title ?? "Untitled pursuit",
       situation: situationResult.situation,
       conversation,
-      previousWorkingState: session.working_state,
+      previousWorkingState: (session.working_state ?? null) as Parameters<typeof runAdaptiveWorkController>[0]["previousWorkingState"],
     });
 
     const { error: persistError } = await supabase
