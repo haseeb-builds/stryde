@@ -39,6 +39,15 @@ export async function POST(request: Request, context: RouteContext) {
     if (pursuitError) return errorResponse("Unable to load Pursuit", 500);
     if (!pursuit) return errorResponse("Pursuit not found", 404);
 
+    const { data: action, error: actionError } = await supabase
+      .from("action")
+      .select("id, pursuit_id, execution_mode, status")
+      .eq("id", actionId)
+      .eq("owner_user_id", user.id)
+      .maybeSingle();
+    if (actionError) return errorResponse("Unable to load Action", 500);
+    if (!action || action.pursuit_id !== id) return errorResponse("Action not found for this Pursuit", 404);
+
     const { data: session, error: sessionError } = await supabase
       .from("conversation_session")
       .select("id, status, working_state")
