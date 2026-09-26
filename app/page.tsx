@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 
@@ -17,7 +17,7 @@ export default function HomePage() {
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
 
-  async function loadPursuits() {
+  const loadPursuits = useCallback(async () => {
     const { data: sessionData } = await supabase.auth.getSession();
     const token = sessionData.session?.access_token;
     if (!token) {
@@ -29,13 +29,13 @@ export default function HomePage() {
     if (!response.ok) return;
     const body = (await response.json()) as { pursuits?: Pursuit[] };
     setPursuits(body.pursuits ?? []);
-  }
+  }, []);
 
   useEffect(() => {
-    void loadPursuits();
+    void Promise.resolve().then(loadPursuits);
     const { data } = supabase.auth.onAuthStateChange(() => { void loadPursuits(); });
     return () => data.subscription.unsubscribe();
-  }, []);
+  }, [loadPursuits]);
 
   function validateCredentials() {
     if (!email.trim()) return "Enter your email address.";

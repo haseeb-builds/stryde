@@ -19,7 +19,7 @@ export async function GET(request: Request, context: RouteContext) {
 
     const { data: sessions, error } = await supabase
       .from("conversation_session")
-      .select("id, pursuit_id, title, status, created_at, updated_at")
+      .select("id, pursuit_id, title, status, working_state, created_at, updated_at")
       .eq("pursuit_id", id)
       .eq("owner_user_id", user.id)
       .order("updated_at", { ascending: false })
@@ -56,8 +56,8 @@ export async function POST(request: Request, context: RouteContext) {
 
     const { data: session, error: createError } = await supabase
       .from("conversation_session")
-      .insert({ owner_user_id: user.id, pursuit_id: id, status: "ACTIVE", updated_at: now })
-      .select("id, pursuit_id, title, status, created_at, updated_at")
+      .insert({ owner_user_id: user.id, pursuit_id: id, status: "ACTIVE", working_state: null, updated_at: now })
+      .select("id, pursuit_id, title, status, working_state, created_at, updated_at")
       .single();
     if (createError) return NextResponse.json({ error: "Unable to start a new conversation" }, { status: 500 });
     return NextResponse.json({ session }, { status: 201 });

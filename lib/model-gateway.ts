@@ -1,4 +1,5 @@
 import { validateModelProposal, type ModelProposal } from "@/lib/orchestration";
+import { WORKING_STATE_SCHEMA, buildWorkControllerPrompt, validateWorkingState, type WorkingState } from "@/lib/work-controller";
 
 const DEFAULT_OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 const DEFAULT_OPENROUTER_MODEL = "openrouter/free";
@@ -32,6 +33,7 @@ export type ConversationTurn = {
   options: ConversationOption[];
   ready_for_reasoning: boolean;
   focus: string | null;
+  work: WorkingState;
 };
 
 const MODEL_PROPOSAL_SCHEMA = {
@@ -67,7 +69,7 @@ const MODEL_PROPOSAL_SCHEMA = {
 const CONVERSATION_TURN_SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["message", "question", "options", "ready_for_reasoning", "focus"],
+  required: ["message", "question", "options", "ready_for_reasoning", "focus", "work"],
   properties: {
     message: { type: "string", minLength: 1, maxLength: 8000 },
     question: {
@@ -90,6 +92,7 @@ const CONVERSATION_TURN_SCHEMA = {
     focus: {
       anyOf: [{ type: "string", maxLength: 2000 }, { type: "null" }],
     },
+    work: WORKING_STATE_SCHEMA,
   },
 } as const;
 
@@ -232,6 +235,7 @@ async function callStructuredModel(
   schemaName: string,
   schema: object,
   input: string,
+  maxOutputTokens = 1_000,
 ): Promise<{ parsed: unknown; provider: string; model: string }> {
   const { provider, apiKey, baseUrl, model } = getModelConfig();
 
@@ -248,7 +252,7 @@ async function callStructuredModel(
           contents: [{ parts: [{ text: input }] }],
           generationConfig: {
             temperature: 0,
-            maxOutputTokens: 1_000,
+            maxOutputTokens,
             thinkingConfig: { thinkingBudget: 1_024 },
             responseMimeType: "application/json",
             responseSchema: toGeminiSchema(schema),
@@ -319,7 +323,7 @@ async function callStructuredModel(
         : {}),
       temperature: 0,
       ...(provider === "groq" ? { reasoning_effort: "low" } : {}),
-      max_tokens: provider === "groq" ? 800 : 1_000,
+      max_tokens: provider === "groq" ? Math.min(maxOutputTokens, 800) : maxOutputTokens,
       stream: false,
     }),
     signal: AbortSignal.timeout(45_000),
@@ -363,7 +367,8 @@ function validateConversationTurn(value: unknown): ConversationTurn {
   const question = candidate.question === null || candidate.question === undefined ? null : typeof candidate.question === "string" && candidate.question.trim() ? candidate.question.trim().slice(0, 4000) : null;
   const focus = candidate.focus === null || candidate.focus === undefined ? null : typeof candidate.focus === "string" && candidate.focus.trim() ? candidate.focus.trim().slice(0, 2000) : null;
   if (typeof candidate.ready_for_reasoning !== "boolean") throw new Error("ready_for_reasoning must be boolean");
-  return { message: candidate.message.trim().slice(0, 8000), question, options, ready_for_reasoning: candidate.ready_for_reasoning, focus };
+  const work = validateWorkingState(candidate.work);
+  return { message: candidate.message.trim().slice(0, 8000), question, options, ready_for_reasoning: candidate.ready_for_reasoning, focus, work };
 }
 
 export async function runConversationTurn(input: {
@@ -371,13 +376,19 @@ export async function runConversationTurn(input: {
   situation: unknown;
   conversation: ConversationMessage[];
   userMessage: string;
+  workingState?: WorkingState | null;
 }): Promise<{ turn: ConversationTurn; provider: string; model: string }> {
   const userMessage = input.userMessage.trim();
   if (!userMessage) throw new Error("userMessage must be non-empty");
   if (userMessage.length > MAX_MESSAGE_CHARS) throw new Error("userMessage is too long");
 
   const history = sanitizeConversation([...input.conversation, { role: "user", content: userMessage }]);
-  const workingContext = JSON.stringify({ pursuit_title: input.pursuitTitle, canonical_situation: input.situation, conversation: history });
+  const workingContext = JSON.stringify({
+    pursuit_title: input.pursuitTitle,
+    canonical_situation: input.situation,
+    previous_working_state: input.workingState ?? null,
+    conversation: history,
+  });
 
   const prompt = [
     "You are Stryde, a persistent situational-intelligence system.",
@@ -395,6 +406,9 @@ export async function runConversationTurn(input: {
     "The conversation is working memory, not canonical domain state. Canonical situation evidence is separate and should not be silently rewritten.",
     "When the user corrects your interpretation, accept the correction and use it as the new working signal.",
     "Never use a progress label such as 'Step 1 of 3'. The interaction is adaptive.",
+    "Alongside the conversational response, return an updated WorkingState projection. It is working state, not canonical truth.",
+    "The WorkingState must identify known facts, material unknowns, the current bottleneck, and one smallest useful next move.",
+    "Do not output a multi-step roadmap as next_move. Keep larger plans internal.",
     "Return structured JSON only matching the ConversationTurn contract.",
     "Set ready_for_reasoning=true only when there is enough understanding to run the canonical reasoning kernel without inventing missing facts.",
     "",
@@ -403,6 +417,27 @@ export async function runConversationTurn(input: {
 
   const result = await callStructuredModel("stryde_conversation_turn", CONVERSATION_TURN_SCHEMA, prompt);
   return { turn: validateConversationTurn(result.parsed), provider: result.provider, model: result.model };
+}
+
+
+export async function runWorkController(input: {
+  pursuitTitle: string;
+  situation: unknown;
+  conversation: ConversationMessage[];
+  previousWorkingState: WorkingState | null;
+}): Promise<{ workingState: WorkingState; provider: string; model: string }> {
+  const prompt = buildWorkControllerPrompt({
+    pursuitTitle: input.pursuitTitle,
+    situation: input.situation,
+    conversation: input.conversation,
+    previousWorkingState: input.previousWorkingState,
+  });
+  const result = await callStructuredModel("stryde_work_controller", WORKING_STATE_SCHEMA, prompt, 2_200);
+  return {
+    workingState: validateWorkingState(result.parsed),
+    provider: result.provider,
+    model: result.model,
+  };
 }
 
 export type { ConversationMessage };

@@ -10,7 +10,7 @@ export async function GET(request: Request, context: RouteContext) {
     const { id, sessionId } = await context.params;
     const { data: session, error: sessionError } = await supabase
       .from("conversation_session")
-      .select("id, pursuit_id, title, status, created_at, updated_at")
+      .select("id, pursuit_id, title, status, working_state, created_at, updated_at")
       .eq("id", sessionId)
       .eq("pursuit_id", id)
       .eq("owner_user_id", user.id)

@@ -11,6 +11,25 @@ INPUT → CONTEXT_ASSEMBLY → UNDERSTAND → REASSESS → DIAGNOSE (when necess
 
 RECORD/event capture is cross-cutting infrastructure, not a cognitive stage.
 
+## Work Controller
+The Work Controller is a derived working-state projection, not a new canonical domain entity.
+
+It consumes:
+- the current canonical Situation;
+- the persisted conversation as working context;
+- the previous working-state projection.
+
+It produces:
+- a working objective;
+- current understanding;
+- known facts and material unknowns;
+- the current bottleneck;
+- exactly one derived Next Move.
+
+The projection is persisted on conversation_session.working_state for continuity, but it does not become canonical domain truth and cannot authorize side effects.
+
+The external work modes (research, source retrieval, action creation, tool execution) are capability-gated. A model cannot select an unavailable capability and thereby create authority.
+
 ## Execution
 Action → Job → Attempt → Tool Gateway → External System → Mechanical Result → Observation → Verification → Claim/Situation update.
 
@@ -29,3 +48,5 @@ Run tracks a bounded orchestration lifecycle; it is not the long-running worker.
 
 ## Runtime
 Postgres is the V1 system of record and queue. Next.js is the application/control surface. Keep the system modular without premature microservices.
+
+Conversation history and the working-state projection are continuity aids; canonical claims, decisions, actions, observations, and verification remain separately governed.
