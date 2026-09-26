@@ -43,13 +43,14 @@ export async function POST(request: Request, context: RouteContext) {
 
     const { data: session, error: sessionError } = await supabase
       .from("conversation_session")
-      .select("id, pursuit_id, title, status")
+      .select("id, pursuit_id, title, status, working_state")
       .eq("id", sessionId)
       .eq("pursuit_id", id)
       .eq("owner_user_id", user.id)
       .maybeSingle();
     if (sessionError) return errorResponse("Unable to load conversation", 500);
     if (!session) return errorResponse("Conversation not found", 404);
+    if (session.status !== "ACTIVE") return errorResponse("Conversation is archived. Start a new conversation to continue.", 409);
     if (session.status !== "ACTIVE") return errorResponse("This conversation is archived. Start a new conversation to continue.", 409);
 
     const { data: priorMessages, error: messagesError } = await supabase
@@ -96,6 +97,7 @@ export async function POST(request: Request, context: RouteContext) {
       situation: situationResult.situation,
       conversation,
       userMessage: message,
+      workingState: (session.working_state ?? null) as Parameters<typeof runConversationTurn>[0]["workingState"],
     });
 
     const { error: insertAssistantError } = await supabase
@@ -111,13 +113,20 @@ export async function POST(request: Request, context: RouteContext) {
           options: result.turn.options,
           ready_for_reasoning: result.turn.ready_for_reasoning,
           focus: result.turn.focus,
+          work: result.turn.work,
         },
       });
     if (insertAssistantError) return errorResponse("Unable to save Stryde's response", 500);
 
-    await supabase
+    const { error: workingStateError } = await supabase
       .from("conversation_session")
-      .update({ updated_at: new Date().toISOString() })
+      .update({
+        working_state: result.turn.work,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", sessionId)
+      .eq("owner_user_id", user.id);
+    if (workingStateError) return errorResponse("Unable to persist Stryde's working state", 500);
       .eq("id", sessionId)
       .eq("owner_user_id", user.id);
 
