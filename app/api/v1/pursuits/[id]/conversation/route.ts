@@ -121,19 +121,25 @@ export async function POST(request: Request, context: RouteContext) {
     let workModel = { provider: result.provider, model: result.model };
 
     if (session.working_state) {
-      const adaptiveSituationResult = await assembleAdaptiveSituation(supabase, user.id, id);
-      if (adaptiveSituationResult.error || !adaptiveSituationResult.situation) {
-        return errorResponse(adaptiveSituationResult.error ?? "Unable to assemble adaptive Situation", 500);
-      }
+      try {
+        const adaptiveSituationResult = await assembleAdaptiveSituation(supabase, user.id, id);
+        if (adaptiveSituationResult.error || !adaptiveSituationResult.situation) {
+          throw new Error(adaptiveSituationResult.error ?? "Unable to assemble adaptive Situation");
+        }
 
-      const adaptive = await runAdaptiveWorkController({
-        pursuitTitle: pursuit.title ?? "Untitled pursuit",
-        situation: adaptiveSituationResult.situation,
-        conversation: conversationWithUser,
-        previousWorkingState: session.working_state as Parameters<typeof runAdaptiveWorkController>[0]["previousWorkingState"],
-      });
-      work = adaptive.workingState;
-      workModel = { provider: adaptive.provider, model: adaptive.model };
+        const adaptive = await runAdaptiveWorkController({
+          pursuitTitle: pursuit.title ?? "Untitled pursuit",
+          situation: adaptiveSituationResult.situation,
+          conversation: conversationWithUser,
+          previousWorkingState: session.working_state as Parameters<typeof runAdaptiveWorkController>[0]["previousWorkingState"],
+        });
+        work = adaptive.workingState;
+        workModel = { provider: adaptive.provider, model: adaptive.model };
+      } catch {
+        // Preserve the last safe working state rather than failing the user's conversation
+        // because adaptive reassessment was temporarily unavailable.
+        work = session.working_state as Parameters<typeof runAdaptiveWorkController>[0]["previousWorkingState"];
+      }
     }
 
     const { error: insertAssistantError } = await supabase
