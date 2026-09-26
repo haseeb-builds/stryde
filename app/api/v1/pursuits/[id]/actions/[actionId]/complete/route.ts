@@ -78,16 +78,38 @@ export async function POST(request: Request, context: RouteContext) {
       content: item.content,
     }));
 
-    const resultState = await runAdaptiveWorkController({
-      pursuitTitle: pursuit.title ?? "Untitled pursuit",
-      situation: situationResult.situation,
-      conversation,
-      previousWorkingState: (session.working_state ?? null) as Parameters<typeof runAdaptiveWorkController>[0]["previousWorkingState"],
-    });
+    let nextWorkingState = session.working_state as Parameters<typeof runAdaptiveWorkController>[0]["previousWorkingState"];
+    let modelMeta: { provider: string; model: string } | null = null;
+
+    try {
+      const resultState = await runAdaptiveWorkController({
+        pursuitTitle: pursuit.title ?? "Untitled pursuit",
+        situation: situationResult.situation,
+        conversation,
+        previousWorkingState: nextWorkingState,
+      });
+      nextWorkingState = resultState.workingState;
+      modelMeta = { provider: resultState.provider, model: resultState.model };
+    } catch {
+      nextWorkingState = {
+        ...(nextWorkingState ?? {
+          version: 1,
+          objective: null,
+          understanding: "The Action result was recorded, but Stryde could not reassess the pursuit.",
+          known: [],
+          unknowns: [],
+          bottleneck: "Adaptive reassessment is temporarily unavailable.",
+        }),
+        status: "STALLED",
+        next_move: null,
+        understanding: "The Action result was recorded. Stryde could not safely compute the next move, so it left the pursuit stalled rather than inventing one.",
+        bottleneck: "Adaptive reassessment is temporarily unavailable.",
+      };
+    }
 
     const { error: persistError } = await supabase
       .from("conversation_session")
-      .update({ working_state: resultState.workingState, updated_at: new Date().toISOString() })
+      .update({ working_state: nextWorkingState, updated_at: new Date().toISOString() })
       .eq("id", sessionId)
       .eq("owner_user_id", user.id);
 
@@ -95,8 +117,8 @@ export async function POST(request: Request, context: RouteContext) {
 
     return NextResponse.json({
       completion,
-      working_state: resultState.workingState,
-      model: { provider: resultState.provider, model: resultState.model },
+      working_state: nextWorkingState,
+      ...(modelMeta ? { model: modelMeta } : {}),
     }, { status: 200 });
   } catch (error) {
     if (error instanceof SyntaxError) return errorResponse("Request body must be valid JSON", 400);
