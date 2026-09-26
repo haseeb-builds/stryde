@@ -1,3 +1,4 @@
+import { ACTOR_TYPES, normalizeActor } from "@/lib/actor";
 import { WORK_STATUSES, type NextMove, type WorkingState } from "@/lib/work-controller";
 
 export const ADAPTIVE_WORK_MODES = [
@@ -52,6 +53,7 @@ export const ADAPTIVE_WORKING_STATE_SCHEMA = {
           additionalProperties: false,
           required: [
             "mode",
+            "actor",
             "title",
             "why",
             "expected_change",
@@ -61,6 +63,7 @@ export const ADAPTIVE_WORKING_STATE_SCHEMA = {
           ],
           properties: {
             mode: { type: "string", enum: ADAPTIVE_WORK_MODES },
+            actor: { type: "string", enum: ACTOR_TYPES },
             title: { type: "string", minLength: 1, maxLength: 300 },
             why: { type: "string", minLength: 1, maxLength: MAX_TEXT },
             expected_change: { type: "string", minLength: 1, maxLength: MAX_TEXT },
@@ -126,6 +129,7 @@ function validateWorkingStateShape(value: unknown): WorkingState {
     }
     next_move = {
       mode: mode as NextMove["mode"],
+      actor: normalizeActor(mode, move.actor),
       title: readText(move.title, "next_move.title", 300),
       why: readText(move.why, "next_move.why"),
       expected_change: readText(move.expected_change, "next_move.expected_change"),
@@ -165,7 +169,7 @@ export function buildAdaptiveWorkControllerPrompt(input: {
     "The objective may be tentative. A goal candidate becomes canonical only after the user explicitly adopts it.",
     "Reality feedback outranks an unsupported source assumption. When evidence conflicts with the source, preserve the conflict and adapt the approach.",
     "User effort is scarce. Prefer work Stryde can do internally before asking the user for information or action.",
-    "When user action is required, choose CREATE_ACTION and make the human action concrete. CREATE_ACTION means a HUMAN action in this runtime; it does not grant controlled tool access.",
+    "Every next move has an actor allocation: HUMAN, STRYDE, WORKER, or CONTROLLED_TOOL. In this runtime, CREATE_ACTION may only use HUMAN; WORKER and CONTROLLED_TOOL are not dispatchable from this adaptive controller yet.",
     "Never select EXECUTE_TOOL or RESEARCH_WEB in this runtime. Do not claim web research happened unless a supplied source proves it.",
     "Never invent quantities, stakeholders, dates, customers, experiments, conversion rates, revenue, benchmarks, or outcomes.",
     "Sources are retrieved through the source-ingestion pathway; the controller must not claim it can fetch new sources in this runtime. For FAILED or UNSUPPORTED sources, choose ASK_USER and ask for usable material.",
