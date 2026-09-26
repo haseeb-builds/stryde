@@ -235,6 +235,7 @@ async function callStructuredModel(
   schemaName: string,
   schema: object,
   input: string,
+  maxOutputTokens = 1_000,
 ): Promise<{ parsed: unknown; provider: string; model: string }> {
   const { provider, apiKey, baseUrl, model } = getModelConfig();
 
@@ -251,7 +252,7 @@ async function callStructuredModel(
           contents: [{ parts: [{ text: input }] }],
           generationConfig: {
             temperature: 0,
-            maxOutputTokens: 1_000,
+            maxOutputTokens,
             thinkingConfig: { thinkingBudget: 1_024 },
             responseMimeType: "application/json",
             responseSchema: toGeminiSchema(schema),
@@ -322,7 +323,7 @@ async function callStructuredModel(
         : {}),
       temperature: 0,
       ...(provider === "groq" ? { reasoning_effort: "low" } : {}),
-      max_tokens: provider === "groq" ? 800 : 1_000,
+      max_tokens: provider === "groq" ? Math.min(maxOutputTokens, 800) : maxOutputTokens,
       stream: false,
     }),
     signal: AbortSignal.timeout(45_000),
@@ -431,7 +432,7 @@ export async function runWorkController(input: {
     conversation: input.conversation,
     previousWorkingState: input.previousWorkingState,
   });
-  const result = await callStructuredModel("stryde_work_controller", WORKING_STATE_SCHEMA, prompt);
+  const result = await callStructuredModel("stryde_work_controller", WORKING_STATE_SCHEMA, prompt, 2_200);
   return {
     workingState: validateWorkingState(result.parsed),
     provider: result.provider,
