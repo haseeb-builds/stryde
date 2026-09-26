@@ -446,10 +446,14 @@ export default function PursuitPage() {
                         <p className="mt-2 text-sm leading-6 text-zinc-600">{currentMove.why}</p>
                       </div>
 
-                      <div className="grid gap-px bg-zinc-100 sm:grid-cols-2">
+                      <div className="grid gap-px bg-zinc-100 sm:grid-cols-3">
                         <div className="bg-white px-5 py-4">
                           <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-zinc-400">What changes</p>
                           <p className="mt-2 text-sm leading-6 text-zinc-700">{currentMove.expected_change}</p>
+                        </div>
+                        <div className="bg-white px-5 py-4">
+                          <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-zinc-400">Stryde will do</p>
+                          <p className="mt-2 text-sm leading-6 text-zinc-700">{currentMove.stryde_can_do}</p>
                         </div>
                         <div className="bg-white px-5 py-4">
                           <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-zinc-400">From you</p>
