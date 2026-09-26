@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createFirecrawlSourceProvider } from "../lib/source-provider.ts";
 import { ingestPastedSource, assertPublicHttpUrl } from "../lib/source-ingestion.ts";
+import { buildSourceCitation } from "../lib/source-citation.ts";
 
 function response(body: unknown, status = 200, headers?: HeadersInit) {
   return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json", ...headers } });
@@ -42,4 +43,14 @@ test("provider output is extraction data only", async () => {
   const result = await provider.extractPublicUrl({ url: "https://example.com" });
   assert.equal(result.content, "claim-like text");
   assert.equal((result as Record<string, unknown>).claim, undefined);
+});
+
+test("citations preserve snapshot identity, exact locator, and basis", () => {
+  const citation = buildSourceCitation({ content: "alpha\nbeta", contentSha256: "hash-1", statement: "alpha", basis: "EXPLICIT_SOURCE" });
+  assert.deepEqual(citation.locator, { type: "CHARACTER_RANGE", start: 0, end: 10 });
+  assert.equal(citation.source_content_sha256, "hash-1");
+  assert.equal(citation.basis, "EXPLICIT_SOURCE");
+  const inferred = buildSourceCitation({ content: "same", contentSha256: "hash-2", statement: "inferred conflict", basis: "INFERRED" });
+  assert.notEqual(citation.source_content_sha256, inferred.source_content_sha256);
+  assert.equal(inferred.basis, "INFERRED");
 });

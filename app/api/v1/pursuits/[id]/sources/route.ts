@@ -3,6 +3,7 @@ import { runSourceAdaptation, type SourceAdaptation } from "@/lib/adaptive-model
 import { assembleAdaptiveSituation } from "@/lib/adaptive-situation";
 import { ingestPastedSource, ingestUrlSource } from "@/lib/source-ingestion";
 import { requireAuthenticatedSupabase } from "@/lib/supabase/server";
+import { buildSourceCitation } from "@/lib/source-citation";
 
 export const runtime = "nodejs";
 export const maxDuration = 55;
@@ -55,6 +56,14 @@ export async function GET(request: Request, context: RouteContext) {
 
     if (sourcesError) return errorResponse("Unable to load source material", 500);
 
+    const { data: citations, error: citationsError } = await supabase
+      .from("pursuit_source_citation")
+      .select("id, source_id, adaptation_id, source_content_sha256, locator, excerpt, basis, created_at")
+      .eq("owner_user_id", user.id)
+      .eq("pursuit_id", id)
+      .order("created_at", { ascending: true });
+    if (citationsError) return errorResponse("Unable to load source citations", 500);
+
     const sourceIds = (sources ?? []).map((row) => row.id);
     let adaptations: Record<string, unknown>[] = [];
     if (sourceIds.length) {
@@ -70,7 +79,7 @@ export async function GET(request: Request, context: RouteContext) {
       adaptations = normalizeAdaptationRows((data ?? []) as Record<string, unknown>[]);
     }
 
-    return NextResponse.json({ sources: sources ?? [], adaptations });
+    return NextResponse.json({ sources: sources ?? [], adaptations, citations: citations ?? [] });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unable to load sources";
     return errorResponse(message, message.includes("token") ? 401 : 500);
@@ -176,6 +185,18 @@ export async function POST(request: Request, context: RouteContext) {
             adaptationWarning = "Source was saved, but its adaptation could not be persisted.";
           } else {
             adaptation = insertedAdaptation as unknown as SourceAdaptation;
+
+            const sourceClaims = Array.isArray(result.adaptation.source_claims) ? result.adaptation.source_claims : [];
+            if (sourceClaims.length && ingested.contentText && source.content_sha256) {
+              const citations = sourceClaims.map((item) => ({
+                owner_user_id: user.id,
+                pursuit_id: id,
+                source_id: source.id,
+                adaptation_id: insertedAdaptation.id,
+                ...buildSourceCitation({ content: ingested.contentText!, contentSha256: source.content_sha256, statement: typeof item.statement === "string" ? item.statement : "", basis: typeof item.basis === "string" ? item.basis : "INFERRED" }),
+              }));
+              if (citations.length) await supabase.from("pursuit_source_citation").insert(citations);
+            }
           }
         } catch (error) {
           adaptationWarning = error instanceof Error ? error.message : "Source adaptation failed";

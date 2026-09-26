@@ -40,6 +40,11 @@ export async function POST(request: Request, context: RouteContext) {
       if (!source) return errorResponse("Source not found for this Pursuit", 404);
     }
 
+    const { data: citations, error: citationError } = sourceId
+      ? await supabase.from("pursuit_source_citation").select("id, source_id, source_content_sha256, locator, basis").eq("source_id", sourceId).eq("pursuit_id", id).order("created_at", { ascending: true })
+      : { data: [], error: null };
+    if (citationError) return errorResponse("Unable to load source lineage", 500);
+
     const { data: claim, error: claimError } = await supabase.rpc("stryde_create_claim", {
       p_scope: "PURSUIT",
       p_kind: "OBJECTIVE",
@@ -48,6 +53,7 @@ export async function POST(request: Request, context: RouteContext) {
       p_structured_detail: {
         origin: "USER_CONFIRMED",
         source_id: sourceId,
+        source_citation_ids: (citations ?? []).map((citation) => citation.id),
       },
       p_structured_detail_schema_version: 1,
       p_supersedes_claim_id: pursuit.objective_claim_id ?? null,
