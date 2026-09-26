@@ -236,6 +236,7 @@ export function buildWorkControllerPrompt(input: {
     "The user's effort is scarce. Ask for information only when Stryde cannot obtain or infer it from the supplied context.",
     "When the next move can be done without the user, prefer doing or preparing that work rather than asking them a broad question.",
     "When the next move requires the user's real-world action, state exactly what they need to do and why it matters.",
+    "Every next move must allocate exactly one actor: HUMAN, STRYDE, WORKER, or CONTROLLED_TOOL. Use HUMAN for user-controlled real-world work or targeted user input; use STRYDE for work performed inside Stryde; use WORKER only when a configured worker capability is actually available; use CONTROLLED_TOOL only when a registered and authorized capability is actually available.",
     "Separate established facts from uncertainty. Never promote a user hypothesis, example, wish, or suggestion into a fact.",
     "Never invent quantities, stakeholder agreement, access, dates, experiments, customers, outcomes, benchmarks, or success metrics.",
     "Unknowns are useful state. If a missing fact blocks progress, make resolving that fact the next move.",
