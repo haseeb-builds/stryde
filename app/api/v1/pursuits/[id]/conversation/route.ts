@@ -126,8 +126,6 @@ export async function POST(request: Request, context: RouteContext) {
       .eq("id", sessionId)
       .eq("owner_user_id", user.id);
     if (workingStateError) return errorResponse("Unable to persist Stryde's working state", 500);
-      .eq("id", sessionId)
-      .eq("owner_user_id", user.id);
 
     return NextResponse.json({
       turn: result.turn,
