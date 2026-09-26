@@ -3,6 +3,8 @@ import { getExaSearchProvider } from "@/lib/search-provider";
 import { requireAuthenticatedSupabase } from "@/lib/supabase/server";
 import { ingestUrlSource } from "@/lib/source-ingestion";
 import { buildSourceCitation } from "@/lib/source-citation";
+import { runSourceAdaptation, type SourceAdaptation } from "@/lib/adaptive-model";
+import { assembleAdaptiveSituation } from "@/lib/adaptive-situation";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -45,11 +47,22 @@ export async function POST(request: Request, context: RouteContext) {
         }
         return NextResponse.json({ error: "Unable to materialize source" }, { status: 500 });
       }
+      let adaptation: SourceAdaptation | null = null;
+      let warning: string | null = null;
+      const situationResult = await assembleAdaptiveSituation(supabase, user.id, id);
+      if (!situationResult.error && situationResult.situation) {
+        try {
+          const adapted = await runSourceAdaptation({ source: { id: source.id, uri: source.uri, title: source.title, content_text: ingested.contentText, content_sha256: source.content_sha256, fetch_status: source.fetch_status }, situation: { ...situationResult.situation, sources: [...situationResult.situation.sources, { ...source, content_text: ingested.contentText }] } });
+          const { data: insertedAdaptation, error: adaptationError } = await supabase.from("pursuit_source_adaptation").insert({ owner_user_id: user.id, pursuit_id: id, source_id: source.id, version: 1, status: "ADVISED", ...adapted.adaptation }).select("id, source_id, version, status, summary, source_claims, methods, assumptions, prerequisites, expected_outcomes, unknowns, fit, conflicts, gaps, adapted_strategy, goal_candidates, provenance, created_at").single();
+          if (adaptationError || !insertedAdaptation) warning = "Source was materialized, but adaptation could not be persisted.";
+          else adaptation = insertedAdaptation as unknown as SourceAdaptation;
+        } catch (error) { warning = error instanceof Error ? error.message : "Source adaptation failed"; }
+      } else warning = situationResult.error ?? "Unable to assemble situation for source adaptation";
       if (source.content_sha256) {
         const citation = buildSourceCitation({ content: ingested.contentText, contentSha256: source.content_sha256, statement: highlights[0] || title || url, basis: "EXPLICIT_SOURCE" });
-        await supabase.from("pursuit_source_citation").insert({ owner_user_id: user.id, pursuit_id: id, source_id: source.id, source_content_sha256: citation.source_content_sha256, locator: citation.locator, excerpt: citation.excerpt, basis: citation.basis });
+        await supabase.from("pursuit_source_citation").insert({ owner_user_id: user.id, pursuit_id: id, source_id: source.id, adaptation_id: adaptation ? (adaptation as { id?: string }).id ?? null : null, source_content_sha256: citation.source_content_sha256, locator: citation.locator, excerpt: citation.excerpt, basis: citation.basis });
       }
-      return NextResponse.json({ source, materialized: true }, { status: 201 });
+      return NextResponse.json({ source, adaptation, materialized: true, warning }, { status: 201 });
     }
     const query = scope ? `${question}\nScope: ${scope}` : question;
     const result = await getExaSearchProvider().search({ query, maxResults, freshnessDays: freshnessDays ?? undefined, signal: request.signal });
