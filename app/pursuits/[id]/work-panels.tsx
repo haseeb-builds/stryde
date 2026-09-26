@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { WorkingState } from "@/lib/work-controller";
 import { supabase } from "@/lib/supabase";
 
@@ -22,7 +22,7 @@ export default function PursuitWorkPanels(props:{
   const [busy,setBusy]=useState(false); const [error,setError]=useState("");
 
   const auth=async()=>{const {data}=await supabase.auth.getSession();if(!data.session)throw new Error("Session expired. Please sign in again.");return data.session.access_token;};
-  const refresh=async()=>{
+  const refresh=useCallback(async()=>{
     if(!sessionId)return;
     const access=await auth();
     const [sr,ar]=await Promise.all([
@@ -32,8 +32,8 @@ export default function PursuitWorkPanels(props:{
     if(!sr.ok||!ar.ok)throw new Error("Unable to refresh work state.");
     const sb=await sr.json() as {sources?:Source[];adaptations?:Adaptation[]}; const ab=await ar.json() as {actions?:Action[]};
     setSources(sb.sources??[]);setAdaptations(sb.adaptations??[]);setActiveAction(ab.actions?.[0]??null);
-  };
-  useEffect(()=>{void refresh().catch(e=>setError(e instanceof Error?e.message:"Unable to refresh work state."));},[pursuitId,sessionId]);
+  },[pursuitId,sessionId]);
+  useEffect(()=>{void refresh().catch(e=>setError(e instanceof Error?e.message:"Unable to refresh work state."));},[refresh]);
 
   const reassess=async(access:string)=>{
     if(!sessionId)return;
