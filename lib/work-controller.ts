@@ -1,4 +1,4 @@
-import { ACTOR_TYPES, normalizeActor, type ActorType } from "@/lib/actor";
+import { ACTOR_TYPES, normalizeActor, normalizeWorkerType, WORKER_TYPES, type ActorType, type WorkerType } from "@/lib/actor";
 
 export const WORK_MODES = [
   "ASK_USER",
@@ -41,6 +41,7 @@ export const AVAILABLE_WORK_MODES = [
 export type NextMove = {
   mode: WorkMode;
   actor: ActorType;
+  worker_type: WorkerType | null;
   title: string;
   why: string;
   expected_change: string;
@@ -107,6 +108,7 @@ export const WORKING_STATE_SCHEMA = {
           required: [
             "mode",
             "actor",
+            "worker_type",
             "title",
             "why",
             "expected_change",
@@ -117,6 +119,7 @@ export const WORKING_STATE_SCHEMA = {
           properties: {
             mode: { type: "string", enum: WORK_MODES },
             actor: { type: "string", enum: ACTOR_TYPES },
+            worker_type: { anyOf: [{ type: "string", enum: WORKER_TYPES }, { type: "null" }] },
             title: { type: "string", minLength: 1, maxLength: 300 },
             why: { type: "string", minLength: 1, maxLength: MAX_TEXT },
             expected_change: { type: "string", minLength: 1, maxLength: MAX_TEXT },
@@ -181,9 +184,15 @@ export function validateWorkingState(value: unknown): WorkingState {
     if (!AVAILABLE_WORK_MODES.includes(move.mode as (typeof AVAILABLE_WORK_MODES)[number])) {
       throw new Error("Requested work mode is not currently available");
     }
+    const actor = normalizeActor(move.mode as WorkMode, move.actor);
+    const worker_type = normalizeWorkerType(actor, move.worker_type);
+    if (actor === "WORKER" && !worker_type) {
+      throw new Error("WORKER next move requires worker_type");
+    }
     next_move = {
       mode: move.mode as WorkMode,
-      actor: normalizeActor(move.mode as WorkMode, move.actor),
+      actor,
+      worker_type,
       title: text(move.title, "next_move.title", 300),
       why: text(move.why, "next_move.why"),
       expected_change: text(move.expected_change, "next_move.expected_change"),
@@ -236,7 +245,7 @@ export function buildWorkControllerPrompt(input: {
     "The user's effort is scarce. Ask for information only when Stryde cannot obtain or infer it from the supplied context.",
     "When the next move can be done without the user, prefer doing or preparing that work rather than asking them a broad question.",
     "When the next move requires the user's real-world action, state exactly what they need to do and why it matters.",
-    "Every next move must allocate exactly one actor: HUMAN, STRYDE, WORKER, or CONTROLLED_TOOL. Use HUMAN for user-controlled real-world work or targeted user input; use STRYDE for work performed inside Stryde; use WORKER only when a configured worker capability is actually available; use CONTROLLED_TOOL only when a registered and authorized capability is actually available.",
+    "Every next move must allocate exactly one actor: HUMAN, STRYDE, WORKER, or CONTROLLED_TOOL. Use HUMAN for user-controlled real-world work or targeted user input; use STRYDE for work performed inside Stryde; use WORKER only when an active worker capability is present in the supplied situation; use CONTROLLED_TOOL only when a registered and authorized capability is present.",
     "Separate established facts from uncertainty. Never promote a user hypothesis, example, wish, or suggestion into a fact.",
     "Never invent quantities, stakeholder agreement, access, dates, experiments, customers, outcomes, benchmarks, or success metrics.",
     "Unknowns are useful state. If a missing fact blocks progress, make resolving that fact the next move.",
@@ -247,7 +256,7 @@ export function buildWorkControllerPrompt(input: {
     "The episodic_memory field contains excerpts from prior pursuit conversations. Use it for continuity and unresolved context, but treat prior Stryde messages as hypotheses rather than canonical facts.",
     "Do not claim Stryde performed external work unless the supplied runtime capabilities explicitly prove it.",
     "Do not claim a web page, YouTube video, email, spreadsheet, API, or other source was fetched unless its contents are actually supplied.",
-    "Current runtime capabilities for this slice are: interpret the situation, analyze supplied information, draft artifacts, support decisions, ask targeted user questions, wait for external/user progress, and recheck the situation. Do not select RESEARCH_WEB, RETRIEVE_SOURCE, CREATE_ACTION, or EXECUTE_TOOL yet.",
+    "Worker execution is available only through an explicitly granted worker capability. Never assume a worker exists when available worker capabilities are absent from the supplied situation.",
     "Use RECHECK when the next move is to inspect the result of something the user has already done or reported.",
     "Prefer a single next move. Do not expose a multi-step roadmap as the current move.",
     "The user should be able to answer your next move simply by continuing the conversation.",
