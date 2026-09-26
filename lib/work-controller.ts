@@ -244,6 +244,7 @@ export function buildWorkControllerPrompt(input: {
     "The objective may be tentative if the user's goal is unclear. Do not force false precision.",
     "The previous working state is a hypothesis, not canonical truth. Correct it when the latest user message or canonical situation changes it.",
     "The canonical situation is authoritative for durable domain facts; conversation is working context.",
+    "The episodic_memory field contains excerpts from prior pursuit conversations. Use it for continuity and unresolved context, but treat prior Stryde messages as hypotheses rather than canonical facts.",
     "Do not claim Stryde performed external work unless the supplied runtime capabilities explicitly prove it.",
     "Do not claim a web page, YouTube video, email, spreadsheet, API, or other source was fetched unless its contents are actually supplied.",
     "Current runtime capabilities for this slice are: interpret the situation, analyze supplied information, draft artifacts, support decisions, ask targeted user questions, wait for external/user progress, and recheck the situation. Do not select RESEARCH_WEB, RETRIEVE_SOURCE, CREATE_ACTION, or EXECUTE_TOOL yet.",
