@@ -3,7 +3,7 @@ import test from "node:test";
 import { extractMessagePrefix, readSseData, readSseFrames } from "../lib/conversation-stream.ts";
 import { createConversationCommitter } from "../lib/conversation-commit.ts";
 import { consumeConversationStream } from "../lib/conversation-client-stream.ts";
-import { createModelProvider, readModelProviderConfig } from "../lib/model-provider.ts";
+import { createModelProvider, createModelRouter, ModelProviderError, readModelProviderConfig, readModelProviderConfigs, readModelProviderConfigurationIssues } from "../lib/model-provider.ts";
 
 test("SSE frames reconstruct across arbitrary transport chunks", () => {
   let buffer = "";
@@ -130,4 +130,77 @@ test("provider adapter propagates cancellation", async () => {
     throw new DOMException("Aborted", "AbortError");
   });
   await assert.rejects(provider.generateStructured({ schemaName: "test", schema: {}, prompt: "x", signal: controller.signal }), /Aborted/);
+});
+
+test("model router follows Gemini, OpenRouter, OmniRoute order and falls back only on retryable failures", async () => {
+  const calls: string[] = [];
+  const router = createModelRouter([
+    { provider: "gemini", apiKey: "g", baseUrl: "https://g", model: "g" },
+    { provider: "openrouter", apiKey: "o", baseUrl: "https://o", model: "o" },
+    { provider: "omniroute", apiKey: "m", baseUrl: "https://m", model: "m" },
+  ], async (url) => { const target = String(url); calls.push(target); return new Response(target.endsWith("/chat/completions") ? JSON.stringify({ choices: [{ message: { content: '{"ok":true}' } }] }) : "{}", { status: target.startsWith("https://g") ? 503 : 200 }); });
+  const result = await router.generateStructured({ schemaName: "x", schema: {}, prompt: "x" });
+  assert.equal(result.provider, "openrouter");
+  assert.deepEqual(calls, ["https://g/models/g:generateContent", "https://o/chat/completions"]);
+});
+
+test("router never falls back after a non-retryable malformed output", async () => {
+  const router = createModelRouter([
+    { provider: "gemini", apiKey: "g", baseUrl: "https://g", model: "g" },
+    { provider: "openrouter", apiKey: "o", baseUrl: "https://o", model: "o" },
+  ], async () => new Response("{}", { status: 200 }));
+  await assert.rejects(router.generateStructured({ schemaName: "x", schema: {}, prompt: "x" }), (error) => error instanceof ModelProviderError && error.kind === "malformed_output");
+});
+
+test("Gemini AbortError stops routing without calling fallbacks", async () => {
+  const calls: string[] = [];
+  const router = createModelRouter([
+    { provider: "gemini", apiKey: "g", baseUrl: "https://g", model: "g" },
+    { provider: "openrouter", apiKey: "o", baseUrl: "https://o", model: "o" },
+    { provider: "omniroute", apiKey: "m", baseUrl: "https://m", model: "m" },
+  ], async (url) => { calls.push(String(url)); throw new DOMException("Aborted", "AbortError"); });
+  await assert.rejects(router.generateStructured({ schemaName: "x", schema: {}, prompt: "x" }), (error) => error instanceof ModelProviderError && error.kind === "cancellation");
+  assert.deepEqual(calls, ["https://g/models/g:generateContent"]);
+});
+
+test("valid Gemini with absent OmniRoute remains usable", async () => {
+  const env = { STRYDE_GEMINI_API_KEY: "g", STRYDE_GEMINI_BASE_URL: "https://g", STRYDE_GEMINI_MODEL: "g" } as unknown as NodeJS.ProcessEnv;
+  const configs = readModelProviderConfigs(env);
+  assert.deepEqual(configs.map((config) => config.provider), ["gemini"]);
+  const router = createModelRouter(configs, async () => new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: '{"ok":true}' }] } }] }), { status: 200 }));
+  assert.deepEqual((await router.generateStructured({ schemaName: "x", schema: {}, prompt: "x" })).parsed, { ok: true });
+});
+
+test("partially configured OmniRoute is observable but does not block valid providers", async () => {
+  const env = { STRYDE_GEMINI_API_KEY: "g", STRYDE_GEMINI_BASE_URL: "https://g", STRYDE_GEMINI_MODEL: "g", STRYDE_OPENROUTER_API_KEY: "o", STRYDE_OMNIROUTE_API_KEY: "partial" } as unknown as NodeJS.ProcessEnv;
+  const configs = readModelProviderConfigs(env);
+  assert.deepEqual(configs.map((config) => config.provider), ["gemini", "openrouter"]);
+  assert.deepEqual(readModelProviderConfigurationIssues(env), [{ provider: "omniroute", message: "omniroute provider requires base URL and model" }]);
+  const router = createModelRouter(configs, async () => new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: '{"ok":true}' }] } }] }), { status: 200 }));
+  assert.equal((await router.generateStructured({ schemaName: "x", schema: {}, prompt: "x" })).provider, "gemini");
+});
+
+test("Gemini upstream stream failure before completion may retry safely", async () => {
+  let calls = 0;
+  const sse = (value: unknown) => `data: ${JSON.stringify(value)}\n\n`;
+  const router = createModelRouter([
+    { provider: "gemini", apiKey: "g", baseUrl: "https://g", model: "g" },
+    { provider: "openrouter", apiKey: "o", baseUrl: "https://o", model: "o" },
+  ], async (url) => {
+    calls += 1;
+    if (String(url).startsWith("https://g")) return new Response(new ReadableStream({ start(controller) { controller.enqueue(new TextEncoder().encode(sse({ candidates: [{ content: { parts: [{ text: '{"' }] } }] }))); controller.error(new Error("upstream failed")); } }), { status: 200 });
+    return new Response(new ReadableStream({ start(controller) { controller.enqueue(new TextEncoder().encode(sse({ choices: [{ delta: { content: '{"ok":true' } }] }) + sse({ choices: [{ delta: { content: '}' } }] }))); controller.close(); } }), { status: 200 });
+  });
+  let received = "";
+  const result = await router.streamStructured({ schemaName: "x", schema: {}, prompt: "x", onText: (text) => { received += text; } });
+  assert.equal(result.provider, "openrouter"); assert.equal(received, '{"ok":true}'); assert.equal(calls, 2);
+});
+
+test("persistence failure after buffered provider success does not invoke another provider", async () => {
+  let providerCalls = 0;
+  const router = createModelRouter([{ provider: "gemini", apiKey: "g", baseUrl: "https://g", model: "g" }], async () => { providerCalls += 1; return new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: '{"ok":true}' }] } }] }), { status: 200 }); });
+  await router.generateStructured({ schemaName: "x", schema: {}, prompt: "x" });
+  const commit = createConversationCommitter({ commit: async () => { throw new Error("persistence failed"); } });
+  await assert.rejects(commit({ message: "ok" } as never, null as never), /persistence failed/);
+  assert.equal(providerCalls, 1);
 });
