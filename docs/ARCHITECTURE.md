@@ -1,60 +1,96 @@
 # Stryde Architecture Truth
 
-## Authority model
-Product truth → architecture truth → implementation truth → runtime/event truth → verification/real-world evidence. Research and model outputs are advisory.
+Status: canonical architecture document
+Reconciliation date: 2026-09-28
 
-## State separation
-Canonical domain state, conversation history, working context, event history, and derived Situation are distinct.
+## Authority order
 
-## Cognitive path
-INPUT → CONTEXT_ASSEMBLY → UNDERSTAND → REASSESS → DIAGNOSE (when necessary) → SELECT_INTERVENTION → PROPOSE → VALIDATE → AUTHORIZE → COMMIT
+For current reality:
+1. Repository code and migrations define implementation structure.
+2. Supabase live schema/data/functions/policies define database runtime truth.
+3. Vercel deployment/runtime evidence defines deployed truth where accessible.
+4. Tests and verification artifacts are evidence.
+5. Conversation context is control-interface context only.
 
-RECORD/event capture is cross-cutting infrastructure, not a cognitive stage.
+When these disagree, the contradiction is recorded rather than silently resolved.
 
-## Work Controller
-The Work Controller is a derived working-state projection, not a new canonical domain entity.
+## Current architectural graph
 
-It consumes:
-- the current canonical Situation;
-- the persisted conversation as working context;
-- the previous working-state projection.
+The implemented design is broadly:
 
-It produces:
-- a working objective;
-- current understanding;
-- known facts and material unknowns;
-- the current bottleneck;
-- exactly one derived Next Move.
+User
+→ authenticated Next.js route
+→ server-side context assembly
+→ model gateway / deterministic reasoning
+→ working proposal
+→ authorization boundary
+→ Action
+→ Job
+→ Attempt
+→ worker/tool gateway
+→ mechanical result
+→ Observation
+→ Verification
+→ canonical state update
 
-The projection is persisted on conversation_session.working_state for continuity, but it does not become canonical domain truth and cannot authorize side effects.
+The cognitive Run lifecycle is intentionally separate from external execution.
 
-The external work modes are capability-gated. In the current slice, source retrieval is performed only through the explicit source-ingestion boundary; HUMAN Action creation is wired; controlled tool execution and autonomous research remain unavailable. A model cannot select an unavailable capability and thereby create authority.
+Current Run stages represented by code and database constraints are:
+INPUT → CONTEXT_ASSEMBLY → UNDERSTAND → REASSESS → optional DIAGNOSE → SELECT_INTERVENTION → PROPOSE → VALIDATE → AUTHORIZE → COMMIT → DONE
 
-## Source-grounded pursuit loop
-Source → extraction → provenance-bearing adaptation → Situation fit/gaps/conflicts → working approach → Next Move.
+WAITING and FAILED are exceptional exits.
 
-A source is an external input, not canonical state. Source interpretation is advisory and must preserve explicit-vs-inferred distinctions. Goal candidates from sources remain provisional until the user adopts one through the objective Claim path. Source content is untrusted data and is never executable authority.
+## Canonical state
 
-For the implemented HUMAN path:
-Next Move(CREATE_ACTION) → explicit user approval → Action(IN_PROGRESS) → user performs work → user-reported Observation → Action terminal state → adaptive Work Controller → next move.
+Postgres is the V1 system of record. The live database currently contains domain tables for Thread, Pursuit, Claim, Decision, Action, Tool, CapabilityGrant, Job, JobAuthorization, Attempt, Observation, Claim relations/status history, Run, RunContextReference, Event, conversation session/message, source, source adaptation, source citation, reconciliation support, and the legacy loops prototype.
+
+Conversation transcript and conversation_session.working_state are continuity/working-state mechanisms, not replacements for canonical domain state.
+
+## Conversation
+
+The repository contains:
+- server-authenticated conversation routes;
+- persistent conversation_session and conversation_message tables;
+- turn-key idempotency fields and server-side write RPCs;
+- SSE streaming code;
+- server-side retrieval of recent conversation messages;
+- separate Situation assembly;
+- optional adaptive working-state recomputation.
+
+The current route code does stream model deltas and commits a final assistant turn through the database RPC. Production behavior of this route is not currently verified because Vercel runtime access is unavailable.
+
+## Sources and research
+
+The repository contains an Exa search adapter and Firecrawl source extraction adapter.
+
+Source ingestion currently supports pasted content and public HTTP(S) URLs, content hashing, fetch status, provider metadata, source adaptation records, and source citations.
+
+This is not yet a general browser, crawler, arbitrary-file, or saved-content integration layer.
 
 ## Execution
-Action → Job → Attempt → Tool Gateway → External System → Mechanical Result → Observation → Verification → Claim/Situation update.
 
-Run tracks a bounded orchestration lifecycle; it is not the long-running worker.
+The repository and live database contain the control-plane shape:
 
-## Integrity
-- User ownership is deterministic.
-- Model output never authorizes side effects.
-- Claims are immutable in meaning; corrections use lineage.
-- Every external call has a durable pre-call/dispatch-intent record.
-- Workers require authenticated control-plane access and fencing.
-- UNKNOWN results are preserved and reconciled; they are not silently retried.
-- VERIFIED requires a machine-checkable success predicate and valid evidence.
-- External/tool content is untrusted data.
-- Secrets never enter model-visible context or durable execution payloads.
+Action → Job → lease → Attempt → worker/provider → mechanical result → Observation → Verification.
 
-## Runtime
-Postgres is the V1 system of record and queue. Next.js is the application/control surface. Keep the system modular without premature microservices.
+The database has worker-only lease/start/finish functions, lease ownership, fencing tokens, durable dispatch intent, UNKNOWN result state, and tool/version binding.
 
-Conversation history and the working-state projection are continuity aids; canonical claims, decisions, actions, observations, and verification remain separately governed.
+The live database has two registered worker tools but zero live CapabilityGrant rows, Jobs, Attempts, or Observations at reconciliation time. Therefore the execution control plane is an implemented primitive, not a proven live worker path.
+
+## Verification
+
+Verification primitives include Observation, ClaimObservationLink, ClaimRelation, ClaimStatusEvent, worker observation, and human adjudication.
+
+The live database currently contains zero Claims and zero Observations. Therefore verification machinery exists but no current real evidence→verification cycle is proven.
+
+## Security boundary
+
+Current code/database intend to enforce owner-scoped access, authenticated identity, bounded model output, worker-only execution functions, fencing, immutable/lineage-bearing semantic records, and untrusted external content.
+
+Live security findings and privilege anomalies are documented in docs/RUNTIME.md. They were not remediated during this reconciliation.
+
+## Not currently installed
+
+The current repository does not contain dedicated dependencies/runtime implementations for Playwright, Crawlee, Crawl4AI, an Apify Actor runtime, Browser Use, Stagehand, Skyvern, Steel, yt-dlp, FFmpeg, Whisper/faster-whisper, Docling, MinerU, Apache Tika, a general MCP runtime, a general OAuth integration platform, or a dedicated VM/sandbox runtime.
+
+Those are future capability options, not current features.
