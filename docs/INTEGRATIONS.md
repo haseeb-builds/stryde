@@ -1,5 +1,26 @@
 # Stryde Integration Truth
 
+## Active model architecture (2026-09-30, phase decision)
+
+Active chain: **Gemini DIRECT PRIMARY → OmniRoute FALLBACK**. OpenRouter is an
+inactive provider for this phase.
+
+- `STRYDE_PROVIDER_DISABLED=openrouter` is the mechanism: disabled providers are
+  excluded from every resolved router chain even when fully configured, a
+  disabled preferred provider is skipped, and disabling everything fails fast.
+- Active env contract: `STRYDE_GEMINI_API_KEY` (+ optional `STRYDE_GEMINI_BASE_URL`,
+  `STRYDE_GEMINI_MODEL`, default `gemini-2.5-flash`), `STRYDE_OMNIROUTE_API_KEY`
+  (+ required `STRYDE_OMNIROUTE_BASE_URL` and `STRYDE_OMNIROUTE_MODEL`),
+  `STRYDE_MODEL_PROVIDER=gemini` (preferred first leg). The legacy
+  `STRYDE_MODEL_*` alias still configures the Gemini leg only; OpenRouter env
+  vars were removed from the active environment.
+- Verification entry points: `npm run probe:provider -- gemini|omniroute`
+  (single named provider against the real ConversationTurn + working-state
+  contracts, 2600-token budget) and `npm run e2e:model` (full vertical loop with
+  a real provider; skips honestly when none is usable — deterministic fallback
+  is never passed off as model success).
+- `/api/health/model` reports the effective chain, disabled list, and issues.
+
 Status: canonical integration document
 Reconciliation date: 2026-09-28
 
