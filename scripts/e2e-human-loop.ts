@@ -205,5 +205,50 @@ const failInterpretation = failComplete.json.observation_interpretation as Json;
 assert.ok(Array.isArray(failInterpretation.blockers) && (failInterpretation.blockers as string[]).some((b) => b.includes("missed every session")), "FAILED report not routed into blockers");
 ok("FAILED cycle: action FAILED, report preserved as blockers evidence");
 
+// 9. Verification segment: evidence -> claim linkage -> human adjudication.
+//    The report produced a HUMAN_ACTION_RESULT observation; the user files a
+//    claim about the outcome, links the observation as evidence, and
+//    adjudicates. Epistemic transitions are DB-controlled, not model-decided.
+const claimRes = await api("/api/v1/claims", "POST", bearer, {
+  scope: "PURSUIT",
+  kind: "OUTCOME",
+  pursuit_id: pursuitId,
+  content: "I completed the first study session of the week-one plan.",
+});
+assert.equal(claimRes.status, 201, `claim creation failed: ${JSON.stringify(claimRes.json)}`);
+const claimId = (claimRes.json.claim as Json | undefined)?.id as string;
+assert.equal((claimRes.json.claim as Json).epistemic_status, "REPORTED");
+ok("claim created (REPORTED)");
+
+const linkRes = await api(`/api/v1/claims/${claimId}/observations`, "POST", bearer, {
+  observation_id: observationId,
+  relation_type: "SUPPORTS",
+});
+assert.equal(linkRes.status, 201, `claim/observation link failed: ${JSON.stringify(linkRes.json)}`);
+assert.equal((linkRes.json.link as Json).epistemic_status, "OBSERVED");
+const { data: linkedClaim } = await service.from("claim").select("epistemic_status").eq("id", claimId).maybeSingle();
+assert.equal(linkedClaim!.epistemic_status, "OBSERVED", "claim status did not transition to OBSERVED");
+const { data: statusEvents } = await service.from("claim_status_event").select("from_status, to_status, actor_type, evidence_observation_id").eq("claim_id", claimId).order("occurred_at");
+assert.ok(statusEvents!.some((e) => e.from_status === "REPORTED" && e.to_status === "OBSERVED" && e.evidence_observation_id === observationId), "REPORTED->OBSERVED status event missing");
+ok("observation linked as evidence; claim auto-advanced REPORTED -> OBSERVED");
+
+const adjudicateRes = await api(`/api/v1/claims/${claimId}/adjudicate`, "POST", bearer, {
+  to_status: "VERIFIED",
+  reason: "The linked HUMAN_ACTION_RESULT observation records the completed session in the user's own report.",
+  observation_id: observationId,
+});
+assert.equal(adjudicateRes.status, 200, `adjudication failed: ${JSON.stringify(adjudicateRes.json)}`);
+assert.equal((adjudicateRes.json.claim as Json).epistemic_status, "VERIFIED");
+const { data: adjudicationEvents } = await service.from("claim_status_event").select("from_status, to_status, actor_type").eq("claim_id", claimId).order("occurred_at");
+assert.ok(adjudicationEvents!.some((e) => e.from_status === "OBSERVED" && e.to_status === "VERIFIED" && e.actor_type === "USER"), "OBSERVED->VERIFIED adjudication event missing");
+
+// Invalid relation vocabulary must be rejected at the boundary.
+const badLink = await api(`/api/v1/claims/${claimId}/observations`, "POST", bearer, {
+  observation_id: observationId,
+  relation_type: "PROVES",
+});
+assert.equal(badLink.status, 400, "invalid relation_type was not rejected");
+ok("human adjudication VERIFIED with evidence link; invalid relation rejected");
+
 console.log(`\nE2E HUMAN loop PASSED: ${passed} boundaries verified.`);
 console.log(`Evidence artifacts: pursuit "${pursuitTitle}" (${pursuitId}), action ${actionId}, session ${sessionIdResolved}`);
