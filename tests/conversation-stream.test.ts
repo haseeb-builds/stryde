@@ -4,6 +4,7 @@ import { extractMessagePrefix, readSseData, readSseFrames } from "../lib/convers
 import { createConversationCommitter } from "../lib/conversation-commit.ts";
 import { consumeConversationStream } from "../lib/conversation-client-stream.ts";
 import { createModelProvider, createModelRouter, ModelProviderError, readModelProviderConfig, readModelProviderConfigs, readModelProviderConfigurationIssues } from "../lib/model-provider.ts";
+import { MAX_CONVERSATION_TURN_OUTPUT_TOKENS } from "../lib/model-gateway.ts";
 
 test("SSE frames reconstruct across arbitrary transport chunks", () => {
   let buffer = "";
@@ -255,6 +256,25 @@ test("OpenAI-compatible legs send the canonical OpenRouter routing shape", async
   assert.deepEqual(captured?.provider, { require_parameters: true, allow_fallbacks: true });
   assert.deepEqual(captured?.plugins, [{ id: "response-healing" }]);
   assert.deepEqual(captured?.response_format, { type: "json_object" });
+});
+
+test("provider request carries the requested output budget", async () => {
+  const bodies: Array<Record<string, unknown>> = [];
+  const provider = createModelProvider({ provider: "openrouter", apiKey: "o", baseUrl: "https://openrouter.ai/api/v1", model: "m" }, async (_url, init) => {
+    bodies.push(JSON.parse(String(init?.body)));
+    return new Response(JSON.stringify({ choices: [{ message: { content: '{"ok":true}' } }] }), { status: 200 });
+  });
+  await provider.generateStructured({ schemaName: "test", schema: { type: "object" }, prompt: "x", maxOutputTokens: 2_600 });
+  await provider.generateStructured({ schemaName: "test", schema: { type: "object" }, prompt: "x" });
+  assert.equal(bodies[0].max_tokens, 2_600);
+  assert.equal(bodies[1].max_tokens, 1_000);
+});
+
+test("conversation-turn budget exceeds the truncation threshold observed in benchmarking", async () => {
+  // 1,000 tokens truncated every capable provider mid-JSON (finish_reason=length);
+  // the guard keeps the budget above the truncation point so a complete
+  // ConversationTurn incl. WorkingState projection can be emitted.
+  assert.ok(MAX_CONVERSATION_TURN_OUTPUT_TOKENS >= 2_000);
 });
 
 test("client surfaces the server error message from error frames", async () => {

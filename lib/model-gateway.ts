@@ -1,7 +1,7 @@
-import { validateModelProposal, type ModelProposal } from "@/lib/orchestration";
-import { WORKING_STATE_SCHEMA, buildWorkControllerPrompt, validateWorkingState, type WorkingState } from "@/lib/work-controller";
-import { extractMessagePrefix, readSseData, readSseFrames } from "@/lib/conversation-stream";
-import { getModelRouter } from "@/lib/model-provider";
+import { validateModelProposal, type ModelProposal } from "./orchestration.ts";
+import { WORKING_STATE_SCHEMA, buildWorkControllerPrompt, validateWorkingState, type WorkingState } from "./work-controller.ts";
+import { extractMessagePrefix, readSseData, readSseFrames } from "./conversation-stream.ts";
+import { getModelRouter } from "./model-provider.ts";
 
 const DEFAULT_OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 const DEFAULT_OPENROUTER_MODEL = "openrouter/free";
@@ -12,6 +12,10 @@ const DEFAULT_GEMINI_MODEL = "gemini-2.5-flash";
 const MAX_OUTPUT_CHARS = 20_000;
 const MAX_CONVERSATION_MESSAGES = 16;
 const MAX_MESSAGE_CHARS = 8_000;
+// The turn must fit the full ConversationTurn (message, options, focus, and the
+// complete WorkingState projection) including model reasoning overhead; the
+// previous 1,000-token budget truncated every capable provider mid-JSON.
+export const MAX_CONVERSATION_TURN_OUTPUT_TOKENS = 2_600;
 
 type ModelGatewayResult = {
   proposal: ModelProposal;
@@ -508,7 +512,7 @@ export async function streamConversationTurn(
 
   const router = getModelRouter();
   let streamedText = "";
-  const result = await router.streamStructured({ schemaName: "stryde_conversation_turn", schema: CONVERSATION_TURN_SCHEMA, prompt: buildConversationPrompt(input), maxOutputTokens: 1_000, signal, onText: (text) => { streamedText = text; }});
+  const result = await router.streamStructured({ schemaName: "stryde_conversation_turn", schema: CONVERSATION_TURN_SCHEMA, prompt: buildConversationPrompt(input), maxOutputTokens: MAX_CONVERSATION_TURN_OUTPUT_TOKENS, signal, onText: (text) => { streamedText = text; }});
   const streamedTurn = validateConversationTurn(parseJsonText(streamedText));
   emit({ type: "message_delta", content: streamedTurn.message });
   emit({ type: "complete", turn: streamedTurn, provider: result.provider, model: result.model });

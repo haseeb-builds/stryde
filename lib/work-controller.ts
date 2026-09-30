@@ -1,4 +1,4 @@
-import { ACTOR_TYPES, normalizeActor, normalizeWorkerType, WORKER_TYPES, type ActorType, type WorkerType } from "@/lib/actor";
+import { ACTOR_TYPES, normalizeActor, normalizeWorkerType, WORKER_TYPES, type ActorType, type WorkerType } from "./actor.ts";
 
 export const WORK_MODES = [
   "ASK_USER",
