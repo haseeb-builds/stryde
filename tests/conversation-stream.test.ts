@@ -366,3 +366,18 @@ test("Gemini success short-circuits the chain and OmniRoute is never called", as
   assert.equal((await router.generateStructured({ schemaName: "x", schema: {}, prompt: "x" })).provider, "gemini");
   assert.deepEqual(calls, ["https://g/models/g:generateContent"]);
 });
+
+test("Gemini thinking budget is configurable and defaults to 1024", async () => {
+  const seen: number[] = [];
+  const capture = async (_url: URL | RequestInfo, init?: RequestInit) => {
+    seen.push(JSON.parse(String(init?.body)).generationConfig.thinkingConfig.thinkingBudget);
+    return new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: '{"ok":true}' }] } }] }), { status: 200 });
+  };
+  process.env.STRYDE_GEMINI_THINKING_BUDGET = "0";
+  const zero = createModelProvider({ provider: "gemini", apiKey: "g", baseUrl: "https://g", model: "g" }, capture as typeof fetch);
+  await zero.generateStructured({ schemaName: "x", schema: {}, prompt: "x" });
+  delete process.env.STRYDE_GEMINI_THINKING_BUDGET;
+  const def = createModelProvider({ provider: "gemini", apiKey: "g", baseUrl: "https://g", model: "g" }, capture as typeof fetch);
+  await def.generateStructured({ schemaName: "x", schema: {}, prompt: "x" });
+  assert.deepEqual(seen, [0, 1024]);
+});

@@ -115,9 +115,31 @@ export function readModelProviderConfig(env: NodeJS.ProcessEnv = process.env): M
 function geminiSchema(schema: unknown): unknown {
   if (!schema || typeof schema !== "object") return schema;
   if (Array.isArray(schema)) return schema.map(geminiSchema);
-  const s = schema as Record<string, unknown>; const variants = Array.isArray(s.anyOf) ? s.anyOf : null;
-  if (variants) { const value = variants.find((v) => v && typeof v === "object" && (v as Record<string, unknown>).type !== "null"); if (value && (value as Record<string, unknown>).type && variants.some((v) => v && typeof v === "object" && (v as Record<string, unknown>).type === "null")) return { ...geminiSchema(value) as object, type: [(value as Record<string, unknown>).type, "null"] }; }
-  return Object.fromEntries(Object.entries(s).filter(([k]) => ["type","description","title","enum","format","minimum","maximum","required","additionalProperties","properties","items"].includes(k)).map(([k,v]) => [k, k === "properties" && v && typeof v === "object" ? Object.fromEntries(Object.entries(v as object).map(([n,x]) => [n, geminiSchema(x)])) : k === "items" ? geminiSchema(v) : v]));
+  const s = schema as Record<string, unknown>;
+  // The Gemini REST API rejects "type" lists ("Proto field is not repeating").
+  // A T-anyOf-null union becomes T with nullable: true, which the live API accepts.
+  const variants = Array.isArray(s.anyOf) ? s.anyOf : null;
+  if (variants) {
+    const value = variants.find((v) => v && typeof v === "object" && (v as Record<string, unknown>).type !== "null");
+    const hasNull = variants.some((v) => v && typeof v === "object" && (v as Record<string, unknown>).type === "null");
+    if (value && (value as Record<string, unknown>).type && hasNull) {
+      const converted = geminiSchema(value) as Record<string, unknown>;
+      return hasNull ? { ...converted, nullable: true } : converted;
+    }
+  }
+  // "additionalProperties" is rejected by the live Gemini REST API ("Cannot find field"),
+  // and enum values must be strings; non-string enums are dropped (runtime
+  // validators still enforce them) instead of failing the whole request.
+  const converted = Object.fromEntries(Object.entries(s).filter(([k]) => ["type","description","title","enum","format","minimum","maximum","required","properties","items"].includes(k)).map(([k,v]) => [k, k === "properties" && v && typeof v === "object" ? Object.fromEntries(Object.entries(v as object).map(([n,x]) => [n, geminiSchema(x)])) : k === "items" ? geminiSchema(v) : v])) as Record<string, unknown>;
+  if (Array.isArray(converted.enum) && converted.enum.some((value) => typeof value !== "string")) {
+    delete converted.enum;
+  }
+  if (Array.isArray(converted.type)) {
+    const types = converted.type as string[];
+    const nonNull = types.filter((t) => t !== "null");
+    if (nonNull.length === 1) { converted.type = nonNull[0]; if (types.includes("null")) converted.nullable = true; }
+  }
+  return converted;
 }
 
 function outputText(provider: ModelProviderName, envelope: any): string {
@@ -137,9 +159,14 @@ function abortErrorName(error: unknown): string | null {
   return null;
 }
 
+function geminiThinkingBudget(): number {
+  const raw = Number(process.env.STRYDE_GEMINI_THINKING_BUDGET);
+  return Number.isFinite(raw) && raw >= 0 ? raw : 1024;
+}
+
 function body(config: ModelProviderConfig, input: StructuredInput, stream: boolean) {
   const max = input.maxOutputTokens ?? 1000;
-  if (config.provider === "gemini") return { contents: [{ parts: [{ text: input.prompt }] }], generationConfig: { temperature: 0, maxOutputTokens: max, thinkingConfig: { thinkingBudget: 1024 }, responseMimeType: "application/json", responseSchema: geminiSchema(input.schema) } };
+  if (config.provider === "gemini") return { contents: [{ parts: [{ text: input.prompt }] }], generationConfig: { temperature: 0, maxOutputTokens: max, thinkingConfig: { thinkingBudget: geminiThinkingBudget() }, responseMimeType: "application/json", responseSchema: geminiSchema(input.schema) } };
   const openrouterRouting = config.provider === "openrouter" ? { provider: { require_parameters: true, allow_fallbacks: true }, plugins: [{ id: "response-healing" }] } : {};
   return { model: config.model, messages: [{ role: "user", content: `${input.prompt}\n\nReturn one JSON object only matching this schema:\n${JSON.stringify(input.schema)}` }], response_format: { type: "json_object" }, temperature: 0, max_tokens: max, stream, ...openrouterRouting };
 }

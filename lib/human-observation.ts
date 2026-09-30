@@ -1,4 +1,4 @@
-import { getModelProvider } from "./model-provider.ts";
+import { getModelRouter } from "./model-provider.ts";
 
 export type HumanObservation = {
   summary: string;
@@ -150,8 +150,9 @@ export async function interpretHumanActionReport(input: {
     `RECENT_CONVERSATION: ${JSON.stringify(input.conversation.slice(-12))}`,
   ].join("\n");
 
-  const provider = getModelProvider();
-  const parsed = await provider.generateStructured({
+  // Route through the full provider chain; fallback and disabled-provider
+  // rules live inside the model boundary.
+  const result = await getModelRouter().generateStructured({
     schemaName: "stryde_human_action_observation",
     schema: HUMAN_OBSERVATION_SCHEMA,
     prompt,
@@ -159,8 +160,8 @@ export async function interpretHumanActionReport(input: {
   });
 
   return {
-    observation: validateHumanObservation(parsed),
-    provider: provider.name,
-    model: provider.model,
+    observation: validateHumanObservation(result.parsed),
+    provider: result.provider,
+    model: result.model,
   };
 }

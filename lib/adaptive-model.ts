@@ -4,7 +4,7 @@ import {
   validateAdaptiveWorkingState,
 } from "@/lib/adaptive-work-controller";
 import type { WorkingState } from "@/lib/work-controller";
-import { getModelProvider } from "@/lib/model-provider";
+import { getModelRouter } from "@/lib/model-provider";
 
 const DEFAULT_OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 const DEFAULT_OPENROUTER_MODEL = "openrouter/free";
@@ -238,8 +238,10 @@ async function callStructuredModel(
   prompt: string,
   maxOutputTokens: number,
 ): Promise<{ parsed: unknown; provider: string; model: string }> {
-  const providerClient = getModelProvider();
-  return { parsed: await providerClient.generateStructured({ schemaName: name, schema, prompt, maxOutputTokens }), provider: providerClient.name, model: providerClient.model };
+  // Route through the full provider chain (fallback + disabled-provider rules
+  // live inside the model boundary), never a single configured leg.
+  const result = await getModelRouter().generateStructured({ schemaName: name, schema, prompt, maxOutputTokens });
+  return { parsed: result.parsed, provider: result.provider, model: result.model };
   /* legacy transport retained below only as a temporary source reference */
   const { provider, apiKey, baseUrl, model } = getModelConfig();
 

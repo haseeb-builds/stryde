@@ -113,7 +113,9 @@ if (errorEvent && !finalEvent) {
 assert.ok(finalEvent, "no complete event received");
 const turn = finalEvent!.turn as Json;
 assert.ok(typeof turn.message === "string" && (turn.message as string).length > 0, "assistant turn message missing");
-ok(`real model ConversationTurn received (${String(finalEvent!.provider)}/${String(finalEvent!.model)})`);
+const servedModel = finalEvent!.model as Json;
+const servedProvider = typeof servedModel?.provider === "string" ? servedModel.provider : "unknown";
+ok(`real model ConversationTurn received (${servedProvider}/${String(servedModel?.model)})`);
 
 // 3. Exactly-once persistence + working state in DB.
 const { data: rows } = await service.from("conversation_message").select("role, turn_key").eq("session_id", sessionId).eq("turn_key", turnKey);
@@ -134,15 +136,37 @@ ok("reload restores history");
 // 5. Follow the next move: HUMAN action lifecycle.
 let workingState = ws!;
 let move = workingState.next_move as Json | null;
-if (!move || move.mode !== "CREATE_ACTION") {
-  // Ask for the working state to be re-derived with an explicit ask to define the next move.
-  const rekey = crypto.randomUUID();
-  const reRes = await api(`/api/v1/pursuits/${pursuitId}/conversation`, "POST", bearer, { message: "What is the single most useful next move for me? If you can define one, set it as the next move.", session_id: sessionId, turn_key: rekey });
-  assert.ok(reRes.status >= 200 && reRes.status < 300, `regeneration request failed: ${reRes.status}`);
+// Real conversations often open with ASK_USER / DISCOVERING moves. Answer the
+// model's questions with grounded user replies (bounded loop, max 4 turns)
+// until the model can commit to a CREATE_ACTION move.
+let followUps = 0;
+while ((!move || move.mode !== "CREATE_ACTION") && followUps < 4 && (move?.mode === "ASK_USER" || !move)) {
+  followUps += 1;
+  const question = typeof move?.title === "string" ? move.title : "What should I do first?";
+  const answer = `All details you need: it is a 45-minute live system design interview at a fintech company in two weeks, covering scalability, API design, and data modeling, evaluated on structured approach and trade-off discussion. I can commit one hour per day, evenings. Do not ask me anything further — every question is answered. Commit the next move now as a concrete action I can start today (CREATE_ACTION).`
+  const followKey = crypto.randomUUID();
+  const followRes = await fetch(`${BASE_URL}/api/v1/pursuits/${pursuitId}/conversation`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${bearer}` },
+    body: JSON.stringify({ message: answer, session_id: sessionId, turn_key: followKey }),
+  });
+  assert.ok(followRes.status >= 200 && followRes.status < 300, `follow-up turn failed: ${followRes.status}`);
+  await followRes.text();
   const { data: wsRow } = await service.from("conversation_session").select("working_state").eq("id", sessionId).maybeSingle();
   workingState = wsRow!.working_state as Json;
   move = workingState.next_move as Json | null;
-  assert.ok(move, "no next move after regeneration");
+  ok(`follow-up ${followUps}: model move now ${move ? String(move.mode) : "none"}`);
+  // The product path for deriving a committed move is the /work controller
+  // (UI: "Start working") — a real model working-state regeneration.
+  if ((!move || move.mode !== "CREATE_ACTION") && followUps >= 1) {
+    const workRes = await api(`/api/v1/pursuits/${pursuitId}/work`, "POST", bearer, { session_id: sessionId });
+    assert.ok(workRes.status >= 200 && workRes.status < 300, `work controller failed: ${JSON.stringify(workRes.json)}`);
+    const workState = workRes.json.working_state as Json | undefined;
+    assert.ok(workState, "work controller returned no working state");
+    workingState = workState;
+    move = workingState.next_move as Json | null;
+    ok(`/work regenerated working state; move now ${move ? String(move.mode) : "none"}`);
+  }
 }
 if (move!.mode !== "CREATE_ACTION") {
   console.log(`  ℹ model chose ${String(move!.mode)} (${String(move!.actor)}); HUMAN action segment cannot start from this move — the loop is proven up to state handling.`);
