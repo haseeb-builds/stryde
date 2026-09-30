@@ -9,7 +9,9 @@
     "lint": "eslint",
     "test": "node --experimental-strip-types --test tests/**/*.test.ts",
     "worker:dispatch": "node --experimental-strip-types scripts/worker-dispatcher.ts",
-    "e2e:human": "node --experimental-strip-types scripts/e2e-human-loop.ts"
+    "e2e:human": "node --experimental-strip-types scripts/e2e-human-loop.ts",
+    "e2e:model": "node --experimental-strip-types scripts/e2e-model-loop.ts",
+    "probe:provider": "node --experimental-strip-types scripts/probe-provider.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.110.0",

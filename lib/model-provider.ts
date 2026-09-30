@@ -32,17 +32,38 @@ const defaults: Record<ModelProviderName, { baseUrl: string; model: string; envK
 
 // Canonical router chain: Gemini → OpenRouter → OmniRoute. STRYDE_MODEL_PROVIDER,
 // when set, only reorders this chain (preferred first leg); it never removes legs.
+// STRYDE_PROVIDER_DISABLED is the one legitimate removal mechanism: a comma list
+// of provider names excluded from every chain regardless of configuration. A
+// disabled provider cannot participate even if fully configured.
 const CANONICAL_PROVIDER_ORDER: ModelProviderName[] = ["gemini", "openrouter", "omniroute"];
+
+export function disabledProviders(env: NodeJS.ProcessEnv): Set<ModelProviderName> {
+  const raw = env.STRYDE_PROVIDER_DISABLED ?? "";
+  return new Set(
+    raw.split(",").map((name) => name.trim().toLowerCase()).filter((name): name is ModelProviderName =>
+      (["gemini", "openrouter", "omniroute", "groq"] as const).includes(name as ModelProviderName),
+    ),
+  );
+}
+
+function applyDisabled(order: ModelProviderName[], disabled: Set<ModelProviderName>): ModelProviderName[] {
+  return order.filter((provider) => !disabled.has(provider));
+}
 
 export function selectedPreferredProvider(env: NodeJS.ProcessEnv): ModelProviderName | undefined {
   const selected = env.STRYDE_MODEL_PROVIDER?.trim().toLowerCase();
   if (!selected) return undefined;
   if (!(selected in defaults)) throw new ModelProviderError(selected as ModelProviderName, "configuration", `Unsupported STRYDE_MODEL_PROVIDER: ${selected}`, false);
+  if (disabledProviders(env).has(selected as ModelProviderName)) return undefined;
   return selected as ModelProviderName;
 }
 
-function providerOrder(selected?: ModelProviderName): ModelProviderName[] {
-  return selected ? [selected, ...CANONICAL_PROVIDER_ORDER.filter((p) => p !== selected)] : [...CANONICAL_PROVIDER_ORDER];
+function providerOrder(env: NodeJS.ProcessEnv, selected?: ModelProviderName): ModelProviderName[] {
+  const disabled = disabledProviders(env);
+  const base = selected
+    ? [selected, ...CANONICAL_PROVIDER_ORDER.filter((p) => p !== selected)]
+    : [...CANONICAL_PROVIDER_ORDER];
+  return applyDisabled(base, disabled);
 }
 
 // Legacy STRYDE_MODEL_* variables are compatibility for the Gemini path only: they
@@ -67,7 +88,7 @@ function configured(env: NodeJS.ProcessEnv, provider: ModelProviderName, selecte
 export function readModelProviderConfigurationIssues(env: NodeJS.ProcessEnv = process.env): ModelProviderConfigurationIssue[] {
   const selected = selectedPreferredProvider(env);
   const issues: ModelProviderConfigurationIssue[] = [];
-  for (const provider of providerOrder(selected)) {
+  for (const provider of providerOrder(env, selected)) {
     try { configured(env, provider, selected); } catch (error) { issues.push({ provider, message: error instanceof Error ? error.message : "Invalid provider configuration" }); }
   }
   return issues;
@@ -77,7 +98,7 @@ export function readModelProviderConfigs(env: NodeJS.ProcessEnv = process.env): 
   const selected = selectedPreferredProvider(env);
   const configs: ModelProviderConfig[] = [];
   const issues: ModelProviderConfigurationIssue[] = [];
-  for (const provider of providerOrder(selected)) {
+  for (const provider of providerOrder(env, selected)) {
     try { const config = configured(env, provider, selected); if (config) configs.push(config); }
     catch (error) { issues.push({ provider, message: error instanceof Error ? error.message : "Invalid provider configuration" }); }
   }

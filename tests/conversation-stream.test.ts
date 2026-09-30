@@ -3,7 +3,7 @@ import test from "node:test";
 import { extractMessagePrefix, readSseData, readSseFrames } from "../lib/conversation-stream.ts";
 import { createConversationCommitter } from "../lib/conversation-commit.ts";
 import { consumeConversationStream } from "../lib/conversation-client-stream.ts";
-import { createModelProvider, createModelRouter, ModelProviderError, readModelProviderConfig, readModelProviderConfigs, readModelProviderConfigurationIssues } from "../lib/model-provider.ts";
+import { createModelProvider, createModelRouter, ModelProviderError, readModelProviderConfig, readModelProviderConfigs, readModelProviderConfigurationIssues, selectedPreferredProvider } from "../lib/model-provider.ts";
 import { MAX_CONVERSATION_TURN_OUTPUT_TOKENS } from "../lib/model-gateway.ts";
 
 test("SSE frames reconstruct across arbitrary transport chunks", () => {
@@ -311,4 +311,58 @@ test("persistence failure after buffered provider success does not invoke anothe
   const commit = createConversationCommitter({ commit: async () => { throw new Error("persistence failed"); } });
   await assert.rejects(commit({ message: "ok" } as never, null as never), /persistence failed/);
   assert.equal(providerCalls, 1);
+});
+
+test("STRYDE_PROVIDER_DISABLED removes a fully configured provider from the chain", () => {
+  const env = {
+    STRYDE_GEMINI_API_KEY: "g",
+    STRYDE_OPENROUTER_API_KEY: "o",
+    STRYDE_OMNIROUTE_API_KEY: "m",
+    STRYDE_OMNIROUTE_BASE_URL: "https://m",
+    STRYDE_OMNIROUTE_MODEL: "m",
+    STRYDE_PROVIDER_DISABLED: "openrouter",
+  } as unknown as NodeJS.ProcessEnv;
+  assert.deepEqual(readModelProviderConfigs(env).map((config) => config.provider), ["gemini", "omniroute"]);
+  assert.deepEqual(readModelProviderConfigurationIssues(env), []);
+});
+
+test("disabled preferred provider is skipped and the remaining chain still routes", async () => {
+  const calls: string[] = [];
+  const env = {
+    STRYDE_GEMINI_API_KEY: "g",
+    STRYDE_OPENROUTER_API_KEY: "o",
+    STRYDE_MODEL_PROVIDER: "openrouter",
+    STRYDE_PROVIDER_DISABLED: "openrouter",
+  } as unknown as NodeJS.ProcessEnv;
+  assert.equal(selectedPreferredProvider(env), undefined);
+  const configs = readModelProviderConfigs(env);
+  assert.deepEqual(configs.map((config) => config.provider), ["gemini"]);
+  const router = createModelRouter(configs, async (url) => { calls.push(String(url)); return new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: '{"ok":true}' }] } }] }), { status: 200 }); });
+  assert.equal((await router.generateStructured({ schemaName: "x", schema: {}, prompt: "x" })).provider, "gemini");
+  assert.deepEqual(calls, ["https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"]);
+});
+
+test("disabled-only configuration fails fast with no usable providers", () => {
+  const env = { STRYDE_GEMINI_API_KEY: "g", STRYDE_PROVIDER_DISABLED: "gemini, omniroute, not-a-provider" } as unknown as NodeJS.ProcessEnv;
+  assert.throws(() => readModelProviderConfigs(env), (error) => error instanceof ModelProviderError && error.kind === "configuration");
+});
+
+test("active two-provider chain is Gemini primary then OmniRoute fallback", async () => {
+  const calls: string[] = [];
+  const router = createModelRouter([
+    { provider: "gemini", apiKey: "g", baseUrl: "https://g", model: "g" },
+    { provider: "omniroute", apiKey: "m", baseUrl: "https://m", model: "m" },
+  ], async (url) => { const target = String(url); calls.push(target); if (target.startsWith("https://g")) throw new Error("gemini transport down"); return new Response(JSON.stringify({ choices: [{ message: { content: '{"ok":true}' } }] }), { status: 200 }); });
+  assert.equal((await router.generateStructured({ schemaName: "x", schema: {}, prompt: "x" })).provider, "omniroute");
+  assert.deepEqual(calls, ["https://g/models/g:generateContent", "https://m/chat/completions"]);
+});
+
+test("Gemini success short-circuits the chain and OmniRoute is never called", async () => {
+  const calls: string[] = [];
+  const router = createModelRouter([
+    { provider: "gemini", apiKey: "g", baseUrl: "https://g", model: "g" },
+    { provider: "omniroute", apiKey: "m", baseUrl: "https://m", model: "m" },
+  ], async (url) => { calls.push(String(url)); return new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: '{"ok":true}' }] } }] }), { status: 200 }); });
+  assert.equal((await router.generateStructured({ schemaName: "x", schema: {}, prompt: "x" })).provider, "gemini");
+  assert.deepEqual(calls, ["https://g/models/g:generateContent"]);
 });

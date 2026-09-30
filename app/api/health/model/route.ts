@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { readModelProviderConfigurationIssues, readModelProviderConfigs, selectedPreferredProvider } from "@/lib/model-provider";
+import { disabledProviders, readModelProviderConfigurationIssues, readModelProviderConfigs, selectedPreferredProvider } from "@/lib/model-provider";
 
 export const runtime = "nodejs";
 
@@ -22,6 +22,7 @@ export async function GET() {
   return NextResponse.json({
     preferred_provider: preferred,
     canonical_chain: ["gemini", "openrouter", "omniroute"],
+    disabled_providers: [...disabledProviders(process.env)],
     providers,
     issues,
     ready: providers.length > 0,
