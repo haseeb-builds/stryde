@@ -6,6 +6,7 @@ import { supabase } from "@/lib/supabase";
 import { consumeConversationStream } from "@/lib/conversation-client-stream";
 import type { WorkingState } from "@/lib/work-controller";
 import PursuitWorkPanels from "./work-panels";
+import PursuitClaimsPanel from "./claims-panel";
 
 type Pursuit = { id: string; title: string | null; status: string };
 type Option = { label: string; value: string };
@@ -643,6 +644,11 @@ export default function PursuitPage() {
                   setError("");
                   window.setTimeout(() => composerRef.current?.focus(), 0);
                 }}
+              />
+
+              <PursuitClaimsPanel
+                pursuitId={pursuit.id}
+                sessionActive={session?.status === "ACTIVE"}
               />
 
               {error && <div className="mb-8 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}

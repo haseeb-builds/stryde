@@ -43,6 +43,33 @@ export async function GET(request: Request) {
     const { data, error } = await query;
     if (error) return errorResponse("Unable to load claims", 500);
 
+    // Attach each claim's evidence observations so the UI can show what the
+    // epistemic status rests on. Reads go through the RLS-scoped client.
+    const claims = data ?? [];
+    if (claims.length > 0) {
+      const claimIds = claims.map((c) => c.id);
+      const { data: links, error: linksError } = await supabase
+        .from("claim_observation_link")
+        .select("claim_id, observation_id, relation_type")
+        .in("claim_id", claimIds);
+      if (!linksError && links && links.length > 0) {
+        const observationIds = [...new Set(links.map((l) => l.observation_id))];
+        const { data: observations } = await supabase
+          .from("observation")
+          .select("id, observation_kind, content, observed_at, source_type, source_reference")
+          .in("id", observationIds);
+        const observationById = new Map((observations ?? []).map((o) => [o.id, o]));
+        for (const claim of claims) {
+          (claim as Record<string, unknown>).observations = links
+            .filter((l) => l.claim_id === claim.id)
+            .map((l) => ({
+              relation_type: l.relation_type,
+              ...(observationById.get(l.observation_id) ?? { id: l.observation_id }),
+            }));
+        }
+      }
+    }
+
     return NextResponse.json({ claims: data ?? [] });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unauthorized";
