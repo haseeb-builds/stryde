@@ -30,39 +30,64 @@ const defaults: Record<ModelProviderName, { baseUrl: string; model: string; envK
   groq: { baseUrl: "https://api.groq.com/openai/v1", model: "openai/gpt-oss-120b", envKey: "STRYDE_GROQ_API_KEY" },
 };
 
-function configured(env: NodeJS.ProcessEnv, provider: ModelProviderName): ModelProviderConfig | null {
+// Canonical router chain: Gemini → OpenRouter → OmniRoute. STRYDE_MODEL_PROVIDER,
+// when set, only reorders this chain (preferred first leg); it never removes legs.
+const CANONICAL_PROVIDER_ORDER: ModelProviderName[] = ["gemini", "openrouter", "omniroute"];
+
+export function selectedPreferredProvider(env: NodeJS.ProcessEnv): ModelProviderName | undefined {
+  const selected = env.STRYDE_MODEL_PROVIDER?.trim().toLowerCase();
+  if (!selected) return undefined;
+  if (!(selected in defaults)) throw new ModelProviderError(selected as ModelProviderName, "configuration", `Unsupported STRYDE_MODEL_PROVIDER: ${selected}`, false);
+  return selected as ModelProviderName;
+}
+
+function providerOrder(selected?: ModelProviderName): ModelProviderName[] {
+  return selected ? [selected, ...CANONICAL_PROVIDER_ORDER.filter((p) => p !== selected)] : [...CANONICAL_PROVIDER_ORDER];
+}
+
+// Legacy STRYDE_MODEL_* variables are compatibility for the Gemini path only: they
+// configure the Gemini leg when Gemini is the selected provider (or when no provider
+// is selected), and never leak into other legs.
+function legacyGeminiAlias(provider: ModelProviderName, selected?: ModelProviderName): boolean {
+  return provider === "gemini" && (selected === undefined || selected === "gemini");
+}
+
+function configured(env: NodeJS.ProcessEnv, provider: ModelProviderName, selected?: ModelProviderName): ModelProviderConfig | null {
   const d = defaults[provider];
-  const apiKey = (env[d.envKey] ?? (provider === "gemini" ? env.STRYDE_MODEL_API_KEY : undefined))?.trim();
+  const alias = legacyGeminiAlias(provider, selected);
+  const apiKey = (env[d.envKey] ?? (alias ? env.STRYDE_MODEL_API_KEY : undefined))?.trim();
   if (!apiKey) return null;
-  const baseUrl = (env[`STRYDE_${provider.toUpperCase()}_BASE_URL`] ?? (provider === "gemini" ? env.STRYDE_MODEL_BASE_URL : undefined) ?? d.baseUrl).replace(/\/$/, "");
-  const model = (env[`STRYDE_${provider.toUpperCase()}_MODEL`] ?? (provider === "gemini" ? env.STRYDE_MODEL_NAME : undefined) ?? d.model).trim();
+  const baseUrl = (env[`STRYDE_${provider.toUpperCase()}_BASE_URL`] ?? (alias ? env.STRYDE_MODEL_BASE_URL : undefined) ?? d.baseUrl).replace(/\/$/, "");
+  const model = (env[`STRYDE_${provider.toUpperCase()}_MODEL`] ?? (alias ? env.STRYDE_MODEL_NAME : undefined) ?? d.model).trim();
   if (!baseUrl || !model) throw new ModelProviderError(provider, "configuration", `${provider} provider requires base URL and model`, false);
   if (provider === "gemini" && /openrouter\.ai|groq\.com/i.test(baseUrl) || provider === "openrouter" && /googleapis\.com|groq\.com/i.test(baseUrl) || provider === "groq" && /googleapis\.com|openrouter\.ai/i.test(baseUrl)) throw new ModelProviderError(provider, "configuration", `Invalid model configuration: ${provider} provider cannot use this base URL`, false);
   return { provider, apiKey, baseUrl, model };
 }
 
 export function readModelProviderConfigurationIssues(env: NodeJS.ProcessEnv = process.env): ModelProviderConfigurationIssue[] {
+  const selected = selectedPreferredProvider(env);
   const issues: ModelProviderConfigurationIssue[] = [];
-  for (const provider of ["gemini", "openrouter", "omniroute"] as ModelProviderName[]) {
-    try { configured(env, provider); } catch (error) { issues.push({ provider, message: error instanceof Error ? error.message : "Invalid provider configuration" }); }
+  for (const provider of providerOrder(selected)) {
+    try { configured(env, provider, selected); } catch (error) { issues.push({ provider, message: error instanceof Error ? error.message : "Invalid provider configuration" }); }
   }
   return issues;
 }
 
 export function readModelProviderConfigs(env: NodeJS.ProcessEnv = process.env): ModelProviderConfig[] {
+  const selected = selectedPreferredProvider(env);
   const configs: ModelProviderConfig[] = [];
   const issues: ModelProviderConfigurationIssue[] = [];
-  for (const provider of ["gemini", "openrouter", "omniroute"] as ModelProviderName[]) {
-    try { const config = configured(env, provider); if (config) configs.push(config); }
+  for (const provider of providerOrder(selected)) {
+    try { const config = configured(env, provider, selected); if (config) configs.push(config); }
     catch (error) { issues.push({ provider, message: error instanceof Error ? error.message : "Invalid provider configuration" }); }
   }
-  if (!configs.length) throw new ModelProviderError("gemini", "configuration", `No usable model providers configured${issues.length ? `: ${issues.map((issue) => `${issue.provider}: ${issue.message}`).join("; ")}` : ""}`, false);
+  if (!configs.length) throw new ModelProviderError(selected ?? "gemini", "configuration", `No usable model providers configured${issues.length ? `: ${issues.map((issue) => `${issue.provider}: ${issue.message}`).join("; ")}` : ""}`, false);
   return configs;
 }
 
 export function readModelProviderConfig(env: NodeJS.ProcessEnv = process.env): ModelProviderConfig {
-  const selected = env.STRYDE_MODEL_PROVIDER?.trim().toLowerCase() as ModelProviderName | undefined;
-  if (selected) { if (!defaults[selected]) throw new ModelProviderError(selected, "configuration", `Unsupported STRYDE_MODEL_PROVIDER: ${selected}`, false); const config = configured(env, selected); if (!config) throw new ModelProviderError(selected, "configuration", "Missing model configuration", false); return config; }
+  const selected = selectedPreferredProvider(env);
+  if (selected) { const config = configured(env, selected, selected); if (!config) throw new ModelProviderError(selected, "configuration", "Missing model configuration", false); return config; }
   return readModelProviderConfigs(env)[0];
 }
 
@@ -80,17 +105,31 @@ function outputText(provider: ModelProviderName, envelope: any): string {
   return text.trim();
 }
 
+function modelTimeoutMs(): number {
+  const raw = Number(process.env.STRYDE_MODEL_TIMEOUT_MS);
+  return Number.isFinite(raw) && raw > 0 ? raw : 45_000;
+}
+
+function abortErrorName(error: unknown): string | null {
+  if (error instanceof Error && (error.name === "AbortError" || error.name === "TimeoutError")) return error.name;
+  if (typeof DOMException !== "undefined" && error instanceof DOMException && (error.name === "AbortError" || error.name === "TimeoutError")) return error.name;
+  return null;
+}
+
 function body(config: ModelProviderConfig, input: StructuredInput, stream: boolean) {
   const max = input.maxOutputTokens ?? 1000;
   if (config.provider === "gemini") return { contents: [{ parts: [{ text: input.prompt }] }], generationConfig: { temperature: 0, maxOutputTokens: max, thinkingConfig: { thinkingBudget: 1024 }, responseMimeType: "application/json", responseSchema: geminiSchema(input.schema) } };
-  return { model: config.model, messages: [{ role: "user", content: `${input.prompt}\n\nReturn one JSON object only matching this schema:\n${JSON.stringify(input.schema)}` }], response_format: { type: "json_object" }, temperature: 0, max_tokens: max, stream };
+  const openrouterRouting = config.provider === "openrouter" ? { provider: { require_parameters: true, allow_fallbacks: true }, plugins: [{ id: "response-healing" }] } : {};
+  return { model: config.model, messages: [{ role: "user", content: `${input.prompt}\n\nReturn one JSON object only matching this schema:\n${JSON.stringify(input.schema)}` }], response_format: { type: "json_object" }, temperature: 0, max_tokens: max, stream, ...openrouterRouting };
 }
 
 export function createModelProvider(config: ModelProviderConfig, fetchImpl: typeof fetch = fetch): ModelProvider {
   const request = async (input: StructuredInput, stream: boolean, onText?: (text: string) => void) => {
     const url = config.provider === "gemini" ? `${config.baseUrl}/models/${encodeURIComponent(config.model)}:${stream ? "streamGenerateContent?alt=sse" : "generateContent"}` : `${config.baseUrl}/chat/completions`;
+    const timeoutMs = modelTimeoutMs();
+    const signal = input.signal ? AbortSignal.any([input.signal, AbortSignal.timeout(timeoutMs)]) : AbortSignal.timeout(timeoutMs);
     let response: Response;
-    try { response = await fetchImpl(url, { method: "POST", headers: config.provider === "gemini" ? { "Content-Type": "application/json", "x-goog-api-key": config.apiKey } : { Authorization: `Bearer ${config.apiKey}`, "Content-Type": "application/json", "X-Title": "Stryde" }, body: JSON.stringify(body(config, input, stream)), signal: input.signal, cache: "no-store" }); } catch (e) { if (e instanceof DOMException && e.name === "AbortError" || e instanceof Error && e.name === "AbortError") throw new ModelProviderError(config.provider, "cancellation", "Aborted", false); throw new ModelProviderError(config.provider, "transport", e instanceof Error ? e.message : "Provider request failed", true); }
+    try { response = await fetchImpl(url, { method: "POST", headers: config.provider === "gemini" ? { "Content-Type": "application/json", "x-goog-api-key": config.apiKey } : { Authorization: `Bearer ${config.apiKey}`, "Content-Type": "application/json", "X-Title": "Stryde" }, body: JSON.stringify(body(config, input, stream)), signal, cache: "no-store" }); } catch (e) { const abortName = abortErrorName(e); if (abortName === "AbortError") throw new ModelProviderError(config.provider, "cancellation", "Aborted", false); if (abortName === "TimeoutError") throw new ModelProviderError(config.provider, "transport", `Provider request timed out after ${timeoutMs}ms`, true); throw new ModelProviderError(config.provider, "transport", e instanceof Error ? e.message : "Provider request failed", true); }
     if (!response.ok) { const kind: ProviderFailureKind = response.status === 401 || response.status === 403 ? "authentication" : response.status === 429 ? "rate_limit" : "http"; throw new ModelProviderError(config.provider, kind, `Provider request failed (${response.status})`, kind !== "authentication" && response.status >= 500 || kind === "rate_limit", response.status); }
     if (!stream) return outputText(config.provider, await response.json());
     if (!response.body) throw new ModelProviderError(config.provider, "streaming", "Provider streaming response has no body", true);

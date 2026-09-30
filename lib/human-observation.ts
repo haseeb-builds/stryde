@@ -1,4 +1,4 @@
-import { getModelProvider } from "@/lib/model-provider";
+import { getModelProvider } from "./model-provider.ts";
 
 export type HumanObservation = {
   summary: string;

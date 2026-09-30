@@ -57,6 +57,15 @@ export async function POST(request: Request, context: RouteContext) {
     if (!session) return errorResponse("Conversation not found", 404);
     if (session.status !== "ACTIVE") return errorResponse("This conversation is archived. Start a new conversation to continue.", 409);
 
+    const { data: priorMessages, error: messagesError } = await supabase
+      .from("conversation_message")
+      .select("role, content, turn_key")
+      .eq("session_id", sessionId)
+      .eq("owner_user_id", user.id)
+      .order("sequence_no", { ascending: false })
+      .limit(17);
+    if (messagesError) return errorResponse("Unable to load conversation history", 500);
+
     const { data: recorded, error: recordError } = await supabase.rpc("stryde_record_conversation_user_input", {
       p_session_id: sessionId,
       p_turn_key: turnKey,
@@ -72,19 +81,17 @@ export async function POST(request: Request, context: RouteContext) {
       });
     }
 
-    const { data: priorMessages, error: messagesError } = await supabase
-      .from("conversation_message")
-      .select("role, content")
-      .eq("session_id", sessionId)
-      .eq("owner_user_id", user.id)
-      .order("sequence_no", { ascending: false })
-      .limit(16);
-    if (messagesError) return errorResponse("Unable to load conversation history", 500);
-
-    const conversation: ConversationMessage[] = (priorMessages ?? []).reverse().map((item) => ({
-      role: item.role === "USER" ? "user" : "stryde",
-      content: item.content,
-    }));
+    // priorMessages was read before the current turn was recorded, but a retry of this
+    // turn_key already has its USER row persisted — exclude it so the model and the
+    // adaptive controller each see this user message exactly once (the gateway and
+    // conversationWithUser both append it separately).
+    const conversation: ConversationMessage[] = (priorMessages ?? [])
+      .filter((item) => item.turn_key !== turnKey)
+      .reverse()
+      .map((item) => ({
+        role: item.role === "USER" ? "user" : "stryde",
+        content: item.content,
+      }));
 
     const situationResult = await assembleSituation(supabase, user.id, id);
     if (situationResult.error || !situationResult.situation) {

@@ -125,11 +125,46 @@ test("provider configuration rejects mismatched endpoints and malformed output",
 
 test("provider adapter propagates cancellation", async () => {
   const controller = new AbortController();
-  const provider = createModelProvider({ provider: "groq", apiKey: "key", baseUrl: "https://api.groq.com", model: "test" }, async (_url, init) => {
-    assert.equal(init?.signal, controller.signal);
-    throw new DOMException("Aborted", "AbortError");
-  });
-  await assert.rejects(provider.generateStructured({ schemaName: "test", schema: {}, prompt: "x", signal: controller.signal }), /Aborted/);
+  const provider = createModelProvider({ provider: "groq", apiKey: "key", baseUrl: "https://api.groq.com", model: "test" }, (_url, init) => new Promise((_resolve, reject) => {
+    init?.signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")));
+  }));
+  const pending = provider.generateStructured({ schemaName: "test", schema: {}, prompt: "x", signal: controller.signal });
+  controller.abort();
+  await assert.rejects(pending, (error) => error instanceof ModelProviderError && error.kind === "cancellation");
+});
+
+test("provider request timeout is a retryable transport error", async () => {
+  process.env.STRYDE_MODEL_TIMEOUT_MS = "50";
+  try {
+    const provider = createModelProvider({ provider: "groq", apiKey: "key", baseUrl: "https://api.groq.com", model: "test" }, (_url, init) => new Promise((_resolve, reject) => {
+      init?.signal?.addEventListener("abort", () => reject((init!.signal as AbortSignal).reason));
+    }));
+    await assert.rejects(provider.generateStructured({ schemaName: "test", schema: {}, prompt: "x" }), (error) => error instanceof ModelProviderError && error.kind === "transport" && error.retryable && /timed out/.test(error.message));
+  } finally {
+    delete process.env.STRYDE_MODEL_TIMEOUT_MS;
+  }
+});
+
+test("router fails over to the next provider when a leg times out", async () => {
+  process.env.STRYDE_MODEL_TIMEOUT_MS = "50";
+  try {
+    const calls: string[] = [];
+    const router = createModelRouter([
+      { provider: "gemini", apiKey: "g", baseUrl: "https://g", model: "g" },
+      { provider: "openrouter", apiKey: "o", baseUrl: "https://o", model: "o" },
+    ], (url, init) => {
+      calls.push(String(url));
+      if (String(url).startsWith("https://g")) {
+        return new Promise((_resolve, reject) => { init?.signal?.addEventListener("abort", () => reject((init!.signal as AbortSignal).reason)); });
+      }
+      return Promise.resolve(new Response(JSON.stringify({ choices: [{ message: { content: '{"ok":true}' } }] }), { status: 200 }));
+    });
+    const result = await router.generateStructured({ schemaName: "x", schema: {}, prompt: "x" });
+    assert.equal(result.provider, "openrouter");
+    assert.deepEqual(calls, ["https://g/models/g:generateContent", "https://o/chat/completions"]);
+  } finally {
+    delete process.env.STRYDE_MODEL_TIMEOUT_MS;
+  }
 });
 
 test("model router follows Gemini, OpenRouter, OmniRoute order and falls back only on retryable failures", async () => {
@@ -163,12 +198,10 @@ test("Gemini AbortError stops routing without calling fallbacks", async () => {
   assert.deepEqual(calls, ["https://g/models/g:generateContent"]);
 });
 
-test("valid Gemini with absent OmniRoute remains usable", async () => {
+test("valid Gemini with absent OmniRoute remains usable", () => {
   const env = { STRYDE_GEMINI_API_KEY: "g", STRYDE_GEMINI_BASE_URL: "https://g", STRYDE_GEMINI_MODEL: "g" } as unknown as NodeJS.ProcessEnv;
   const configs = readModelProviderConfigs(env);
   assert.deepEqual(configs.map((config) => config.provider), ["gemini"]);
-  const router = createModelRouter(configs, async () => new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: '{"ok":true}' }] } }] }), { status: 200 }));
-  assert.deepEqual((await router.generateStructured({ schemaName: "x", schema: {}, prompt: "x" })).parsed, { ok: true });
 });
 
 test("partially configured OmniRoute is observable but does not block valid providers", async () => {
@@ -178,6 +211,61 @@ test("partially configured OmniRoute is observable but does not block valid prov
   assert.deepEqual(readModelProviderConfigurationIssues(env), [{ provider: "omniroute", message: "omniroute provider requires base URL and model" }]);
   const router = createModelRouter(configs, async () => new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: '{"ok":true}' }] } }] }), { status: 200 }));
   assert.equal((await router.generateStructured({ schemaName: "x", schema: {}, prompt: "x" })).provider, "gemini");
+});
+
+test("router preserves canonical Gemini, OpenRouter, OmniRoute order when no provider is preferred", () => {
+  const env = { STRYDE_GEMINI_API_KEY: "g", STRYDE_OPENROUTER_API_KEY: "o", STRYDE_OMNIROUTE_API_KEY: "m", STRYDE_OMNIROUTE_BASE_URL: "https://m", STRYDE_OMNIROUTE_MODEL: "m" } as unknown as NodeJS.ProcessEnv;
+  assert.deepEqual(readModelProviderConfigs(env).map((config) => config.provider), ["gemini", "openrouter", "omniroute"]);
+});
+
+test("STRYDE_MODEL_PROVIDER moves the preferred leg first and keeps the canonical fallback chain", () => {
+  const env = { STRYDE_MODEL_PROVIDER: "openrouter", STRYDE_GEMINI_API_KEY: "g", STRYDE_OPENROUTER_API_KEY: "o", STRYDE_OMNIROUTE_API_KEY: "m", STRYDE_OMNIROUTE_BASE_URL: "https://m", STRYDE_OMNIROUTE_MODEL: "m" } as unknown as NodeJS.ProcessEnv;
+  assert.deepEqual(readModelProviderConfigs(env).map((config) => config.provider), ["openrouter", "gemini", "omniroute"]);
+});
+
+test("legacy STRYDE_MODEL_* configures the Gemini leg when Gemini is selected or nothing is selected", () => {
+  const selectedGemini = { STRYDE_MODEL_PROVIDER: "gemini", STRYDE_MODEL_API_KEY: "k", STRYDE_MODEL_NAME: "m", STRYDE_OPENROUTER_API_KEY: "o" } as unknown as NodeJS.ProcessEnv;
+  assert.deepEqual(readModelProviderConfigs(selectedGemini).map((config) => config.provider), ["gemini", "openrouter"]);
+  const unset = { STRYDE_MODEL_API_KEY: "k", STRYDE_MODEL_NAME: "m" } as unknown as NodeJS.ProcessEnv;
+  assert.deepEqual(readModelProviderConfigs(unset).map((config) => config.provider), ["gemini"]);
+});
+
+test("legacy STRYDE_MODEL_* never configures legs of other selected providers", () => {
+  const env = { STRYDE_MODEL_PROVIDER: "openrouter", STRYDE_MODEL_API_KEY: "openrouter-key", STRYDE_MODEL_NAME: "openrouter/free" } as unknown as NodeJS.ProcessEnv;
+  assert.throws(() => readModelProviderConfigs(env), /No usable model providers configured/);
+});
+
+test("unsupported STRYDE_MODEL_PROVIDER fails fast", () => {
+  assert.throws(() => readModelProviderConfigs({ STRYDE_MODEL_PROVIDER: "banana" } as unknown as NodeJS.ProcessEnv), /Unsupported STRYDE_MODEL_PROVIDER/);
+});
+
+test("unconfigured preferred provider degrades to the canonical chain", () => {
+  const env = { STRYDE_MODEL_PROVIDER: "openrouter", STRYDE_GEMINI_API_KEY: "g" } as unknown as NodeJS.ProcessEnv;
+  assert.deepEqual(readModelProviderConfigs(env).map((config) => config.provider), ["gemini"]);
+  assert.deepEqual(readModelProviderConfigurationIssues(env), []);
+});
+
+test("OpenAI-compatible legs send the canonical OpenRouter routing shape", async () => {
+  let captured: Record<string, unknown> | undefined;
+  const provider = createModelProvider({ provider: "openrouter", apiKey: "o", baseUrl: "https://openrouter.ai/api/v1", model: "openrouter/free" }, async (_url, init) => {
+    captured = JSON.parse(String(init?.body));
+    return new Response(JSON.stringify({ choices: [{ message: { content: '{"ok":true}' } }] }), { status: 200 });
+  });
+  await provider.generateStructured({ schemaName: "test", schema: { type: "object" }, prompt: "x" });
+  assert.deepEqual(captured?.provider, { require_parameters: true, allow_fallbacks: true });
+  assert.deepEqual(captured?.plugins, [{ id: "response-healing" }]);
+  assert.deepEqual(captured?.response_format, { type: "json_object" });
+});
+
+test("client surfaces the server error message from error frames", async () => {
+  const chunks = [`data: ${JSON.stringify({ type: "error", message: "Provider request failed (503)" })}\n\n`];
+  const response = new Response(new ReadableStream({
+    start(controller) {
+      chunks.forEach((chunk) => controller.enqueue(new TextEncoder().encode(chunk)));
+      controller.close();
+    },
+  }));
+  await assert.rejects(consumeConversationStream(response, () => undefined, () => undefined), /Provider request failed \(503\)/);
 });
 
 test("Gemini upstream stream failure before completion may retry safely", async () => {

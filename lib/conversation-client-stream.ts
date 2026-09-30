@@ -13,12 +13,12 @@ export async function consumeConversationStream<T>(
   const consume = (frame: string) => {
     const data = readSseData(frame);
     if (!data) return;
-    const event = JSON.parse(data) as { type?: string; content?: string; turn?: T; error?: string };
+    const event = JSON.parse(data) as { type?: string; content?: string; turn?: T; error?: string; message?: string };
     if (event.type === "message_delta" && typeof event.content === "string") onDelta(event.content);
     else if (event.type === "complete" && event.turn !== undefined) {
       completedTurn = event.turn;
       onComplete(event.turn);
-    } else if (event.type === "error") throw new Error(event.error || "Conversation stream failed.");
+    } else if (event.type === "error") throw new Error(event.error ?? event.message ?? "Conversation stream failed.");
   };
 
   try {
