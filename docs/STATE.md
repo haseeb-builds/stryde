@@ -16,7 +16,17 @@ phase. Implemented in commit 4acb6a9 on `codex/model-routing-migration-clean`:
   and `npm run e2e:model` (full vertical loop with a real provider, honest skip
   without credentials). Both executed 2026-09-30: honest SKIP — no usable
   provider, because no Gemini or OmniRoute credentials exist in this
-  environment. This is the ONLY blocker for the model-inclusive vertical proof.
+  environment. Credentials were then configured by the product authority the same day:
+
+  - `probe:provider -- omniroute` PASSED live (schema-valid ConversationTurn + WorkingState).
+  - Gemini live probing exposed and fixed three real schema-conversion defects (type arrays,
+    additionalProperties, numeric enums) plus the delisting of gemini-2.5-flash (now
+    gemini-flash-latest, thinking budget configurable); requests validate, but the free-tier key
+    is 429 rate-limited on the large turn prompt — Gemini direct verification remains partial.
+  - Two fallback bypasses fixed: the adaptive /work controller and human report interpretation
+    called a single configured leg; both now route through the full chain.
+  - `e2e:model` PASSED 11 boundaries with a real provider, with live fallback engaged
+    (Gemini 429 → OmniRoute served every turn). e2e:human 14/14 after the changes.
 - Full suite green under the new architecture: 56/56 unit tests, typecheck,
   lint (1 pre-existing warning), production build, e2e:human 14/14 boundaries.
 

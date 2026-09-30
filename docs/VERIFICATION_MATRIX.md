@@ -48,7 +48,14 @@ Under the active 2026-09-30 phase architecture (Gemini primary → OmniRoute fal
 
 Browser verification (2026-09-30, local dev): sign-in → pursuit creation → new conversation → message persisted → /work fails safely with 402 (no fabricated assistant or working state) → reload restores history/session → claims panel creates a claim and adjudicates it to verified.
 
-`npm run e2e:model` and `npm run probe:provider -- gemini|omniroute` exist as the real-provider proof harnesses; both were executed 2026-09-30 and exit with an explicit SKIP because no Gemini/OmniRoute credentials are configured. They must be re-run (and their results recorded here) the moment credentials exist.
+`npm run e2e:model` and `npm run probe:provider -- gemini|omniroute` are the real-provider proof harnesses. Results 2026-09-30 (credentials configured mid-phase):
+
+- `probe:provider -- omniroute`: PASSED — real OmniRoute endpoint (Tailscale host, model auto/smart) served a schema-valid ConversationTurn (8.5s) and a valid WorkingState (3.8s) with the verbatim contracts and 2600-token budget.
+- `probe:provider -- gemini`: schema conversion defects were found and fixed against the live API (type arrays → nullable:true, additionalProperties dropped, numeric enums dropped); requests now validate, but the key hits free-tier 429 rate limits on the large turn prompt — verified up to 400-free validation, not yet a full parse. Needs a paid tier or patient retries to complete.
+- `e2e:model`: PASSED 11 boundaries with a REAL provider. The dev-server chain prefers Gemini (429 rate-limited) and every turn was actually served by OmniRoute — i.e. live fallback engaged and the full loop ran: conversation → real turn → exactly-once persistence → /work → CREATE_ACTION → HUMAN action → report → Observation → Claim → Evidence Link → Adjudication VERIFIED → state update with a real-model-regenerated next move.
+- Browser: real model working-state card rendered in the UI from a live turn; no error text.
+
+`npm run e2e:human` re-run 2026-09-30 after all changes: 14/14, and the completion path now shows a real-model WORKING state (next CREATE_ACTION) instead of the deterministic STALLED fallback.
 
 Supabase SQL verification scripts exist for execution control, Run lifecycle, model boundary, and adaptive pursuit. Their presence is not execution evidence.
 
