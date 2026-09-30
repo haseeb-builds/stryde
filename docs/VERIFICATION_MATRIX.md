@@ -44,9 +44,11 @@ Repository contains tests for actor normalization, conversation stream/parsing/c
 
 CI runs `npm test`, typecheck, lint, and build on every push (ci.yml).
 
-`npm run e2e:human` (deterministic, needs dev server) drives the real authenticated routes/RPCs through 14 boundaries: pursuit creation, seeded working state, action start + authorization commit + start dedupe, completion with report → observation → exactly-once turn persistence, turn-key replay idempotency, active-action query, FAILED cycle with blockers, claim creation (REPORTED) → evidence link (auto OBSERVED) → human adjudication (VERIFIED) → invalid-relation rejection. Model-dependent steps run in designed fallback mode and are asserted as fallbacks, never as model success. Last full pass: 2026-09-30, 14/14.
+Under the active 2026-09-30 phase architecture (Gemini primary → OmniRoute fallback, OpenRouter disabled via `STRYDE_PROVIDER_DISABLED`), `npm run e2e:human` (deterministic, needs dev server) drives the real authenticated routes/RPCs through 14 boundaries: pursuit creation, seeded working state, action start + authorization commit + start dedupe, completion with report → observation → exactly-once turn persistence, turn-key replay idempotency, active-action query, FAILED cycle with blockers, claim creation (REPORTED) → evidence link (auto OBSERVED) → human adjudication (VERIFIED) → invalid-relation rejection. Model-dependent steps run in designed fallback mode and are asserted as fallbacks, never as model success. Last full pass: 2026-09-30, 14/14.
 
 Browser verification (2026-09-30, local dev): sign-in → pursuit creation → new conversation → message persisted → /work fails safely with 402 (no fabricated assistant or working state) → reload restores history/session → claims panel creates a claim and adjudicates it to verified.
+
+`npm run e2e:model` and `npm run probe:provider -- gemini|omniroute` exist as the real-provider proof harnesses; both were executed 2026-09-30 and exit with an explicit SKIP because no Gemini/OmniRoute credentials are configured. They must be re-run (and their results recorded here) the moment credentials exist.
 
 Supabase SQL verification scripts exist for execution control, Run lifecycle, model boundary, and adaptive pursuit. Their presence is not execution evidence.
 

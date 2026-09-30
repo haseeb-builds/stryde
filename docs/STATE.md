@@ -1,5 +1,27 @@
 # Stryde Current State
 
+## 2026-09-30 phase update — two-provider architecture
+
+Provider decision (product authority): the active model chain is now
+**Gemini DIRECT PRIMARY → OmniRoute FALLBACK**; OpenRouter is inactive for this
+phase. Implemented in commit 4acb6a9 on `codex/model-routing-migration-clean`:
+
+- `STRYDE_PROVIDER_DISABLED` added to the router (lib/model-provider.ts) as the
+  single chain-removal mechanism; OpenRouter is disabled in the active
+  environment and its env vars removed. Chain resolution, preferred-provider
+  skip, and fail-fast are unit-tested; /api/health/model reports the disabled
+  list.
+- Real-provider proof harnesses added: `npm run probe:provider -- gemini|omniroute`
+  (named provider vs. the verbatim ConversationTurn + working-state contracts)
+  and `npm run e2e:model` (full vertical loop with a real provider, honest skip
+  without credentials). Both executed 2026-09-30: honest SKIP — no usable
+  provider, because no Gemini or OmniRoute credentials exist in this
+  environment. This is the ONLY blocker for the model-inclusive vertical proof.
+- Full suite green under the new architecture: 56/56 unit tests, typecheck,
+  lint (1 pre-existing warning), production build, e2e:human 14/14 boundaries.
+
+The 2026-09-30 (morning) update and 2026-09-28 reconciliation follow.
+
 Status: canonical current-state document
 Reconciliation date: 2026-09-28
 
