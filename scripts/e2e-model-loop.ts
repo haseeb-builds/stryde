@@ -142,7 +142,6 @@ let move = workingState.next_move as Json | null;
 let followUps = 0;
 while ((!move || move.mode !== "CREATE_ACTION") && followUps < 4 && (move?.mode === "ASK_USER" || !move)) {
   followUps += 1;
-  const question = typeof move?.title === "string" ? move.title : "What should I do first?";
   const answer = `All details you need: it is a 45-minute live system design interview at a fintech company in two weeks, covering scalability, API design, and data modeling, evaluated on structured approach and trade-off discussion. I can commit one hour per day, evenings. Do not ask me anything further — every question is answered. Commit the next move now as a concrete action I can start today (CREATE_ACTION).`
   const followKey = crypto.randomUUID();
   const followRes = await fetch(`${BASE_URL}/api/v1/pursuits/${pursuitId}/conversation`, {
