@@ -30,6 +30,12 @@ phase. Implemented in commit 4acb6a9 on `codex/model-routing-migration-clean`:
 - Full suite green under the new architecture: 56/56 unit tests, typecheck,
   lint (1 pre-existing warning), production build, e2e:human 14/14 boundaries.
 
+Senior-engineering consolidation pass (same day, HEAD after e4a1cab): removed the dead legacy
+model transports and helpers from lib/model-gateway.ts (609 -> 258 lines) and lib/adaptive-model.ts
+(471 -> 329 lines), the unused getModelProvider single-leg accessor, and unused imports/constants;
+zero lint warnings. All verification re-run green: 57/57 unit tests, typecheck, lint, build,
+e2e:human 14/14, e2e:model 11 boundaries with a real provider. No behavior or contract changed.
+
 The 2026-09-30 (morning) update and 2026-09-28 reconciliation follow.
 
 Status: canonical current-state document

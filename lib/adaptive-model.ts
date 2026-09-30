@@ -6,14 +6,6 @@ import {
 import type { WorkingState } from "@/lib/work-controller";
 import { getModelRouter } from "@/lib/model-provider";
 
-const DEFAULT_OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
-const DEFAULT_OPENROUTER_MODEL = "openrouter/free";
-const DEFAULT_GROQ_BASE_URL = "https://api.groq.com/openai/v1";
-const DEFAULT_GROQ_MODEL = "openai/gpt-oss-120b";
-const DEFAULT_GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta";
-const DEFAULT_GEMINI_MODEL = "gemini-2.5-flash";
-const MAX_OUTPUT_CHARS = 30_000;
-const MODEL_TIMEOUT_MS = 24_000;
 
 export const SOURCE_ADAPTATION_SCHEMA = {
   type: "object",
@@ -145,92 +137,10 @@ export type SourceAdaptation = {
   provenance: { source_id: string; uri: string | null; content_sha256: string | null; extraction_status: string };
 };
 
-function parseJsonText(value: string): unknown {
-  try {
-    return JSON.parse(value);
-  } catch {
-    throw new Error("Model returned non-JSON structured output");
-  }
-}
 
-function extractGeminiText(response: unknown): string {
-  if (typeof response !== "object" || response === null) throw new Error("Gemini returned an invalid response envelope");
-  const candidates = (response as { candidates?: unknown }).candidates;
-  if (!Array.isArray(candidates) || !candidates.length) throw new Error("Gemini response is missing candidates");
-  const content = candidates[0] && typeof candidates[0] === "object" ? (candidates[0] as { content?: unknown }).content : null;
-  const parts = content && typeof content === "object" ? (content as { parts?: unknown }).parts : null;
-  if (!Array.isArray(parts)) throw new Error("Gemini response is missing content");
-  const text = parts
-    .filter((part) => part && typeof part === "object" && typeof (part as { text?: unknown }).text === "string")
-    .map((part) => (part as { text: string }).text)
-    .join("")
-    .trim();
-  if (!text) throw new Error("Gemini returned no text output");
-  if (text.length > MAX_OUTPUT_CHARS) throw new Error("Model output exceeded the allowed size");
-  return text;
-}
 
-function extractChatText(response: unknown): string {
-  if (typeof response !== "object" || response === null) throw new Error("Model returned an invalid response envelope");
-  const choices = (response as { choices?: unknown }).choices;
-  if (!Array.isArray(choices) || !choices.length) throw new Error("Model response is missing choices");
-  const message = choices[0] && typeof choices[0] === "object" ? (choices[0] as { message?: unknown }).message : null;
-  const content = message && typeof message === "object" ? (message as { content?: unknown }).content : null;
-  if (typeof content !== "string" || !content.trim()) throw new Error("Model returned no text output");
-  const text = content.trim();
-  if (text.length > MAX_OUTPUT_CHARS) throw new Error("Model output exceeded the allowed size");
-  return text;
-}
 
-function toGeminiSchema(schema: unknown): unknown {
-  if (typeof schema !== "object" || schema === null) return schema;
-  if (Array.isArray(schema)) return schema.map(toGeminiSchema);
-  const source = schema as Record<string, unknown>;
-  const variants = Array.isArray(source.anyOf) ? source.anyOf : null;
-  if (variants) {
-    const nonNull = variants.find((item) => item && typeof item === "object" && (item as Record<string, unknown>).type !== "null");
-    const hasNull = variants.some((item) => item && typeof item === "object" && (item as Record<string, unknown>).type === "null");
-    if (nonNull && typeof nonNull === "object" && hasNull) {
-      const converted = toGeminiSchema(nonNull) as Record<string, unknown>;
-      if (typeof converted.type === "string") return { ...converted, type: [converted.type, "null"] };
-    }
-  }
-  const converted: Record<string, unknown> = {};
-  if (typeof source.type === "string") converted.type = source.type;
-  else if (Array.isArray(source.type)) converted.type = source.type;
-  for (const key of ["description", "title", "enum", "format", "minimum", "maximum"]) {
-    if (source[key] !== undefined) converted[key] = source[key];
-  }
-  if (source.properties && typeof source.properties === "object") {
-    converted.properties = Object.fromEntries(
-      Object.entries(source.properties as Record<string, unknown>).map(([key, value]) => [key, toGeminiSchema(value)]),
-    );
-  }
-  if (Array.isArray(source.required)) converted.required = source.required;
-  if (source.additionalProperties !== undefined) converted.additionalProperties = source.additionalProperties;
-  if (source.items !== undefined) converted.items = toGeminiSchema(source.items);
-  return converted;
-}
 
-function getModelConfig() {
-  const provider = (process.env.STRYDE_MODEL_PROVIDER ?? "gemini").trim().toLowerCase();
-  if (!["gemini", "groq", "openrouter"].includes(provider)) throw new Error(`Unsupported STRYDE_MODEL_PROVIDER: ${provider}`);
-  const apiKey = process.env.STRYDE_MODEL_API_KEY?.trim();
-  if (!apiKey) throw new Error("Missing model configuration: STRYDE_MODEL_API_KEY");
-  const baseUrl = (
-    process.env.STRYDE_MODEL_BASE_URL ??
-    (provider === "gemini" ? DEFAULT_GEMINI_BASE_URL : provider === "groq" ? DEFAULT_GROQ_BASE_URL : DEFAULT_OPENROUTER_BASE_URL)
-  ).replace(/\/$/, "");
-  const model = (
-    process.env.STRYDE_MODEL_NAME ??
-    (provider === "gemini" ? DEFAULT_GEMINI_MODEL : provider === "groq" ? DEFAULT_GROQ_MODEL : DEFAULT_OPENROUTER_MODEL)
-  ).trim();
-  if (!model) throw new Error("Missing model configuration: STRYDE_MODEL_NAME");
-  if (provider === "gemini" && /openrouter\.ai|groq\.com/i.test(baseUrl)) throw new Error("Invalid Gemini model base URL");
-  if (provider === "groq" && /openrouter\.ai|googleapis\.com/i.test(baseUrl)) throw new Error("Invalid Groq model base URL");
-  if (provider === "openrouter" && /groq\.com|googleapis\.com/i.test(baseUrl)) throw new Error("Invalid OpenRouter model base URL");
-  return { provider, apiKey, baseUrl, model };
-}
 
 async function callStructuredModel(
   name: string,
@@ -242,57 +152,6 @@ async function callStructuredModel(
   // live inside the model boundary), never a single configured leg.
   const result = await getModelRouter().generateStructured({ schemaName: name, schema, prompt, maxOutputTokens });
   return { parsed: result.parsed, provider: result.provider, model: result.model };
-  /* legacy transport retained below only as a temporary source reference */
-  const { provider, apiKey, baseUrl, model } = getModelConfig();
-
-  if (provider === "gemini") {
-    const response = await fetch(
-      `${baseUrl}/models/${encodeURIComponent(model)}:generateContent`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: {
-            temperature: 0,
-            maxOutputTokens,
-            thinkingConfig: { thinkingBudget: 1024 },
-            responseMimeType: "application/json",
-            responseSchema: toGeminiSchema(schema),
-          },
-        }),
-        signal: AbortSignal.timeout(MODEL_TIMEOUT_MS),
-        cache: "no-store",
-      },
-    );
-    if (!response.ok) throw new Error(`Model request failed (${response.status}): ${(await response.text()).slice(0, 1000)}`);
-    return { parsed: parseJsonText(extractGeminiText(await response.json())), provider, model };
-  }
-
-  const response = await fetch(`${baseUrl}/chat/completions`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json", "X-Title": "Stryde" },
-    body: JSON.stringify({
-      model,
-      messages: [{ role: "user", content: prompt }],
-      temperature: 0,
-      max_tokens: maxOutputTokens,
-      ...(provider === "groq"
-        ? { response_format: { type: "json_schema", json_schema: { name, strict: true, schema } } }
-        : { response_format: { type: "json_object" } }),
-      ...(provider === "groq" ? { reasoning_effort: "low" } : {}),
-      ...(provider === "openrouter" ? {
-        provider: { require_parameters: true, allow_fallbacks: true },
-        plugins: [{ id: "response-healing" }],
-      } : {}),
-      stream: false,
-    }),
-    signal: AbortSignal.timeout(55_000),
-    cache: "no-store",
-  });
-
-  if (!response.ok) throw new Error(`Model request failed (${response.status}): ${(await response.text()).slice(0, 1000)}`);
-  return { parsed: parseJsonText(extractChatText(await response.json())), provider, model };
 }
 
 function assertSourceAdaptation(value: unknown): SourceAdaptation {

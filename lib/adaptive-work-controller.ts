@@ -1,4 +1,4 @@
-import { ACTOR_TYPES, normalizeActor, normalizeWorkerType, WORKER_TYPES, type WorkerType } from "@/lib/actor";
+import { ACTOR_TYPES, normalizeActor, normalizeWorkerType, WORKER_TYPES } from "@/lib/actor";
 import { WORK_STATUSES, type NextMove, type WorkingState } from "@/lib/work-controller";
 
 export const ADAPTIVE_WORK_MODES = [

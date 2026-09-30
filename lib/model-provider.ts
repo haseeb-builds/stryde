@@ -202,4 +202,3 @@ export function createModelRouter(configs: ModelProviderConfig[], fetchImpl: typ
 }
 
 export function getModelRouter(fetchImpl?: typeof fetch) { return createModelRouter(readModelProviderConfigs(), fetchImpl); }
-export function getModelProvider(fetchImpl?: typeof fetch) { const config = readModelProviderConfig(); return createModelProvider(config, fetchImpl); }
