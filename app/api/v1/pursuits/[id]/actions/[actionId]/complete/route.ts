@@ -113,17 +113,23 @@ export async function POST(request: Request, context: RouteContext) {
 
     const { data: priorMessages, error: messageError } = await supabase
       .from("conversation_message")
-      .select("role, content")
+      .select("role, content, turn_key")
       .eq("session_id", sessionId)
       .eq("owner_user_id", user.id)
       .order("sequence_no", { ascending: false })
-      .limit(16);
+      .limit(17);
     if (messageError) return errorResponse("Unable to load conversation history", 500);
 
-    const conversationBeforeResult = (priorMessages ?? []).reverse().map((item) => ({
-      role: item.role === "USER" ? "user" as const : "stryde" as const,
-      content: item.content,
-    }));
+    // priorMessages was read after the report was recorded; exclude this turn's own
+    // row so the report reaches the interpreter once (via REPORT:) while the adaptive
+    // controller still sees it appended as the latest conversation message.
+    const conversationBeforeResult = (priorMessages ?? [])
+      .filter((item) => item.turn_key !== turnKey)
+      .reverse()
+      .map((item) => ({
+        role: item.role === "USER" ? "user" as const : "stryde" as const,
+        content: item.content,
+      }));
 
     let observation = fallbackHumanObservation({ report, terminalStatus });
     let interpretationMeta: { provider: string; model: string } | null = null;
@@ -162,7 +168,7 @@ export async function POST(request: Request, context: RouteContext) {
     const situationResult = await assembleAdaptiveSituation(supabase, user.id, id);
     if (situationResult.error || !situationResult.situation) return errorResponse(situationResult.error ?? "Unable to assemble updated Situation", 500);
 
-    const conversation = [...conversationBeforeResult];
+    const conversation = [...conversationBeforeResult, { role: "user" as const, content: report }];
 
     let nextWorkingState = session.working_state as Parameters<typeof runAdaptiveWorkController>[0]["previousWorkingState"];
     let modelMeta: { provider: string; model: string } | null = null;

@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "test": "node --experimental-strip-types --test tests/**/*.test.ts",
-    "worker:dispatch": "node --experimental-strip-types scripts/worker-dispatcher.ts"
+    "worker:dispatch": "node --experimental-strip-types scripts/worker-dispatcher.ts",
+    "e2e:human": "node --experimental-strip-types scripts/e2e-human-loop.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.110.0",
