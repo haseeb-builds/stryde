@@ -204,3 +204,46 @@ test("persistence failure after buffered provider success does not invoke anothe
   await assert.rejects(commit({ message: "ok" } as never, null as never), /persistence failed/);
   assert.equal(providerCalls, 1);
 });
+
+test("OpenRouter defaults and legacy free-router env resolve to Nemotron 3 Ultra", async () => {
+  const defaultConfig = readModelProviderConfig({
+    STRYDE_MODEL_PROVIDER: "openrouter",
+    STRYDE_OPENROUTER_API_KEY: "key",
+  } as unknown as NodeJS.ProcessEnv);
+  assert.equal(defaultConfig.model, "nvidia/nemotron-3-ultra-550b-a55b");
+
+  const legacyConfig = readModelProviderConfig({
+    STRYDE_MODEL_PROVIDER: "openrouter",
+    STRYDE_OPENROUTER_API_KEY: "key",
+    STRYDE_OPENROUTER_MODEL: "openrouter/free",
+  } as unknown as NodeJS.ProcessEnv);
+  assert.equal(legacyConfig.model, "nvidia/nemotron-3-ultra-550b-a55b");
+});
+
+test("Nemotron OpenRouter requests use JSON Schema structured output", async () => {
+  let requestBody: Record<string, unknown> | null = null;
+  const provider = createModelProvider({
+    provider: "openrouter",
+    apiKey: "key",
+    baseUrl: "https://openrouter.ai/api/v1",
+    model: "nvidia/nemotron-3-ultra-550b-a55b",
+  }, async (_url, init) => {
+    requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+    return new Response(JSON.stringify({ choices: [{ message: { content: '{"ok":true}' } }] }), { status: 200 });
+  });
+
+  assert.deepEqual(await provider.generateStructured({
+    schemaName: "stryde_test",
+    schema: { type: "object", properties: { ok: { type: "boolean" } }, required: ["ok"], additionalProperties: false },
+    prompt: "Return a test object",
+  }), { ok: true });
+
+  assert.deepEqual(requestBody?.response_format, {
+    type: "json_schema",
+    json_schema: {
+      name: "stryde_test",
+      strict: true,
+      schema: { type: "object", properties: { ok: { type: "boolean" } }, required: ["ok"], additionalProperties: false },
+    },
+  });
+});

@@ -23,9 +23,10 @@ export type ModelProvider = {
   streamStructured(input: StructuredInput & { onText: (text: string) => void }): Promise<void>;
 };
 
+const NEMOTRON_3_ULTRA = "nvidia/nemotron-3-ultra-550b-a55b";
 const defaults: Record<ModelProviderName, { baseUrl: string; model: string; envKey: string }> = {
   gemini: { baseUrl: "https://generativelanguage.googleapis.com/v1beta", model: "gemini-2.5-flash", envKey: "STRYDE_GEMINI_API_KEY" },
-  openrouter: { baseUrl: "https://openrouter.ai/api/v1", model: "openrouter/free", envKey: "STRYDE_OPENROUTER_API_KEY" },
+  openrouter: { baseUrl: "https://openrouter.ai/api/v1", model: NEMOTRON_3_ULTRA, envKey: "STRYDE_OPENROUTER_API_KEY" },
   omniroute: { baseUrl: "", model: "", envKey: "STRYDE_OMNIROUTE_API_KEY" },
   groq: { baseUrl: "https://api.groq.com/openai/v1", model: "openai/gpt-oss-120b", envKey: "STRYDE_GROQ_API_KEY" },
 };
@@ -35,7 +36,10 @@ function configured(env: NodeJS.ProcessEnv, provider: ModelProviderName): ModelP
   const apiKey = (env[d.envKey] ?? (provider === "gemini" ? env.STRYDE_MODEL_API_KEY : undefined))?.trim();
   if (!apiKey) return null;
   const baseUrl = (env[`STRYDE_${provider.toUpperCase()}_BASE_URL`] ?? (provider === "gemini" ? env.STRYDE_MODEL_BASE_URL : undefined) ?? d.baseUrl).replace(/\/$/, "");
-  const model = (env[`STRYDE_${provider.toUpperCase()}_MODEL`] ?? (provider === "gemini" ? env.STRYDE_MODEL_NAME : undefined) ?? d.model).trim();
+  let model = (env[`STRYDE_${provider.toUpperCase()}_MODEL`] ?? (provider === "gemini" ? env.STRYDE_MODEL_NAME : undefined) ?? d.model).trim();
+  // The previous OpenRouter default was a generic free router. Treat it as a legacy
+  // value so a stale deployment variable cannot silently select a different model.
+  if (provider === "openrouter" && model === "openrouter/free") model = NEMOTRON_3_ULTRA;
   if (!baseUrl || !model) throw new ModelProviderError(provider, "configuration", `${provider} provider requires base URL and model`, false);
   if (provider === "gemini" && /openrouter\.ai|groq\.com/i.test(baseUrl) || provider === "openrouter" && /googleapis\.com|groq\.com/i.test(baseUrl) || provider === "groq" && /googleapis\.com|openrouter\.ai/i.test(baseUrl)) throw new ModelProviderError(provider, "configuration", `Invalid model configuration: ${provider} provider cannot use this base URL`, false);
   return { provider, apiKey, baseUrl, model };
@@ -83,7 +87,10 @@ function outputText(provider: ModelProviderName, envelope: any): string {
 function body(config: ModelProviderConfig, input: StructuredInput, stream: boolean) {
   const max = input.maxOutputTokens ?? 1000;
   if (config.provider === "gemini") return { contents: [{ parts: [{ text: input.prompt }] }], generationConfig: { temperature: 0, maxOutputTokens: max, thinkingConfig: { thinkingBudget: 1024 }, responseMimeType: "application/json", responseSchema: geminiSchema(input.schema) } };
-  return { model: config.model, messages: [{ role: "user", content: `${input.prompt}\n\nReturn one JSON object only matching this schema:\n${JSON.stringify(input.schema)}` }], response_format: { type: "json_object" }, temperature: 0, max_tokens: max, stream };
+  const responseFormat = config.provider === "openrouter" && config.model === NEMOTRON_3_ULTRA
+    ? { type: "json_schema", json_schema: { name: input.schemaName, strict: true, schema: input.schema } }
+    : { type: "json_object" };
+  return { model: config.model, messages: [{ role: "user", content: `${input.prompt}\n\nReturn one JSON object only matching this schema:\n${JSON.stringify(input.schema)}` }], response_format: responseFormat, temperature: 0, max_tokens: max, stream };
 }
 
 export function createModelProvider(config: ModelProviderConfig, fetchImpl: typeof fetch = fetch): ModelProvider {
