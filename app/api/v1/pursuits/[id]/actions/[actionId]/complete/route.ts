@@ -3,6 +3,7 @@ import { runAdaptiveWorkController } from "@/lib/adaptive-model";
 import { fallbackHumanObservation, interpretHumanActionReport } from "@/lib/human-observation";
 import { assembleAdaptiveSituation } from "@/lib/adaptive-situation";
 import { requireAuthenticatedSupabase } from "@/lib/supabase/server";
+import { recordMemory } from "@/lib/memory";
 
 export const runtime = "nodejs";
 export const maxDuration = 55;
@@ -276,6 +277,32 @@ export async function POST(request: Request, context: RouteContext) {
         })
       : { created: 0, warnings: [] };
 
+    const memory = completedObservationId
+      ? await recordMemory(supabase, {
+          ownerUserId: user.id,
+          pursuitId: id,
+          memoryType: "EXPERIENCE",
+          content: observation.what_happened,
+          structuredDetail: {
+            summary: observation.summary,
+            evidence: observation.evidence,
+            uncertainties: observation.uncertainties,
+            blockers: observation.blockers,
+            implications: observation.implications,
+            terminal_status: terminalStatus,
+          },
+          provenanceType: "USER_REPORTED",
+          provenance: {
+            source: "HUMAN_ACTION_RESULT",
+            action_id: actionId,
+          },
+          confidence: 0.6,
+          importance: observation.blockers.length > 0 ? 0.85 : 0.7,
+          sourceObservationId: completedObservationId,
+          status: "CANDIDATE",
+        })
+      : null;
+
     const situationResult = await assembleAdaptiveSituation(supabase, user.id, id);
     if (situationResult.error || !situationResult.situation) return errorResponse(situationResult.error ?? "Unable to assemble updated Situation", 500);
 
@@ -329,6 +356,7 @@ export async function POST(request: Request, context: RouteContext) {
       ...(interpretationMeta ? { observation_model: interpretationMeta } : {}),
       ...(modelMeta ? { work_model: modelMeta } : {}),
       auto_claims: claimSync,
+      memory: memory ? { id: memory.id } : null,
     };
 
     const { data: committedTurn, error: commitTurnError } = await supabase.rpc("stryde_commit_conversation_turn", {
@@ -350,6 +378,7 @@ export async function POST(request: Request, context: RouteContext) {
       ...(interpretationMeta ? { observation_model: interpretationMeta } : {}),
       ...(modelMeta ? { model: modelMeta } : {}),
       auto_claims: claimSync,
+      memory: memory ? { id: memory.id } : null,
     }, { status: 200 });
   } catch (error) {
     if (error instanceof SyntaxError) return errorResponse("Request body must be valid JSON", 400);
