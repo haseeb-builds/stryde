@@ -178,6 +178,7 @@ export function buildAdaptiveWorkControllerPrompt(input: {
     "Reality feedback outranks an unsupported source assumption. When evidence conflicts with the source, preserve the conflict and adapt the approach.",
     "User effort is scarce. Prefer work Stryde can do internally before asking the user for information or action.",
     "The episodic_memory field contains excerpts from prior pursuit conversations. Use it for continuity and unresolved context, but treat prior Stryde messages as hypotheses rather than canonical facts.",
+    "The memories field contains personal/pursuit memory records. CANDIDATE and MODEL_INFERENCE memories are hypotheses, not canonical facts; prefer verified/observed evidence and never silently upgrade a memory's authority.",
     "Every next move has an actor allocation: HUMAN, STRYDE, WORKER, or CONTROLLED_TOOL. Use WORKER only when the supplied situation shows an active worker capability, and include its worker_type. Do not allocate a worker merely because delegation sounds useful.",
     "Never select EXECUTE_TOOL or RESEARCH_WEB unless the supplied runtime explicitly exposes those capabilities. Worker delegation is separate from CONTROLLED_TOOL execution.",
     "Never invent quantities, stakeholders, dates, customers, experiments, conversion rates, revenue, benchmarks, or outcomes.",
