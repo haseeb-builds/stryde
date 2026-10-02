@@ -5,6 +5,7 @@ import { assembleAdaptiveSituation } from "@/lib/adaptive-situation";
 import { assembleSituation } from "@/lib/situation";
 import { requireAuthenticatedSupabase } from "@/lib/supabase/server";
 import { createConversationCommitter } from "@/lib/conversation-commit";
+import { recordMemory } from "@/lib/memory";
 
 export const runtime = "nodejs";
 export const maxDuration = 55;
@@ -145,6 +146,31 @@ export async function POST(request: Request, context: RouteContext) {
             }
           }
 
+          // Conversation turns can propose a few durable, user-specific memories.
+          // These are stored as MODEL_INFERENCE candidates, never as verified truth.
+          for (const memoryCandidate of result.turn.memory_candidates) {
+            await recordMemory(supabase, {
+              ownerUserId: user.id,
+              pursuitId: memoryCandidate.scope === "PURSUIT" ? id : null,
+              memoryType: memoryCandidate.memory_type,
+              content: memoryCandidate.content,
+              confidence: Math.min(1, Math.max(0, memoryCandidate.confidence)),
+              importance: Math.min(1, Math.max(0, memoryCandidate.importance)),
+              provenanceType: "MODEL_INFERENCE",
+              provenance: {
+                source: "CONVERSATION_TURN",
+                session_id: sessionId,
+                turn_key: turnKey,
+                provider: result.provider,
+                model: result.model,
+              },
+              structuredDetail: {
+                focus: result.turn.focus,
+              },
+              status: "CANDIDATE",
+            });
+          }
+
           // Sole assistant commit point, after the stream and structured turn validation.
           const commit = createConversationCommitter({
             commit: async (turn, committedWork) => {
@@ -158,6 +184,7 @@ export async function POST(request: Request, context: RouteContext) {
                   ready_for_reasoning: turn.ready_for_reasoning,
                   focus: turn.focus,
                   work: committedWork,
+                  memory_candidates: result.turn.memory_candidates,
                 },
                 p_working_state: committedWork,
               });
