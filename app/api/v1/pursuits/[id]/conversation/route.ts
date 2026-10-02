@@ -5,6 +5,7 @@ import { assembleAdaptiveSituation } from "@/lib/adaptive-situation";
 import { requireAuthenticatedSupabase } from "@/lib/supabase/server";
 import { createConversationCommitter } from "@/lib/conversation-commit";
 import { recordMemory } from "@/lib/memory";
+import { processUniversalInput } from "@/lib/universal-input";
 
 export const runtime = "nodejs";
 export const maxDuration = 55;
@@ -92,6 +93,13 @@ export async function POST(request: Request, context: RouteContext) {
         role: item.role === "USER" ? "user" : "stryde",
         content: item.content,
       }));
+
+    const universalInput = await processUniversalInput(
+      supabase,
+      user.id,
+      id,
+      message,
+    );
 
     const situationResult = await assembleAdaptiveSituation(supabase, user.id, id);
     if (situationResult.error || !situationResult.situation) {
@@ -184,6 +192,7 @@ export async function POST(request: Request, context: RouteContext) {
                   focus: turn.focus,
                   work: committedWork,
                   memory_candidates: result.turn.memory_candidates,
+                  universal_input: universalInput,
                 },
                 p_working_state: committedWork,
               });
