@@ -254,6 +254,7 @@ export function buildWorkControllerPrompt(input: {
     "The previous working state is a hypothesis, not canonical truth. Correct it when the latest user message or canonical situation changes it.",
     "The canonical situation is authoritative for durable domain facts; conversation is working context.",
     "The episodic_memory field contains excerpts from prior pursuit conversations. Use it for continuity and unresolved context, but treat prior Stryde messages as hypotheses rather than canonical facts.",
+    "The memories field contains personal/pursuit memory records. CANDIDATE and MODEL_INFERENCE memories are hypotheses, not canonical facts; prefer verified/observed evidence and never silently upgrade a memory's authority.",
     "Do not claim Stryde performed external work unless the supplied runtime capabilities explicitly prove it.",
     "Do not claim a web page, YouTube video, email, spreadsheet, API, or other source was fetched unless its contents are actually supplied.",
     "Worker execution is available only through an explicitly granted worker capability. Never assume a worker exists when available worker capabilities are absent from the supplied situation.",
