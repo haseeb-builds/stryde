@@ -7,7 +7,7 @@ const MAX_MESSAGE_CHARS = 8_000;
 // The turn must fit the full ConversationTurn (message, options, focus, and the
 // complete WorkingState projection) including model reasoning overhead; the
 // previous 1,000-token budget truncated every capable provider mid-JSON.
-export const MAX_CONVERSATION_TURN_OUTPUT_TOKENS = 2_600;
+export const MAX_CONVERSATION_TURN_OUTPUT_TOKENS = 2_800;
 
 type ModelGatewayResult = {
   proposal: ModelProposal;
@@ -72,11 +72,27 @@ const MODEL_PROPOSAL_SCHEMA = {
 const CONVERSATION_TURN_SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["message", "question", "options", "ready_for_reasoning", "focus", "work"],
+  required: ["message", "question", "memory_candidates", "options", "ready_for_reasoning", "focus", "work"],
   properties: {
     message: { type: "string", minLength: 1, maxLength: 8000 },
     question: {
       anyOf: [{ type: "string", maxLength: 4000 }, { type: "null" }],
+    },
+    memory_candidates: {
+      type: "array",
+      maxItems: 3,
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["scope", "memory_type", "content", "confidence", "importance"],
+        properties: {
+          scope: { type: "string", enum: ["USER", "PURSUIT"] },
+          memory_type: { type: "string", enum: ["FACT", "CONSTRAINT", "PREFERENCE", "DECISION", "COMMITMENT", "EXPERIENCE", "PATTERN", "GOAL"] },
+          content: { type: "string", minLength: 1, maxLength: 600 },
+          confidence: { type: "number", minimum: 0, maximum: 1 },
+          importance: { type: "number", minimum: 0, maximum: 1 },
+        },
+      },
     },
     options: {
       type: "array",
@@ -145,8 +161,25 @@ function validateConversationTurn(value: unknown): ConversationTurn {
   const question = candidate.question === null || candidate.question === undefined ? null : typeof candidate.question === "string" && candidate.question.trim() ? candidate.question.trim().slice(0, 4000) : null;
   const focus = candidate.focus === null || candidate.focus === undefined ? null : typeof candidate.focus === "string" && candidate.focus.trim() ? candidate.focus.trim().slice(0, 2000) : null;
   if (typeof candidate.ready_for_reasoning !== "boolean") throw new Error("ready_for_reasoning must be boolean");
+  if (!Array.isArray(candidate.memory_candidates)) throw new Error("memory_candidates must be an array");
+  const memory_candidates = candidate.memory_candidates.slice(0, 3).map((item) => {
+    if (typeof item !== "object" || item === null) throw new Error("Invalid memory candidate");
+    const memory = item as Record<string, unknown>;
+    if (memory.scope !== "USER" && memory.scope !== "PURSUIT") throw new Error("Invalid memory candidate scope");
+    if (!["FACT","CONSTRAINT","PREFERENCE","DECISION","COMMITMENT","EXPERIENCE","PATTERN","GOAL"].includes(memory.memory_type as string)) throw new Error("Invalid memory candidate type");
+    if (typeof memory.content !== "string" || !memory.content.trim()) throw new Error("Memory candidate content is required");
+    if (typeof memory.confidence !== "number" || memory.confidence < 0 || memory.confidence > 1) throw new Error("Memory candidate confidence must be between 0 and 1");
+    if (typeof memory.importance !== "number" || memory.importance < 0 || memory.importance > 1) throw new Error("Memory candidate importance must be between 0 and 1");
+    return {
+      scope: memory.scope as ConversationMemoryCandidate["scope"],
+      memory_type: memory.memory_type as ConversationMemoryCandidate["memory_type"],
+      content: memory.content.trim().slice(0, 600),
+      confidence: memory.confidence,
+      importance: memory.importance,
+    };
+  });
   const work = validateWorkingState(candidate.work);
-  return { message: candidate.message.trim().slice(0, 8000), question, options, ready_for_reasoning: candidate.ready_for_reasoning, focus, work };
+  return { message: candidate.message.trim().slice(0, 8000), question, options, ready_for_reasoning, focus, memory_candidates, work };
 }
 
 function buildConversationPrompt(input: {
@@ -173,6 +206,8 @@ function buildConversationPrompt(input: {
     "First interpret what the user is saying. Then move the situation forward with a useful response.",
     "Do not automatically ask a question. Ask one only when it materially improves understanding.",
     "A useful response may combine an interpretation, observation, framing, small recommendation, question, and/or a few concrete choices.",
+    "Also return up to three memory_candidates only for durable, user-specific information that is worth remembering beyond this conversation. Prefer constraints, preferences, enduring goals, meaningful decisions, repeated patterns, and consequential experiences. Do not store generic facts, transient details, assistant claims, speculative psychology, or information that is already adequately represented in canonical domain state.",
+    "Memory candidates are MODEL_INFERENCE proposals, not truth. Use conservative confidence and importance values. Do not infer sensitive traits or hidden motives.",
     "Do not force a fixed number of steps. Continue naturally until the situation is sufficiently understood for the next useful intervention.",
     "Offer choices when they reduce cognitive load, but never force the user into them.",
     "If the user says 'I don't know', help them discover what they mean rather than asking another broad diagnostic question.",
