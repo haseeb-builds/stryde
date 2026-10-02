@@ -521,7 +521,9 @@ export default function PursuitPage() {
     setInput("");
 
     setMessages((current) => [...current, { role: "user", content }]);
-    const assistantId = "streaming-assistant";
+    // Unique per turn: a reused constant id would collide with the previous
+    // turn's committed placeholder and overwrite its bubble on the next stream.
+    const assistantId = "streaming-" + crypto.randomUUID();
 
     setMessages((current) => [
       ...current,
