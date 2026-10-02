@@ -23,7 +23,7 @@ const env = Object.fromEntries(
   (await import("node:fs")).readFileSync(new URL("../.env.local", import.meta.url), "utf8")
     .split(/\r?\n/).filter((l) => l.includes("=")).map((l) => [l.slice(0, l.indexOf("=")), l.slice(l.indexOf("=") + 1)]),
 );
-const BASE_URL = (env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000").replace(/\/$/, "");
+const BASE_URL = (process.env.NEXT_PUBLIC_SITE_URL ?? env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000").replace(/\/$/, "");
 const ANON_KEY = env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 const SERVICE_KEY = env.SUPABASE_SECRET_KEY;
 const EMAIL = env.STRYDE_TEST_USER_EMAIL;
