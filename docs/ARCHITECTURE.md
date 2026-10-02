@@ -1,96 +1,156 @@
 # Stryde Architecture Truth
 
 Status: canonical architecture document
-Reconciliation date: 2026-09-28
+Reconciliation date: 2026-10-02
 
 ## Authority order
 
-For current reality:
 1. Repository code and migrations define implementation structure.
-2. Supabase live schema/data/functions/policies define database runtime truth.
-3. Vercel deployment/runtime evidence defines deployed truth where accessible.
-4. Tests and verification artifacts are evidence.
-5. Conversation context is control-interface context only.
+2. Live Supabase schema/data/functions/policies define database runtime truth.
+3. Deployed Vercel runtime evidence defines deployed truth.
+4. Tests and verification artifacts define evidence of tested behavior.
+5. Chat history is control context only.
 
-When these disagree, the contradiction is recorded rather than silently resolved.
+When authoritative sources disagree, record the contradiction rather than guessing.
 
-## Current architectural graph
+## Architectural center
 
-The implemented design is broadly:
+Stryde is a semantic control plane around replaceable intelligence and capability providers.
 
 User
-→ authenticated Next.js route
-→ server-side context assembly
-→ model gateway / deterministic reasoning
+→ universal composer
+→ authenticated server boundary
+→ situation + personal context assembly
+→ policy / capability selection
+→ reasoning and evidence acquisition
 → working proposal
-→ authorization boundary
-→ Action
-→ Job
-→ Attempt
-→ worker/tool gateway
+→ authority decision
+→ Action / Job / Attempt
+→ worker or external capability
 → mechanical result
 → Observation
-→ Verification
+→ verification
 → canonical state update
+→ next move
 
-The cognitive Run lifecycle is intentionally separate from external execution.
-
-Current Run stages represented by code and database constraints are:
-INPUT → CONTEXT_ASSEMBLY → UNDERSTAND → REASSESS → optional DIAGNOSE → SELECT_INTERVENTION → PROPOSE → VALIDATE → AUTHORIZE → COMMIT → DONE
-
-WAITING and FAILED are exceptional exits.
+The semantic state machine is Stryde-owned. Providers and workers are subordinate capabilities.
 
 ## Canonical state
 
-Postgres is the V1 system of record. The live database currently contains domain tables for Thread, Pursuit, Claim, Decision, Action, Tool, CapabilityGrant, Job, JobAuthorization, Attempt, Observation, Claim relations/status history, Run, RunContextReference, Event, conversation session/message, source, source adaptation, source citation, reconciliation support, and the legacy loops prototype.
+Postgres is the V1 system of record.
 
-Conversation transcript and conversation_session.working_state are continuity/working-state mechanisms, not replacements for canonical domain state.
+Canonical domain state includes, as applicable:
+- Pursuit;
+- Claim;
+- Decision;
+- Action;
+- Observation;
+- Verification lineage;
+- Run;
+- Event;
+- Source and source provenance;
+- conversation continuity state.
 
-## Conversation
+Conversation transcript is not canonical truth.
 
-The repository contains:
-- server-authenticated conversation routes;
-- persistent conversation_session and conversation_message tables;
-- turn-key idempotency fields and server-side write RPCs;
-- SSE streaming code;
-- server-side retrieval of recent conversation messages;
-- separate Situation assembly;
-- optional adaptive working-state recomputation.
+## Personal reality model
 
-The current route code does stream model deltas and commits a final assistant turn through the database RPC. Production behavior of this route is not currently verified because Vercel runtime access is unavailable.
+Stryde should progressively maintain a provenance-aware personal model containing useful:
+- facts and constraints;
+- preferences;
+- decisions;
+- commitments;
+- past actions;
+- observed outcomes;
+- failures and blocked attempts;
+- methods tried;
+- patterns learned from outcomes.
 
-## Sources and research
+Memory infrastructure is subordinate to this semantic policy. A vector database, graph database, memory library, or embedding store may be used when it materially helps retrieval, but none becomes canonical truth merely by being installed.
 
-The repository contains an Exa search adapter and Firecrawl source extraction adapter.
+## Evidence model
 
-Source ingestion currently supports pasted content and public HTTP(S) URLs, content hashing, fetch status, provider metadata, source adaptation records, and source citations.
+The system must distinguish:
+- user-reported information;
+- external source claims;
+- model inference;
+- observed events;
+- verified outcomes;
+- contradictions;
+- unknowns.
 
-This is not yet a general browser, crawler, arbitrary-file, or saved-content integration layer.
+Action success is not outcome verification.
+Outcome verification is not causation.
+Correlation is not causation.
 
-## Execution
+## Research architecture
 
-The repository and live database contain the control-plane shape:
+Stryde does not own "a search provider."
 
-Action → Job → lease → Attempt → worker/provider → mechanical result → Observation → Verification.
+It owns a capability-independent evidence acquisition contract.
 
-The database has worker-only lease/start/finish functions, lease ownership, fencing tokens, durable dispatch intent, UNKNOWN result state, and tool/version binding.
+Possible providers/capabilities include:
+- web search;
+- official APIs/databases;
+- source extraction;
+- public documents;
+- transcript extraction;
+- browser observation;
+- user-supplied files;
+- specialized research workers;
+- human clarification.
 
-The live database has two registered worker tools but zero live CapabilityGrant rows, Jobs, Attempts, or Observations at reconciliation time. Therefore the execution control plane is an implemented primitive, not a proven live worker path.
+Provider choice should be adaptive to reliability, relevance, stakes, cost, latency, authorization, and availability.
 
-## Verification
+## Capability architecture
 
-Verification primitives include Observation, ClaimObservationLink, ClaimRelation, ClaimStatusEvent, worker observation, and human adjudication.
+Examples of subordinate infrastructure:
+- chat/composer UI primitives;
+- UI component libraries;
+- model providers;
+- browser automation;
+- crawlers/extractors;
+- document/media parsers;
+- workers;
+- MCP;
+- external-service adapters.
 
-The live database currently contains zero Claims and zero Observations. Therefore verification machinery exists but no current real evidence→verification cycle is proven.
+Stryde may wrap or replace these capabilities without changing the semantic contract.
 
-## Security boundary
+## Authority
 
-Current code/database intend to enforce owner-scoped access, authenticated identity, bounded model output, worker-only execution functions, fencing, immutable/lineage-bearing semantic records, and untrusted external content.
+Model output never directly grants authority for consequential side effects.
 
-Live security findings and privilege anomalies are documented in docs/RUNTIME.md. They were not remediated during this reconciliation.
+Authority is an explicit state determined by user policy, action scope, risk, and capability.
 
-## Not currently installed
+Autonomous operation must support bounded permission concepts such as:
+- what capability may be used;
+- what data may be sent;
+- what side effects are allowed;
+- which pursuits it applies to;
+- duration/time budget;
+- escalation conditions;
+- approval requirements.
 
-The current repository does not contain dedicated dependencies/runtime implementations for Playwright, Crawlee, Crawl4AI, an Apify Actor runtime, Browser Use, Stagehand, Skyvern, Steel, yt-dlp, FFmpeg, Whisper/faster-whisper, Docling, MinerU, Apache Tika, a general MCP runtime, a general OAuth integration platform, or a dedicated VM/sandbox runtime.
+## UX architecture
 
-Those are future capability options, not current features.
+There should be one primary user control surface.
+
+Internal actions may appear as contextual inline affordances when needed. Do not rebuild the old separate source/research/execution/evidence workflow as the default UI.
+
+## Integration rule
+
+Third-party infrastructure must have:
+- acceptable license and redistribution terms;
+- acceptable security posture;
+- stable enough maintenance;
+- a clear boundary and replaceability strategy;
+- explicit data and credential handling;
+- side-effect classification;
+- provenance and verification behavior.
+
+## Implementation rule
+
+Do not add a large agent framework, memory system, model router, workflow engine, or capability platform merely because it exists.
+
+First identify the demonstrated problem. Reuse the smallest mature primitive that solves the non-differentiating portion. Keep Stryde's semantic control plane explicit.

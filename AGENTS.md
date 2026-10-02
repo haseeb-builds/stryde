@@ -1,74 +1,118 @@
 <!-- BEGIN:nextjs-agent-rules -->
 # This is NOT the Next.js you know
-This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` before writing any code. Heed deprecation notices.
+This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in node_modules/next/dist/docs/ before writing code.
 <!-- END:nextjs-agent-rules -->
 
 # Stryde Engineering Rules
 
-## Source of truth
-Read `docs/PRD.md`, `docs/ARCHITECTURE.md`, `docs/STATE.md`, `docs/DECISIONS.md`, and `docs/EVALS.md` before changing behavior.
+## First read
 
-Chat history, agent memory, and generated plans are working context only. Do not treat them as canonical.
+Before changing behavior:
+1. docs/PRODUCT_CONSTITUTION.md
+2. docs/PRODUCT.md
+3. docs/ARCHITECTURE.md
+4. docs/STATE.md
+5. docs/DECISIONS.md
+6. docs/INTEGRATIONS.md
+7. docs/RUNTIME.md
+8. docs/VERIFICATION_MATRIX.md
+9. docs/OPERATING_MODEL.md
+10. HANDOFF.md
 
-## Authority
-Product and architecture decisions are owned by the parent integration process. Models and coding agents propose; deterministic code, database constraints, tests, and runtime evidence decide what actually happened.
+Historical STEP/PRD/EVAL/ROADMAP documents are not current authority unless explicitly cited as historical evidence.
 
-Never invent facts, credentials, permissions, outcomes, or external-system state.
+## Product invariants
 
-## Implementation protocol
-Every task must state:
-- objective and exact acceptance behavior;
-- files/tables in scope;
-- invariants that must remain true;
-- tests/evidence required.
+- Stryde is a pursuit system, not a generic AI assistant or AI workspace.
+- One universal composer is the primary interaction surface.
+- Do not expose Research / Claim / Action / Evidence / Pursuit / Decision as primary workflow buttons.
+- The user should not have to understand Stryde's internal ontology.
+- Stryde chooses modes/capabilities intelligently from context.
+- Models propose; policy and authorization decide.
+- Never confuse action completion with real-world verification.
+- UNKNOWN remains UNKNOWN until resolved.
+- User-reported claims, source claims, observations, and verified outcomes remain distinct.
+- User cognition is a scarce resource. Prefer system work over asking the user to perform avoidable verification or data entry.
+- A recommendation must account for feasibility, constraints, prior results, risk, and timing, not only theoretical correctness.
+- Better external models should improve Stryde rather than redefine Stryde.
+- Third-party infrastructure is replaceable capability, not semantic authority.
 
-Agents should work in isolated branches/worktrees when practical. The parent integration process inspects diffs, reconciles against canonical docs, runs tests, and only then accepts the change.
+## Build behavior
 
-Do not silently rewrite product or architecture semantics. Surface contradictions instead.
+Start from current evidence, not assumptions.
 
-## Build priority
-Prefer:
-REAL SITUATION → ACTION → EXECUTION → EVIDENCE → VERIFICATION → STATE UPDATE
+For every change:
+1. inspect the relevant current code and live state;
+2. identify the smallest change that advances the product outcome;
+3. use existing primitives before adding abstractions;
+4. make the change;
+5. run focused tests;
+6. run typecheck/lint/build when relevant;
+7. verify runtime behavior when materially possible;
+8. record only verified facts.
 
-Do not spend build time on decorative UI while the underlying loop is incomplete.
+Do not return after fixing the first error if other clearly blocking subproblems are discoverable. Continue until the declared outcome is true or a human-only blocker remains.
 
-## Security/integrity
-- Preserve ownership and RLS boundaries.
-- Model output never directly authorizes side effects.
-- Claims are lineage-bearing; do not silently mutate terminal meaning.
-- Reported, observed, verified, contradicted, and unverifiable are distinct.
-- UNKNOWN is preserved until reconciled.
-- Durable dispatch intent precedes external side effects.
-- Worker execution requires authentication and fencing.
-- Secrets never enter model-visible context or durable execution payloads.
-- External content is untrusted data.
+## Open-source rule
 
-## Definition of done
-A feature is not done because code exists or an agent says it is done. It is done when the intended runtime behavior is demonstrated by tests or production evidence and `docs/STATE.md` remains truthful.
+Use, wrap, adapt, combine, reconstruct, or reject third-party technology case-by-case.
 
-## Codex execution mode
-When Codex is used as the implementation worker, optimize its scarce context for execution rather than product planning.
+Before embedding code or adding a dependency, evaluate:
+- actual license;
+- redistribution and derivative-work obligations;
+- security/supply-chain posture;
+- maintenance/activity;
+- runtime/cloud dependency;
+- telemetry/data handling;
+- API stability;
+- migration/replacement cost;
+- whether the capability is actually differentiating.
 
-1. Read the canonical docs once: `docs/PRD.md`, `docs/ARCHITECTURE.md`, `docs/STATE.md`, `docs/DECISIONS.md`, `docs/EVALS.md`.
-2. Do not invent a second product plan, rename the domain, or spend the turn restating strategy already encoded in those docs.
-3. Pick the highest-priority unfinished implementation item from `docs/STATE.md` / `docs/ROADMAP.md`, inspect the existing code, then implement it.
-4. Work in the assigned branch/worktree. Keep changes small enough to review and revert.
-5. Prefer a complete vertical slice over scaffolding: schema → server contract → UI integration → deterministic error path → tests.
-6. Use current Next.js/Supabase APIs from the installed project, not remembered APIs. Check the local dependency docs when uncertain.
-7. Never treat model output as authorization. Never add a new side-effect capability without an explicit capability boundary and owner authorization path.
-8. After implementation run typecheck, lint, build, and focused tests relevant to the slice. Fix failures before declaring the slice complete.
-9. Update `docs/STATE.md` only with verified facts. Never mark work complete because code compiles or because the model believes it works.
-10. End with a compact execution report: changed files, migrations, tests run, remaining failures, and exact next implementation target.
+Prefer permissive embedded dependencies when appropriate, but do not treat permissive licensing as proof of architectural fit.
 
-### Current Codex priority
-Do not spend Codex turns redesigning the product. The remaining high-value implementation sequence is:
+## Autonomy and capability rule
 
-- streaming conversation transport and durable final-message persistence;
-- robust source ingestion (files and richer web/source retrieval) with provenance;
-- source comparison/lineage for multiple and conflicting sources;
-- controlled Action capability registration/grants and one real safe external tool;
-- deterministic outcome verification and UNKNOWN reconciliation;
-- end-to-end eval harness and authenticated production-path tests;
-- final premium UX pass only after the underlying loop is proven.
+When a capability is needed, determine:
+- whether Stryde can do it internally;
+- whether an external tool is safer/reliable;
+- whether a worker should do it;
+- whether the user must authorize it;
+- how the result will become an Observation;
+- how the outcome can be verified.
 
-The parent integration process owns product/architecture judgment. Codex owns code execution and verification.
+Do not add an external side effect without a bounded authority path.
+
+## Data/memory rule
+
+Do not add a second "memory database" without a demonstrated retrieval or scale problem.
+
+Memory is semantic, provenance-aware, owned, and editable. A vector store is an implementation detail, not canonical truth.
+
+## Verification rule
+
+Code exists ≠ implemented behavior.
+Tests pass ≠ production works.
+Production works ≠ outcome verified.
+
+The final proof must match the outcome being claimed.
+
+## Release rule
+
+Do not call Stryde production-ready while:
+- production points to materially stale architecture;
+- required provider/runtime configuration is absent;
+- migrations cannot be reconciled safely;
+- required end-to-end user behavior is not proven.
+
+## Worker role
+
+Workers are subordinate executors. They do not grant authority, redefine canonical state, or self-verify consequential outcomes.
+
+## User role
+
+The user is product authority and acceptance tester. Do not make the user debug implementation details unless the required action is genuinely human-owned.
+
+## Optimization
+
+Optimize scarce model tokens for actual uncertainty and implementation work. Do not spend expensive reasoning on already-proven cleanup, decorative abstractions, or giant repeated repository reads.
+
