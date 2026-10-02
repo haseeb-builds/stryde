@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 import { runAdaptiveWorkController } from "@/lib/adaptive-model";
 import { streamConversationTurn, type ConversationMessage, type ConversationStreamEvent } from "@/lib/model-gateway";
 import { assembleAdaptiveSituation } from "@/lib/adaptive-situation";
-import { assembleSituation } from "@/lib/situation";
 import { requireAuthenticatedSupabase } from "@/lib/supabase/server";
 import { createConversationCommitter } from "@/lib/conversation-commit";
 import { recordMemory } from "@/lib/memory";
@@ -94,9 +93,9 @@ export async function POST(request: Request, context: RouteContext) {
         content: item.content,
       }));
 
-    const situationResult = await assembleSituation(supabase, user.id, id);
+    const situationResult = await assembleAdaptiveSituation(supabase, user.id, id);
     if (situationResult.error || !situationResult.situation) {
-      return errorResponse(situationResult.error ?? "Unable to assemble Situation", 500);
+      return errorResponse(situationResult.error ?? "Unable to assemble adaptive Situation", 500);
     }
 
     const conversationWithUser: ConversationMessage[] = [
