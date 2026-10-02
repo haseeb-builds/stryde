@@ -30,6 +30,7 @@ export type WorkStatus = (typeof WORK_STATUSES)[number];
 
 export const AVAILABLE_WORK_MODES = [
   "ASK_USER",
+  "RESEARCH_WEB",
   "ANALYZE",
   "DRAFT",
   "DECIDE",
@@ -186,6 +187,9 @@ export function validateWorkingState(value: unknown): WorkingState {
     }
     const actor = normalizeActor(move.mode as WorkMode, move.actor);
     const worker_type = normalizeWorkerType(actor, move.worker_type);
+    if (move.mode === "RESEARCH_WEB" && actor !== "STRYDE") {
+      throw new Error("RESEARCH_WEB next move must be assigned to Stryde");
+    }
     if (actor === "WORKER" && !worker_type) {
       throw new Error("WORKER next move requires worker_type");
     }
@@ -258,8 +262,12 @@ export function buildWorkControllerPrompt(input: {
     "Do not claim Stryde performed external work unless the supplied runtime capabilities explicitly prove it.",
     "Do not claim a web page, YouTube video, email, spreadsheet, API, or other source was fetched unless its contents are actually supplied.",
     "Worker execution is available only through an explicitly granted worker capability. Never assume a worker exists when available worker capabilities are absent from the supplied situation.",
+    "When capabilities.web_search is true and an unresolved knowledge question materially blocks progress, RESEARCH_WEB is allowed. For RESEARCH_WEB, next_move.title must be a standalone web-search query and actor must be STRYDE.",
+    "Use RESEARCH_WEB for targeted evidence acquisition, not as a generic request to browse forever. Research effort should match the stakes and expected value.",
     "Use RECHECK when the next move is to inspect the result of something the user has already done or reported.",
     "Prefer a single next move. Do not expose a multi-step roadmap as the current move.",
+    "If research can resolve the current bottleneck, prefer doing that research inside Stryde rather than asking the user to search manually.",
+
     "The user should be able to answer your next move simply by continuing the conversation.",
     "Return JSON only matching the WorkingState contract.",
     "",
