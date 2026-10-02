@@ -179,7 +179,7 @@ function validateConversationTurn(value: unknown): ConversationTurn {
     };
   });
   const work = validateWorkingState(candidate.work);
-  return { message: candidate.message.trim().slice(0, 8000), question, options, ready_for_reasoning, focus, memory_candidates, work };
+  return { message: candidate.message.trim().slice(0, 8000), question, options, ready_for_reasoning: candidate.ready_for_reasoning as boolean, focus, memory_candidates, work };
 }
 
 function buildConversationPrompt(input: {
