@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireAuthenticatedSupabase } from "@/lib/supabase/server";
 import { getSupabaseServiceClient } from "@/lib/supabase/service";
+import { recordMemory } from "@/lib/memory";
 
 export const runtime = "nodejs";
 
@@ -37,7 +38,7 @@ export async function POST(request: Request, context: RouteContext) {
     // plane (stryde_validate_semantics rejects user-role status changes).
     const { data: claim, error: claimError } = await supabase
       .from("claim")
-      .select("id")
+      .select("id, scope, pursuit_id, kind, content")
       .eq("id", id)
       .maybeSingle();
     if (claimError) {
@@ -71,6 +72,40 @@ export async function POST(request: Request, context: RouteContext) {
     if (error) {
       const status = error.message.includes("not found") ? 404 : 400;
       return NextResponse.json({ error: error.message }, { status });
+    }
+
+    if (toStatus === "VERIFIED") {
+      const memoryType = claim.kind === "OUTCOME" ? "EXPERIENCE" : "FACT";
+      await recordMemory(supabase, {
+        ownerUserId: user.id,
+        pursuitId: claim.scope === "PURSUIT" ? claim.pursuit_id : null,
+        memoryType,
+        content: claim.content,
+        structuredDetail: {
+          claim_kind: claim.kind,
+          adjudication_reason: reason,
+        },
+        provenanceType: "VERIFIED",
+        provenance: {
+          source: "CLAIM_ADJUDICATION",
+          claim_id: id,
+        },
+        confidence: 0.95,
+        importance: 0.85,
+        sourceClaimId: id,
+        sourceObservationId: observationId,
+        status: "ACTIVE",
+      });
+    } else if (toStatus === "CONTRADICTED") {
+      await supabase
+        .from("memory_item")
+        .update({
+          status: "CONTRADICTED",
+          stale_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .eq("owner_user_id", user.id)
+        .eq("source_claim_id", id);
     }
 
     return NextResponse.json({ claim: data });
