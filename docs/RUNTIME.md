@@ -1,79 +1,154 @@
 # Stryde Runtime Truth
 
-Status: canonical runtime record
-Reconciliation date: 2026-10-02
+Status: canonical runtime document
+Reconciliation date: 2026-09-28
 
-## Current deployed reality
+## Repository checkpoint
 
-Preview:
-- Branch: codex/model-routing-migration-clean
-- Deployment: dpl_43tq7ZHVLzhkDdtdjNwHGGdJvbYP
-- State: READY
-- Preview health: HTTP 200, but no usable model provider configured.
+The local working tree was not available in the current execution environment. Repository truth was inspected from GitHub main.
 
-Production:
-- Deployment: dpl_3cPciN3GnkHuV6CeP5CtHWSo4nBd
-- State: READY
-- Branch: main
-- Commit: 6cbfcfe70515bd51b832de60109c4d7a49ad491b
-- Production health: HTTP 200, provider=gemini, model=gemini-2.5-flash, configured=false, ready=false.
-- Production is therefore not running the current validated two-provider branch.
+Baseline repository commit:
+2420caa605e15ee59ca0472dd1975f7c7d1d8731
+Message: Fix worker capability type narrowing in adaptive controller
+Timestamp: 2026-09-26T16:36:39Z
 
-No runtime errors were reported by the current seven-day grouped Vercel runtime-error query. This does not prove absence of all production issues because runtime log retention/coverage is limited.
+This is the reconciliation baseline. The documentation-only reconciliation commit is recorded in docs/STATE.md.
 
-## Current branch model intent
+## CI
 
-Active intended chain:
-Gemini DIRECT PRIMARY → OmniRoute FALLBACK
+GitHub Actions run 132 for the baseline commit completed successfully.
 
-OpenRouter is inactive for this phase.
-Groq is not part of the intended product path.
+The CI job executed:
+- npm ci;
+- TypeScript typecheck;
+- ESLint;
+- Next.js production build.
 
-The current source layer still contains broader provider types/defaults for compatibility, so source architecture is temporarily broader than the active product chain. Do not re-enable Groq or OpenRouter just to reduce this textual mismatch.
+The CI workflow does not run npm test. The node:test suite exists in the repository but its execution is not evidenced by the latest CI run.
 
-## Local model proof
+## Deployment
 
-2026-09-30:
-- OmniRoute direct provider probe passed.
-- Gemini request/schema conversion defects were fixed, but full-turn proof on the free key remained rate-limited.
-- Full model E2E passed using OmniRoute after Gemini rate limiting.
+GitHub reports a successful Vercel deployment for the baseline commit.
 
-This is strong evidence for provider abstraction/fallback locally, not production verification.
+Direct access to the deployment is currently denied by the connected Vercel integration, and team discovery returned zero teams. Therefore:
+- deployment existence: CONFIRMED;
+- current production page behavior: UNKNOWN;
+- current production runtime logs: UNKNOWN;
+- current production environment variables: UNKNOWN;
+- current production end-to-end flow: UNKNOWN.
 
-## Local product-loop proof
+## Live Supabase
 
-2026-09-30:
-- Human E2E 14/14.
-- Model E2E 11 boundaries.
-- Real loop reached action report → observation → claim → evidence link → verification → new working state.
+Project: pvijrnwdnolvnoibarrj
+Region observed: ap-southeast-1
+Health: ACTIVE_HEALTHY
 
-## Production proof status
+Live migration history contains:
+20260915035349 stryde_pursuit_creation_security_hardening
+20260917101144 add_run_failure_reason
+20260917101341 harden_run_failure_transition
+20260917164751 conversation_sessions_persistence
+20260926081610 conversation_working_state
+20260926103302 fix_commit_intervention_digest_schema
+20260926163219 register_worker_tools
+20260926163349 worker_queue_lease_audit_fix_v2
+20260926163606 finalize_controlled_action_on_attempt
+20260927083712 restore_pursuit_source_citation
+20260927083847 restore_conversation_turn_rpc
 
-NOT PROVEN:
-- authenticated conversation E2E on production;
-- real production model turn;
-- production source ingestion/research;
-- production external worker execution;
-- production automatic verification.
+## Migration drift
 
-## Database runtime
+RESOLVED 2026-10-02: repository and live migration history now match one-to-one (28 migrations, verified via `supabase migration list`).
 
-Supabase is healthy and currently contains 33 pursuits, 37 conversation sessions, 127 conversation messages, 13 claims, 36 observations, 37 actions, 37 decisions, 16 runs, and 264 events.
+What was done:
+1. The duplicate version 20260915000500 was resolved by renaming 20260915000500_stryde_verification_engine.sql to 20260915000550_stryde_verification_engine.sql.
+2. The live-only migrations (20260927083712_restore_pursuit_source_citation, 20260927083847_restore_conversation_turn_rpc, 20261002143729_personal_memory_foundation) were fetched into the repository.
+3. The repository-only versions were marked applied on live via `supabase migration repair` after schema verification confirmed their effects exist live (pursuit_source_citation table and policies, conversation_message turn_key indexes and RPCs). Repair writes only to supabase_migrations history; no live data was modified.
 
-This confirms the live database is materially more advanced than the stale September snapshots in older docs.
+The repository migration lineage is now a reproducible representation of the live schema.
 
-## Migration runtime risk
+## Live data snapshot
 
-Live migration history currently contains 16 entries. The repository contains materially more migration files and a duplicate version 20260915000500. Live-only migrations include the restore migrations from 20260927. Schema effects exist whose corresponding migration history is not one-to-one with the repo.
+At reconciliation time:
+- Pursuits: 3
+- Conversation sessions: 6
+- Conversation messages: 5
+- Sources: 0
+- Source adaptations: 0
+- Source citations: 0
+- Tools: 2
+- Capability grants: 0
+- Jobs: 0
+- Attempts: 0
+- Observations: 0
+- Claims: 0
+- Actions: 1
+- Decisions: 1
+- Runs: 16
+- Events: 98
 
-Do not reset, db push, or rewrite migration history casually.
+The single current Action row is HUMAN / IN_PROGRESS.
+The single current Decision row is ACTION_APPROVAL / RESOLVED.
 
-## Security runtime
+Run state at reconciliation time:
+- 7 FAILED;
+- 6 RUNNING at AUTHORIZE;
+- 1 RUNNING at INPUT;
+- 2 RUNNING at REASSESS.
 
-Current security advisor:
-- public.loops RLS without policy (INFO);
-- four authenticated-callable SECURITY DEFINER functions (WARN);
-- leaked-password protection disabled (WARN).
+Several RUNNING records are older than a week. This is a current-state concern, not proof of corruption, because AUTHORIZE can represent an unresolved authority stage.
 
-The citation policy tautology and several mutation privilege issues from earlier reconciliation were fixed on 2026-09-30 and are no longer listed as those same findings.
+Conversation state:
+- 6 sessions total;
+- 3 ACTIVE and 3 ARCHIVED;
+- persisted conversation messages exist;
+- at least one live session contains a persisted working_state with an objective, bottleneck, unknowns, and a HUMAN CREATE_ACTION next move.
 
+## Model evidence
+
+Live failed Runs dated 2026-09-18 contain OpenRouter-specific 429/404 failures. This is direct evidence that OpenRouter was used by a live runtime at that time.
+
+Current provider configuration is UNKNOWN because Vercel environment variables are inaccessible.
+
+Current source code supports Gemini, Groq, and OpenRouter and defaults to Gemini when no provider is specified.
+
+## Worker evidence
+
+Live tool registry contains:
+- worker.hermes v1;
+- worker.opencode v1.
+
+There are zero CapabilityGrant rows, zero Jobs, zero Attempts, and zero Observations. There is no live worker-result record.
+
+Therefore:
+- worker infrastructure: IMPLEMENTED;
+- real worker execution: NOT PROVEN.
+
+## Verification evidence
+
+Verification functions and tables exist, but live Claims and Observations both equal zero.
+
+Therefore:
+- verification primitives: IMPLEMENTED;
+- verification E2E: NOT PROVEN.
+
+## Security findings
+
+Supabase security advisor observed:
+- INFO: public.loops has RLS enabled with no policies;
+- WARN: four SECURITY DEFINER functions in public are executable by authenticated users: stryde_commit_conversation_turn, stryde_create_conversation_session, stryde_create_pursuit, stryde_record_conversation_user_input;
+- WARN: leaked-password protection is disabled.
+
+Live privileges additionally show anon/PUBLIC EXECUTE for some mutation RPCs, including stryde_commit_intervention, stryde_create_claim, and stryde_create_thread. Their bodies check auth.uid(), but the privilege surface is broader than the intended authenticated mutation posture.
+
+These are documented, not remediated.
+
+## Live RLS anomaly
+
+The live insert policy for pursuit_source_citation contains a tautological predicate equivalent to s.pursuit_id = s.pursuit_id.
+
+The exact security impact is UNKNOWN because no adversarial policy test was performed.
+
+## Performance
+
+Supabase performance advisor reports 42 unindexed foreign-key findings, 9 unused-index findings, and multiple auth.uid()-per-row policy optimization findings. These are recorded as observations, not refactoring targets for this reconciliation.

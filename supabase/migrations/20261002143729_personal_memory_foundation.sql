@@ -47,4 +47,4 @@ create policy memory_item_owner_update on public.memory_item
 
 create policy memory_item_owner_delete on public.memory_item
   for delete to authenticated
-  using (owner_user_id = (select auth.uid()));
+  using (owner_user_id = (select auth.uid()));;
