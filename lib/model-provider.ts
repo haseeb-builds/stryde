@@ -208,11 +208,39 @@ export function createModelProvider(config: ModelProviderConfig, fetchImpl: type
   return { name: config.provider, model: config.model, generateStructured: async (i) => JSON.parse(await request(i, false) as string), streamStructured: async (i) => { await request(i, true, i.onText); } };
 }
 
+// Free-tier primary models intermittently return retryable 503/429 ("high demand")
+// on otherwise identical requests; a single attempt would fail whole turns that a
+// short retry recovers. Retries stay per-provider: only after a provider exhausts
+// its budget does the chain fall through to the next one.
+const PROVIDER_RETRY_ATTEMPTS = 3;
+const PROVIDER_RETRY_BASE_DELAY_MS = 750;
+
+function retryBaseDelayMs(): number {
+  const raw = Number(process.env.STRYDE_MODEL_RETRY_BASE_DELAY_MS);
+  return Number.isFinite(raw) && raw >= 0 ? raw : PROVIDER_RETRY_BASE_DELAY_MS;
+}
+
+function retryDelayMs(attempt: number): number {
+  return retryBaseDelayMs() * 2 ** attempt + Math.floor(Math.random() * 250);
+}
+
+async function withProviderRetries<T>(provider: ModelProvider, input: StructuredInput, attempt: (p: ModelProvider) => Promise<T>): Promise<T> {
+  let last: unknown;
+  for (let tries = 0; tries < PROVIDER_RETRY_ATTEMPTS; tries++) {
+    try { return await attempt(provider); } catch (e) {
+      last = e;
+      if (!(e instanceof ModelProviderError) || !e.retryable) throw e;
+      if (tries < PROVIDER_RETRY_ATTEMPTS - 1) await new Promise((r) => setTimeout(r, retryDelayMs(tries)));
+    }
+  }
+  throw last;
+}
+
 export function createModelRouter(configs: ModelProviderConfig[], fetchImpl: typeof fetch = fetch) {
   const providers = configs.map((c) => createModelProvider(c, fetchImpl));
   return {
-    async generateStructured(input: StructuredInput) { let last: unknown; for (const p of providers) { try { return { parsed: await p.generateStructured(input), provider: p.name, model: p.model }; } catch (e) { last = e; if (!(e instanceof ModelProviderError) || !e.retryable) throw e; } } throw last; },
-    async streamStructured(input: StructuredInput & { onText: (text: string) => void }) { let last: unknown; for (const p of providers) { try { const chunks: string[] = []; await p.streamStructured({ ...input, onText: (text) => chunks.push(text) }); input.onText(chunks.join("")); return { provider: p.name, model: p.model }; } catch (e) { last = e; if (!(e instanceof ModelProviderError) || !e.retryable) throw e; } } throw last; },
+    async generateStructured(input: StructuredInput) { let last: unknown; for (const p of providers) { try { return { parsed: await withProviderRetries(p, input, (q) => q.generateStructured(input)), provider: p.name, model: p.model }; } catch (e) { last = e; if (!(e instanceof ModelProviderError) || !e.retryable) throw e; } } throw last; },
+    async streamStructured(input: StructuredInput & { onText: (text: string) => void }) { let last: unknown; for (const p of providers) { try { const chunks: string[] = []; await withProviderRetries(p, input, (q) => q.streamStructured({ ...input, onText: (text) => chunks.push(text) })); input.onText(chunks.join("")); return { provider: p.name, model: p.model }; } catch (e) { last = e; if (!(e instanceof ModelProviderError) || !e.retryable) throw e; } } throw last; },
   };
 }
 

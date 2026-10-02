@@ -6,6 +6,10 @@ import { consumeConversationStream } from "../lib/conversation-client-stream.ts"
 import { createModelProvider, createModelRouter, ModelProviderError, readModelProviderConfig, readModelProviderConfigs, readModelProviderConfigurationIssues, selectedPreferredProvider } from "../lib/model-provider.ts";
 import { MAX_CONVERSATION_TURN_OUTPUT_TOKENS } from "../lib/model-gateway.ts";
 
+// Router-level same-provider retries back off exponentially; tests assert call
+// patterns, not timing, so collapse the backoff to zero here.
+process.env.STRYDE_MODEL_RETRY_BASE_DELAY_MS = "0";
+
 test("SSE frames reconstruct across arbitrary transport chunks", () => {
   let buffer = "";
   const frames: string[] = [];
@@ -162,7 +166,7 @@ test("router fails over to the next provider when a leg times out", async () => 
     });
     const result = await router.generateStructured({ schemaName: "x", schema: {}, prompt: "x" });
     assert.equal(result.provider, "openrouter");
-    assert.deepEqual(calls, ["https://g/models/g:generateContent", "https://o/chat/completions"]);
+    assert.deepEqual(calls, ["https://g/models/g:generateContent", "https://g/models/g:generateContent", "https://g/models/g:generateContent", "https://o/chat/completions"]);
   } finally {
     delete process.env.STRYDE_MODEL_TIMEOUT_MS;
   }
@@ -177,7 +181,7 @@ test("model router follows Gemini, OpenRouter, OmniRoute order and falls back on
   ], async (url) => { const target = String(url); calls.push(target); return new Response(target.endsWith("/chat/completions") ? JSON.stringify({ choices: [{ message: { content: '{"ok":true}' } }] }) : "{}", { status: target.startsWith("https://g") ? 503 : 200 }); });
   const result = await router.generateStructured({ schemaName: "x", schema: {}, prompt: "x" });
   assert.equal(result.provider, "openrouter");
-  assert.deepEqual(calls, ["https://g/models/g:generateContent", "https://o/chat/completions"]);
+  assert.deepEqual(calls, ["https://g/models/g:generateContent", "https://g/models/g:generateContent", "https://g/models/g:generateContent", "https://o/chat/completions"]);
 });
 
 test("router never falls back after a non-retryable malformed output", async () => {
@@ -301,7 +305,7 @@ test("Gemini upstream stream failure before completion may retry safely", async 
   });
   let received = "";
   const result = await router.streamStructured({ schemaName: "x", schema: {}, prompt: "x", onText: (text) => { received += text; } });
-  assert.equal(result.provider, "openrouter"); assert.equal(received, '{"ok":true}'); assert.equal(calls, 2);
+  assert.equal(result.provider, "openrouter"); assert.equal(received, '{"ok":true}'); assert.equal(calls, 4);
 });
 
 test("persistence failure after buffered provider success does not invoke another provider", async () => {
@@ -354,7 +358,7 @@ test("active two-provider chain is Gemini primary then OmniRoute fallback", asyn
     { provider: "omniroute", apiKey: "m", baseUrl: "https://m", model: "m" },
   ], async (url) => { const target = String(url); calls.push(target); if (target.startsWith("https://g")) throw new Error("gemini transport down"); return new Response(JSON.stringify({ choices: [{ message: { content: '{"ok":true}' } }] }), { status: 200 }); });
   assert.equal((await router.generateStructured({ schemaName: "x", schema: {}, prompt: "x" })).provider, "omniroute");
-  assert.deepEqual(calls, ["https://g/models/g:generateContent", "https://m/chat/completions"]);
+  assert.deepEqual(calls, ["https://g/models/g:generateContent", "https://g/models/g:generateContent", "https://g/models/g:generateContent", "https://m/chat/completions"]);
 });
 
 test("Gemini success short-circuits the chain and OmniRoute is never called", async () => {
