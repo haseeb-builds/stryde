@@ -16,6 +16,10 @@ export type WorkerCapability = {
   tool_version: string;
 };
 
+export type SituationCapabilities = {
+  web_search: boolean;
+};
+
 export type MemoryItem = {
   id: string;
   memory_scope: "USER" | "PURSUIT";
@@ -44,6 +48,7 @@ export type AdaptiveSituation = Situation & {
   episodic_memory: MemoryEpisode[];
   memories: MemoryItem[];
   worker_capabilities: WorkerCapability[];
+  capabilities: SituationCapabilities;
 };
 
 export async function assembleAdaptiveSituation(
@@ -208,6 +213,9 @@ export async function assembleAdaptiveSituation(
       episodic_memory: episodicMemory,
       memories,
       worker_capabilities,
+      capabilities: {
+        web_search: Boolean(process.env.EXA_API_KEY?.trim()),
+      },
     },
     error: null,
   };
