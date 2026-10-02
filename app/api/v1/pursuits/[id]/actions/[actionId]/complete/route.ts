@@ -13,6 +13,83 @@ function errorResponse(message: string, status: number) {
   return NextResponse.json({ error: message }, { status });
 }
 
+type StoredObservation = {
+  id: string;
+  content?: {
+    result?: {
+      interpretation?: {
+        user_claims?: unknown;
+      };
+    };
+  } | null;
+};
+
+function normalizeUserClaims(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  const claims: string[] = [];
+  for (const item of value) {
+    if (typeof item !== "string") continue;
+    const claim = item.trim();
+    if (!claim || claim.length > 2_000 || seen.has(claim)) continue;
+    seen.add(claim);
+    claims.push(claim);
+  }
+  return claims;
+}
+
+async function syncObservedUserClaims(input: {
+  supabase: Awaited<ReturnType<typeof requireAuthenticatedSupabase>>["supabase"];
+  userId: string;
+  pursuitId: string;
+  observationId: string;
+  claims: string[];
+}): Promise<{ created: number; warnings: string[] }> {
+  let created = 0;
+  const warnings: string[] = [];
+
+  for (const claimContent of normalizeUserClaims(input.claims)) {
+    try {
+      const { data: existing, error: existingError } = await input.supabase
+        .from("claim")
+        .select("id")
+        .eq("owner_user_id", input.userId)
+        .eq("pursuit_id", input.pursuitId)
+        .eq("content", claimContent)
+        .limit(1)
+        .maybeSingle();
+      if (existingError) throw new Error("Unable to inspect existing claim");
+
+      let claimId = existing?.id as string | undefined;
+      if (!claimId) {
+        const { data, error } = await input.supabase.rpc("stryde_create_claim", {
+          p_scope: "PURSUIT",
+          p_kind: "OUTCOME",
+          p_content: claimContent,
+          p_pursuit_id: input.pursuitId,
+        });
+        if (error || !data?.id) throw new Error(error?.message || "Unable to create claim");
+        claimId = data.id as string;
+        created += 1;
+      }
+
+      const { error: linkError } = await input.supabase.rpc("stryde_link_claim_observation", {
+        p_claim_id: claimId,
+        p_observation_id: input.observationId,
+        p_relation_type: "SUPPORTS",
+      });
+      if (linkError && !/duplicate|already exists/i.test(linkError.message)) {
+        throw new Error(linkError.message || "Unable to link claim evidence");
+      }
+    } catch (error) {
+      const prefix = claimContent.slice(0, 120) + (claimContent.length > 120 ? "…" : "");
+      const message = error instanceof Error ? error.message : "claim sync failed";
+      warnings.push(prefix + ": " + message);
+    }
+  }
+
+  return { created, warnings };
+}
 function buildActionCompletionMessage(
   observation: ReturnType<typeof fallbackHumanObservation>,
   workingState: Awaited<ReturnType<typeof runAdaptiveWorkController>>["workingState"],
@@ -98,11 +175,33 @@ export async function POST(request: Request, context: RouteContext) {
     if (recordError) return errorResponse("Unable to save your Action report", 500);
     const existingAssistant = recorded?.assistant as { content?: string; metadata?: Record<string, unknown> } | null;
     if (existingAssistant?.content) {
+      const { data: storedObservations } = await supabase
+        .from("observation")
+        .select("id, content")
+        .eq("owner_user_id", user.id)
+        .eq("observation_kind", "HUMAN_ACTION_RESULT")
+        .eq("source_reference", actionId)
+        .order("observed_at", { ascending: false })
+        .limit(1);
+
+      const storedObservation = (storedObservations?.[0] ?? null) as StoredObservation | null;
+      const storedClaims = normalizeUserClaims(storedObservation?.content?.result?.interpretation?.user_claims);
+      const claimSync = storedObservation && storedClaims.length
+        ? await syncObservedUserClaims({
+            supabase,
+            userId: user.id,
+            pursuitId: id,
+            observationId: storedObservation.id,
+            claims: storedClaims,
+          })
+        : { created: 0, warnings: [] };
+
       return NextResponse.json({
         already_recorded: true,
         assistant_message: existingAssistant.content,
         metadata: existingAssistant.metadata ?? {},
         working_state: session.working_state ?? null,
+        auto_claims: claimSync,
       }, { status: 200 });
     }
 
@@ -165,6 +264,18 @@ export async function POST(request: Request, context: RouteContext) {
       return errorResponse(message, /authentication|not found|only HUMAN|not in progress|invalid/i.test(message) ? 400 : 500);
     }
 
+    const completedObservationId = typeof completion?.observation?.id === "string" ? completion.observation.id : null;
+    const interpretedUserClaims = normalizeUserClaims(observation.user_claims);
+    const claimSync = completedObservationId && interpretedUserClaims.length
+      ? await syncObservedUserClaims({
+          supabase,
+          userId: user.id,
+          pursuitId: id,
+          observationId: completedObservationId,
+          claims: interpretedUserClaims,
+        })
+      : { created: 0, warnings: [] };
+
     const situationResult = await assembleAdaptiveSituation(supabase, user.id, id);
     if (situationResult.error || !situationResult.situation) return errorResponse(situationResult.error ?? "Unable to assemble updated Situation", 500);
 
@@ -217,6 +328,7 @@ export async function POST(request: Request, context: RouteContext) {
       observation_interpretation: observation,
       ...(interpretationMeta ? { observation_model: interpretationMeta } : {}),
       ...(modelMeta ? { work_model: modelMeta } : {}),
+      auto_claims: claimSync,
     };
 
     const { data: committedTurn, error: commitTurnError } = await supabase.rpc("stryde_commit_conversation_turn", {
@@ -237,6 +349,7 @@ export async function POST(request: Request, context: RouteContext) {
       observation_interpretation: observation,
       ...(interpretationMeta ? { observation_model: interpretationMeta } : {}),
       ...(modelMeta ? { model: modelMeta } : {}),
+      auto_claims: claimSync,
     }, { status: 200 });
   } catch (error) {
     if (error instanceof SyntaxError) return errorResponse("Request body must be valid JSON", 400);
