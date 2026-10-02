@@ -214,6 +214,7 @@ function buildConversationPrompt(input: {
     "Do not pretend uncertain interpretations are established facts. Phrase them as tentative interpretations when appropriate.",
     "Do not claim external actions were executed or verified. Do not authorize side effects, permissions, budgets, or tool use.",
     "The conversation is working memory, not canonical domain state. Canonical situation evidence is separate and should not be silently rewritten.",
+    "Use personal memories to personalize the response when relevant, but treat candidate/model-inferred memories as tentative. Never present them as verified facts or hidden psychological judgments.",
     "When the user corrects your interpretation, accept the correction and use it as the new working signal.",
     "Never use a progress label such as 'Step 1 of 3'. The interaction is adaptive.",
     "Alongside the conversational response, return an updated WorkingState projection. It is working state, not canonical truth.",
