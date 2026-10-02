@@ -53,6 +53,18 @@ export async function recordMemory(
     if (existing?.id) return { id: existing.id as string };
   }
 
+  if (input.sourceClaimId) {
+    const { data: existing } = await supabase
+      .from("memory_item")
+      .select("id")
+      .eq("owner_user_id", input.ownerUserId)
+      .eq("source_claim_id", input.sourceClaimId)
+      .eq("memory_type", input.memoryType)
+      .limit(1)
+      .maybeSingle();
+    if (existing?.id) return { id: existing.id as string };
+  }
+
   const { data, error } = await supabase
     .from("memory_item")
     .insert({
