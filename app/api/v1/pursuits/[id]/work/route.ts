@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { runAdaptiveWorkController } from "@/lib/adaptive-model";
 import { assembleAdaptiveSituation } from "@/lib/adaptive-situation";
 import { requireAuthenticatedSupabase } from "@/lib/supabase/server";
+import { executeWebResearch } from "@/lib/research-execution";
 
 export const runtime = "nodejs";
 export const maxDuration = 55;
@@ -73,12 +74,73 @@ export async function POST(request: Request, context: RouteContext) {
       return errorResponse(situationResult.error ?? "Unable to assemble adaptive Situation", 500);
     }
 
-    const result = await runAdaptiveWorkController({
+    let result = await runAdaptiveWorkController({
       pursuitTitle: pursuit.title ?? "Untitled pursuit",
       situation: situationResult.situation,
       conversation,
       previousWorkingState: (session.working_state ?? null) as Parameters<typeof runAdaptiveWorkController>[0]["previousWorkingState"],
     });
+
+    let autonomousResearch: {
+      query: string;
+      provider: string;
+      results: unknown[];
+      observation_id: string | null;
+    } | null = null;
+
+    if (
+      result.workingState.next_move?.mode === "RESEARCH_WEB" &&
+      result.workingState.next_move.actor === "STRYDE" &&
+      situationResult.situation.capabilities.web_search
+    ) {
+      try {
+        const execution = await executeWebResearch(
+          supabase,
+          user.id,
+          id,
+          result.workingState.next_move.title,
+        );
+        autonomousResearch = execution;
+
+        const refreshedSituation = await assembleAdaptiveSituation(supabase, user.id, id);
+        if (!refreshedSituation.error && refreshedSituation.situation) {
+          result = await runAdaptiveWorkController({
+            pursuitTitle: pursuit.title ?? "Untitled pursuit",
+            situation: refreshedSituation.situation,
+            conversation,
+            previousWorkingState: result.workingState,
+          });
+        }
+      } catch (error) {
+        autonomousResearch = {
+          query: result.workingState.next_move.title,
+          provider: "unavailable",
+          results: [],
+          observation_id: null,
+        };
+        result = {
+          ...result,
+          workingState: {
+            ...result.workingState,
+            status: "STALLED",
+            understanding: "Stryde identified a research bottleneck but could not complete the research pass.",
+            bottleneck: error instanceof Error ? error.message : "Web research is temporarily unavailable.",
+            next_move: {
+              ...result.workingState.next_move,
+              mode: "ASK_USER",
+              actor: "HUMAN",
+              worker_type: null,
+              title: "Choose whether to provide a source or continue later.",
+              why: "The needed research capability was unavailable.",
+              expected_change: "Provide evidence manually or retry when research is available.",
+              stryde_can_do: "Retry the research when the capability is available.",
+              user_needs_to_do: "Provide a source only if you already have one; otherwise you can return later.",
+              completion_condition: "The research question is resolved or intentionally deferred.",
+            },
+          },
+        };
+      }
+    }
 
     const { error: persistError } = await supabase
       .from("conversation_session")
@@ -107,6 +169,7 @@ export async function POST(request: Request, context: RouteContext) {
       working_state: result.workingState,
       active_action: activeAction ?? null,
       model: { provider: result.provider, model: result.model },
+      autonomous_research: autonomousResearch,
     });
   } catch (error) {
     if (error instanceof SyntaxError) return errorResponse("Request body must be valid JSON", 400);
