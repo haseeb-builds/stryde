@@ -1,81 +1,84 @@
 # Stryde Decision Register
 
 Status: canonical decision register
-Reconciliation date: 2026-09-28
+Reconciliation date: 2026-10-02
 
-## D1 — Conversation is not canonical state
+## Product decisions
 
-Conversation is an interaction/continuity surface. Durable domain truth lives in typed records and evidence.
+### D1 — One universal control surface
+LOCKED.
+The user interacts primarily through one composer. Internal workflow types are hidden from normal UX.
 
-Status: CONFIRMED in current architecture and live schema.
+### D2 — User cognition is scarce
+LOCKED.
+Stryde should absorb ambiguity and operational complexity rather than reflecting it back as forms, modes, or workflow configuration.
 
-## D2 — Model authority is bounded
+### D3 — Mode selection is automatic
+LOCKED.
+Stryde chooses whether to interpret, research, reconcile, ask, act, delegate, verify, wait, or continue based on the current situation. Users can express explicit intent naturally and use small optional controls.
 
-Models may propose interpretation, diagnosis, interventions, and working state. They cannot independently authorize consequential side effects or mark verification complete.
+### D4 — Evidence-aware honesty
+LOCKED.
+Stryde distinguishes source claims, inference, reported information, observation, verification, contradiction, and unknowns. It should challenge unsupported assumptions and may recommend not acting.
 
-Status: IMPLEMENTED in code/database; production end-to-end behavior remains UNPROVEN.
+### D5 — Outcome over answer quality
+LOCKED.
+A good interaction changes pursuit state and, where possible, reality. Beautiful prose is not the target metric.
 
-## D3 — Action → Job → Attempt
+### D6 — Model independence
+LOCKED.
+Models are replaceable intelligence providers. Better GPT/Claude/Gemini/other models should improve Stryde rather than redefine it.
 
-Controlled external execution uses durable Actions, Jobs, and Attempts with lease/fencing semantics.
+### D7 — Personal longitudinal state
+LOCKED as a direction.
+Stryde should learn from constraints, decisions, actions, failures, outcomes, corrections, and patterns. Exact storage/retrieval architecture remains open.
 
-Status: IMPLEMENTED; live external execution is UNPROVEN.
+### D8 — Automatic verification
+LOCKED.
+When a reliable observation path exists, Stryde verifies itself. Ask the user only for missing reality it genuinely cannot observe.
 
-## D4 — Verification is separate from mechanical success
+### D9 — Configurable authority/autonomy
+LOCKED as a direction.
+Support bounded suggestion, preparation, delegation, and autonomous operation with explicit scope and escalation policy. Exact V1 policy remains open.
 
-Reported, observed, verified, contradicted, and unverifiable states are distinct.
+### D10 — Third-party technology boundary
+LOCKED.
+Reuse, wrap, adapt, combine, or reconstruct third-party technology case-by-case. Stryde owns semantic control, state, authority, evidence, verification, learning, and continuation.
 
-Status: IMPLEMENTED at the persistence/control-plane level; real end-to-end verification is UNPROVEN.
+### D11 — Appropriate evidence, not primary-source absolutism
+LOCKED.
+Prefer authoritative/original sources where appropriate, but choose evidence according to the question and stakes.
 
-## D5 — UNKNOWN is first-class
+### D12 — Social later
+UNLOCKED for V1.
+Community may eventually increase pursuit value, but it must not become a generic feed.
 
-Ambiguous execution outcomes remain UNKNOWN and require reconciliation rather than silent retry.
+## Engineering decisions
 
-Status: IMPLEMENTED at the persistence level; not demonstrated against a real external side effect.
+### D13 — Postgres remains V1 system of record
+LOCKED for now.
+Do not add a second canonical database simply to satisfy a memory/agent trend.
 
-## D6 — Postgres first
+### D14 — No giant agent framework by default
+LOCKED.
+Add LangGraph, Letta, LiteLLM, Temporal, or similar only when a demonstrated problem justifies the added abstraction and ownership boundary.
 
-Postgres remains the V1 system of record and queue. Do not introduce a broker, vector database, graph database, or service split without evidence.
+### D15 — No casual migration reset
+LOCKED.
+Live Supabase migration history is not one-to-one with repository files. Reconcile before destructive or schema-reset actions.
 
-Status: CONFIRMED.
+### D16 — Production proof is required
+LOCKED.
+No claim of production readiness without deployed authenticated E2E evidence appropriate to the feature.
 
-## D7 — Model provider is replaceable
+## Open decisions
 
-There is an unresolved historical contradiction.
-
-An existing decision document says Gemini is the current primary provider. STEP19_MODEL_GATEWAY_v1 says OpenRouter/openrouter-free is current. Current repository code supports Gemini, Groq, and OpenRouter and defaults to Gemini when no provider override is supplied. Live Run failures dated 2026-09-18 contain OpenRouter-specific errors.
-
-Therefore:
-- OpenRouter was used in the runtime at least on 2026-09-18.
-- Current deployed provider is UNKNOWN because Vercel environment access is unavailable.
-- Source default is Gemini when STRYDE_MODEL_PROVIDER is absent.
-
-Status: CONTRADICTED / UNRESOLVED.
-
-## D8 — Self-improvement remains outside V1
-
-No self-modifying control/invariant system without strong evaluations and promotion gates.
-
-Status: CONFIRMED.
-
-## D9 — Repository is durable project memory
-
-Repository documents/code/migrations, live database state, deployment/runtime evidence, and verification artifacts form the durable project record. Conversation is only the control interface.
-
-Status: CONFIRMED from the operating model adopted on 2026-09-28.
-
-## D10 — Reuse mature infrastructure
-
-Specialized execution capabilities should reuse mature infrastructure rather than be rebuilt inside Stryde. Stryde owns control, authority, canonical state, reconciliation, evidence, and continuation.
-
-Status: INTENDED ARCHITECTURAL DECISION. No external browser/crawler/media/document stack is installed in the current repository.
-
-## D11 — No opportunistic cleanup
-
-Reconciliation is not a feature/refactor task. Changes outside the declared scope require a separate task.
-
-Status: CONFIRMED.
-
-## Historical decision documents
-
-Existing STEP and roadmap documents are historical evidence/intent unless referenced by the current canonical documents. Current-state contradictions are recorded in docs/STATE.md and docs/RUNTIME.md rather than silently rewriting historical claims.
+- exact initial user wedge;
+- precise authority levels and policy grammar;
+- exact memory implementation;
+- browser provider;
+- document/media stack;
+- capability-routing implementation;
+- proactive continuity;
+- future social/network design;
+- long-term commercial model.

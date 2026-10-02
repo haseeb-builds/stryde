@@ -1,70 +1,56 @@
 # Stryde Verification Matrix
 
 Status: canonical verification matrix
-Reconciliation date: 2026-09-30
+Reconciliation date: 2026-10-02
 
-IMPLEMENTED means the machinery exists. TESTED means relevant execution evidence exists. DEPLOYED means deployment evidence exists. PRODUCTION VERIFIED means behavior was demonstrated on the deployed/runtime system. END-TO-END VERIFIED means the whole intended loop was demonstrated. No stronger state is inferred from a weaker one.
+IMPLEMENTED = machinery exists.
+TESTED = relevant execution evidence exists.
+DEPLOYED = deployment evidence exists.
+PRODUCTION VERIFIED = demonstrated on the deployed system.
+END-TO-END VERIFIED = the complete intended loop was demonstrated.
 
 | Capability | Implemented | Tested | Deployed | Production Verified | E2E Verified |
 |---|---|---|---|---|---|
-| Authenticated server boundary | YES | YES (local E2E) | YES | UNKNOWN | NO |
-| Pursuit creation/listing | YES | YES (local E2E + UI) | YES | UNKNOWN | NO |
-| Conversation persistence | YES | YES (local E2E + UI) | YES | PARTIAL | NO |
-| Conversation SSE streaming | YES | PARTIAL | YES | UNKNOWN | NO |
+| Auth/server boundary | YES | YES local | YES | UNKNOWN | NO |
+| Pursuit creation/listing | YES | YES local | YES | UNKNOWN | NO |
+| Persistent conversation | YES | YES local | YES | UNKNOWN | NO |
+| Conversation SSE | YES | PARTIAL | YES | UNKNOWN | NO |
 | Adaptive conversation | YES | PARTIAL | YES | UNKNOWN | NO |
 | Situation assembly | YES | PARTIAL | YES | UNKNOWN | NO |
-| Reasoning Run lifecycle | YES | PARTIAL | YES | PARTIAL | NO |
-| Model gateway (routing/fallback) | YES | YES (unit + health route) | YES | HISTORICAL YES | NO (402: unfunded) |
-| Model conversation turn (real provider) | YES | NO (blocked: OpenRouter credits 0) | YES | NO | NO |
-| Exa search adapter | YES | TESTS PRESENT, execution not evidenced | YES | UNKNOWN | NO |
-| Firecrawl source adapter | YES | TESTS PRESENT, execution not evidenced | YES | UNKNOWN | NO |
-| Source persistence/adaptation | YES | PARTIAL | YES | UNKNOWN | NO |
-| Source citation lineage | YES | PARTIAL | YES | UNKNOWN | NO |
-| Human Action approval/start | YES | YES (local E2E + UI) | YES | PARTIAL | NO |
-| Human Action report to Observation | YES | YES (`npm run e2e:human`) | YES | UNKNOWN | NO |
-| Human Action FAILED cycle (blockers) | YES | YES (`npm run e2e:human`) | YES | UNKNOWN | NO |
-| Claim creation + evidence link + adjudication | YES | YES (`npm run e2e:human`, 14 boundaries) | YES | UNKNOWN | NO |
-| Claims/evidence UI panel | YES | YES (browser-verified local) | YES | UNKNOWN | NO |
-| Controlled Action path | YES | PARTIAL | YES | NO EVIDENCE | NO |
-| Worker lease/start/finish | YES | PARTIAL | YES | NO EVIDENCE | NO |
-| Hermes execution | YES | CONTRACT ONLY | YES | NO | NO |
-| OpenCode execution | YES | CONTRACT ONLY | YES | NO | NO |
-| Browser voice input | UI ONLY | UNVERIFIED | YES | UNKNOWN | NO |
-| Vercel cron | CONFIGURED | UNVERIFIED | YES | UNKNOWN | NO |
-| Playwright/browser capability | NO | NO | NO | NO | NO |
-| Crawlee/Crawl4AI/Apify-like capability | NO | NO | NO | NO | NO |
-| Saved social-content connectors | NO | NO | NO | NO | NO |
-| Media/document ingestion stack | NO | NO | NO | NO | NO |
+| Model routing/fallback | YES | YES local | YES | NO current-branch proof | YES local |
+| Real model conversation | YES | YES via OmniRoute locally | YES | NO | YES local |
+| Human action approval/start | YES | YES local E2E | YES | UNKNOWN | YES local |
+| Human action report → Observation | YES | YES local E2E | YES | UNKNOWN | YES local |
+| Claim + evidence link + adjudication | YES | YES local E2E | YES | UNKNOWN | YES local |
+| Source ingestion: URL/paste | YES | tests + partial local | YES | UNKNOWN | PARTIAL |
+| Source adaptation/citation | YES | partial local | YES | UNKNOWN | PARTIAL |
+| Capability registry/worker gateway | YES | partial | YES | NO | NO |
+| Hermes worker execution | CONTRACT ONLY | NO real execution proof | YES | NO | NO |
+| OpenCode worker execution | CONTRACT ONLY | NO real execution proof | YES | NO | NO |
+| Universal composer | PARTIAL | current composer works | YES | UNKNOWN | NO |
+| Natural-language source/capability routing | NO | NO | NO | NO | NO |
+| Automatic verification where observable | PARTIAL | partial | YES | NO | NO |
+| Personal memory/reality model | NO | NO | NO | NO | NO |
+| User-configurable authority/autonomy policy | NO | NO | NO | NO | NO |
+| Multi-provider adaptive evidence acquisition | PARTIAL | no full proof | YES | UNKNOWN | NO |
+| Browser capability | NO | NO | NO | NO | NO |
+| Document/media ingestion | NO | NO | NO | NO | NO |
 | General MCP runtime | NO | NO | NO | NO | NO |
 | Proactive continuity | NO | NO | NO | NO | NO |
+| Social/community | NO | NO | NO | NO | NO |
 
-## Test evidence
+## Local evidence
 
-Repository contains tests for actor normalization, conversation stream/parsing/commit behavior, human observation parsing, Exa adapter behavior, Firecrawl/source handling, and worker contracts. `npm test` = 51/51 passing (2026-09-30).
+2026-09-30:
+- npm test 51/51;
+- e2e:human 14/14;
+- probe:provider -- omniroute PASSED;
+- e2e:model PASSED 11 boundaries via Gemini 429 → OmniRoute fallback;
+- browser verification showed real model working-state UI locally.
 
-CI runs `npm test`, typecheck, lint, and build on every push (ci.yml).
+These do not establish production verification.
 
-Under the active 2026-09-30 phase architecture (Gemini primary → OmniRoute fallback, OpenRouter disabled via `STRYDE_PROVIDER_DISABLED`), `npm run e2e:human` (deterministic, needs dev server) drives the real authenticated routes/RPCs through 14 boundaries: pursuit creation, seeded working state, action start + authorization commit + start dedupe, completion with report → observation → exactly-once turn persistence, turn-key replay idempotency, active-action query, FAILED cycle with blockers, claim creation (REPORTED) → evidence link (auto OBSERVED) → human adjudication (VERIFIED) → invalid-relation rejection. Model-dependent steps run in designed fallback mode and are asserted as fallbacks, never as model success. Last full pass: 2026-09-30, 14/14.
+## Verification rule
 
-Browser verification (2026-09-30, local dev): sign-in → pursuit creation → new conversation → message persisted → /work fails safely with 402 (no fabricated assistant or working state) → reload restores history/session → claims panel creates a claim and adjudicates it to verified.
+Stryde should progressively remove verification work from the user when a reliable observation path exists. User reporting is a reality input, not an obligation to manually adjudicate facts that the system can establish itself.
 
-`npm run e2e:model` and `npm run probe:provider -- gemini|omniroute` are the real-provider proof harnesses. Results 2026-09-30 (credentials configured mid-phase):
-
-- `probe:provider -- omniroute`: PASSED — real OmniRoute endpoint (Tailscale host, model auto/smart) served a schema-valid ConversationTurn (8.5s) and a valid WorkingState (3.8s) with the verbatim contracts and 2600-token budget.
-- `probe:provider -- gemini`: schema conversion defects were found and fixed against the live API (type arrays → nullable:true, additionalProperties dropped, numeric enums dropped); requests now validate, but the key hits free-tier 429 rate limits on the large turn prompt — verified up to 400-free validation, not yet a full parse. Needs a paid tier or patient retries to complete.
-- `e2e:model`: PASSED 11 boundaries with a REAL provider. The dev-server chain prefers Gemini (429 rate-limited) and every turn was actually served by OmniRoute — i.e. live fallback engaged and the full loop ran: conversation → real turn → exactly-once persistence → /work → CREATE_ACTION → HUMAN action → report → Observation → Claim → Evidence Link → Adjudication VERIFIED → state update with a real-model-regenerated next move.
-- Browser: real model working-state card rendered in the UI from a live turn; no error text.
-
-`npm run e2e:human` re-run 2026-09-30 after all changes: 14/14, and the completion path now shows a real-model WORKING state (next CREATE_ACTION) instead of the deterministic STALLED fallback.
-
-Supabase SQL verification scripts exist for execution control, Run lifecycle, model boundary, and adaptive pursuit. Their presence is not execution evidence.
-
-## Live database security fixes applied 2026-09-30
-
-- `pursuit_source_citation` INSERT policy tautology (`s.pursuit_id = s.pursuit_id`) replaced with the correct source↔pursuit join.
-- anon/PUBLIC EXECUTE revoked on `stryde_commit_intervention`, `stryde_create_claim`, `stryde_create_thread`.
-- Owner INSERT policies added for `event`, `claim_status_event`, `claim_observation_link` (user-path RPC audit writes previously failed with 42501).
-- `claim` owner UPDATE policy added (FOR UPDATE lock silently skipped rows before).
-- `stryde_adjudicate_claim` re-issued as service-role-gated (p_actor_id); new `stryde_link_claim_observation` likewise; old signatures revoked. Epistemic transitions only happen behind the trusted control plane, matching `stryde_validate_semantics`.
-
-All four migrations (20260930000000/010000/020000/030000/040000) are applied to the linked project and registered in its migration history.

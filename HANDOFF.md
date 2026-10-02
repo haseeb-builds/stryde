@@ -1,116 +1,62 @@
 # Stryde Handoff
 
-Reconciliation date: 2026-09-28
-Repository baseline commit: 2420caa605e15ee59ca0472dd1975f7c7d1d8731
+Reconciliation date: 2026-10-02
 
-## Current verified state
+## Current canonical direction
 
-GitHub main was inspected directly. The repository contains a substantial but partial Stryde control-plane implementation.
+Read docs/PRODUCT_CONSTITUTION.md first.
 
-Supabase is reachable and healthy. The live schema contains the canonical persistence model, conversation persistence, source/adaptation/citation structures, execution tables, worker tool registry, and verification primitives.
+Stryde is a persistent personal pursuit system with one universal control surface. The user brings something meaningful; Stryde determines what it is, reconstructs the situation, gets appropriate evidence, adapts knowledge to the person, challenges assumptions, recommends a next move, executes or delegates within authority, observes/ verifies results, learns, and continues.
 
-GitHub reports a successful Vercel deployment for the baseline repository commit.
+## Current repository
 
-Direct Vercel runtime access is currently denied, so current deployed page behavior, runtime logs, and production environment values cannot be verified from this control-room session.
+- Branch: codex/model-routing-migration-clean
+- HEAD: f92aa8a37bffd56ce53b968484acfc3efcbcc6e0
+- Main: 6cbfcfe70515bd51b832de60109c4d7a49ad491b
+- Branch is intentionally ahead and diverged; do not blindly merge the old main provider lineage.
 
-## Intended product
+## Current runtime
 
-Stryde is intended to be a persistent situational-intelligence workspace that continuously turns reality and useful external knowledge into adaptive next moves while preserving human authority and evidence-based verification.
+- Preview deployment exists and is READY.
+- Preview currently has no usable model provider configuration.
+- Production remains on the old main/Nemotron-era deployment and its health endpoint reports model configuration not ready.
+- No production authenticated E2E has been proven.
 
-Core intended loop:
+## Current database
 
-REALITY → SITUATION → UNKNOWN / BOTTLENECK → NEXT MOVE → WORK → RESULT → EVIDENCE → VERIFICATION → STATE UPDATE → NEXT MOVE
+- Supabase pvijrnwdnolvnoibarrj is healthy.
+- 33 pursuits, 37 conversation sessions, 127 conversation messages, 13 claims, 36 observations, 37 actions, 37 decisions, 16 runs, 264 events, 2 tools.
+- 7 failed runs and 9 running runs.
+- 0 capability grants, 0 jobs, 0 attempts: real worker execution remains unproven.
 
-Conversation/Bar is the control surface, not project memory.
+## What is already proven locally
 
-## Major blockers
+- 51/51 unit tests.
+- human E2E 14/14.
+- real OmniRoute provider contract probe passed.
+- model E2E 11 boundaries with Gemini rate-limited and OmniRoute serving the actual turns.
+- action report → observation → claim → evidence → verification → updated next move works locally.
 
-1. No current production end-to-end proof exists for the core pursuit/conversation/model loop.
-2. Vercel runtime access is blocked.
-3. Repository migration lineage and live Supabase migration history have major drift.
-4. Repository contains duplicate migration version 20260915000500.
-5. Live database contains 9 RUNNING Runs, including records older than a week.
-6. Worker execution is unproven: tools=2, grants=0, jobs=0, attempts=0, observations=0.
-7. Verification E2E is unproven: claims=0, observations=0.
-8. Current provider is unresolved: source default Gemini, historical live OpenRouter errors, current deployment env inaccessible.
+## What must now be built
 
-## Contradictions
+1. Universal/simple user surface: one composer, contextual inline actions, no workflow dashboards.
+2. Natural-language capability interpretation so sources/research/progress/corrections do not require separate boxes.
+3. Automatic verification wherever observation is possible.
+4. Longitudinal personal/pursuit memory and reality model.
+5. Configurable authority/autonomy, including safe "take it from here" behavior.
+6. Evidence-aware adaptive research beyond any one provider.
+7. Real external capability/worker execution with bounded permissions.
+8. Production promotion and authenticated E2E proof.
+9. Final visual design pass once the product behavior is stable.
 
-### Migration lineage
-Repository: 20 migrations. Live history: 11. Live-only migrations: 20260927083712 and 20260927083847. Repository-only migrations include several whose effects exist in the live schema.
+## Non-negotiables
 
-### Duplicate migration
-Two repository files share 20260915000500.
+- Do not turn Stryde into a generic AI workspace.
+- Do not expose internal ontology in normal UX.
+- Do not let third-party infrastructure redefine Stryde.
+- Do not add dependencies just because they are popular.
+- Do not use model output as authority or proof of outcome.
+- Do not make the user verify what Stryde can reliably verify itself.
+- Do not reset the live database to make migrations look clean.
+- Do not declare completion without matching evidence.
 
-### Model provider
-Existing docs disagree about Gemini vs OpenRouter. Historical live failures prove OpenRouter use on 2026-09-18. Current deployed provider is unknown.
-
-### Conversation documentation
-Older docs state that durable transcript storage or streaming were deferred, while current code/live DB contain persisted conversation state and SSE streaming code.
-
-### Privilege posture
-Live privileges are broader than some intended authenticated-only boundaries, even where function bodies enforce auth.uid().
-
-## Dangerous assumptions
-
-- CI success does not prove production behavior.
-- Vercel deployment success does not prove the deployed user flow.
-- A model adapter is not proof of current model configuration.
-- A worker gateway/tool row is not proof of worker execution.
-- A Job/Attempt schema is not proof that a real external side effect occurred safely.
-- Mechanical success is not VERIFIED.
-- Live schema shape does not prove migration reproducibility.
-- Conversation history must not override repository/DB/runtime truth.
-
-## Current database state
-
-Counts at reconciliation:
-Pursuits 3
-Conversation sessions 6
-Conversation messages 5
-Sources 0
-Source adaptations 0
-Source citations 0
-Tools 2
-Capability grants 0
-Jobs 0
-Attempts 0
-Observations 0
-Claims 0
-Actions 1
-Decisions 1
-Runs 16
-Events 98
-
-Current Action: HUMAN / IN_PROGRESS.
-Current Decision: ACTION_APPROVAL / RESOLVED.
-
-## Current verification state
-
-The repository contains deterministic tests and Supabase verification SQL for several invariants, but the latest CI run does not execute npm test.
-
-Live database proves that verification primitives exist, but zero live Claims and zero Observations means no current evidence→verification cycle is proven.
-
-## Recommended next action
-
-Restore access to the deployed Vercel runtime and execute one authenticated production verification of the existing loop, without changing product/schema/code:
-
-sign in → create/open Pursuit → create/open Conversation → send message → receive real model response → verify exactly-once persistence → reload → verify history and working state → inspect corresponding DB records and runtime evidence.
-
-Classify any failure before changing code or schema.
-
-Migration reconciliation should be a separate control-room task immediately after the production loop is observable.
-
-## Canonical reading order
-
-docs/PRODUCT.md
-docs/ARCHITECTURE.md
-docs/STATE.md
-docs/DECISIONS.md
-docs/INTEGRATIONS.md
-docs/RUNTIME.md
-docs/VERIFICATION_MATRIX.md
-docs/OPERATING_MODEL.md
-HANDOFF.md
-
-Existing docs/STEP*.md remain historical evidence unless explicitly superseded by the canonical current-state documents above.
