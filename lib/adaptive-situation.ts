@@ -16,11 +16,33 @@ export type WorkerCapability = {
   tool_version: string;
 };
 
+export type MemoryItem = {
+  id: string;
+  memory_scope: "USER" | "PURSUIT";
+  memory_type: string;
+  status: string;
+  content: string;
+  structured_detail: unknown;
+  provenance_type: string;
+  provenance: unknown;
+  confidence: number;
+  importance: number;
+  first_seen_at: string;
+  last_confirmed_at: string | null;
+  stale_at: string | null;
+  source_observation_id: string | null;
+  source_claim_id: string | null;
+  source_id: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 export type AdaptiveSituation = Situation & {
   sources: unknown[];
   source_adaptations: unknown[];
   observations: unknown[];
   episodic_memory: MemoryEpisode[];
+  memories: MemoryItem[];
   worker_capabilities: WorkerCapability[];
 };
 
@@ -32,7 +54,7 @@ export async function assembleAdaptiveSituation(
   const base = await assembleSituation(supabase, ownerUserId, pursuitId);
   if (base.error || !base.situation) return { situation: null, error: base.error ?? "Unable to assemble Situation" };
 
-  const [sourcesResult, actionsResult, observationsResult, sessionsResult, workerGrantsResult] = await Promise.all([
+  const [sourcesResult, actionsResult, observationsResult, sessionsResult, workerGrantsResult, userMemoriesResult, pursuitMemoriesResult] = await Promise.all([
     supabase
       .from("pursuit_source")
       .select("id, source_kind, uri, title, content_type, fetch_status, content_sha256, source_metadata, created_at, updated_at")
@@ -64,9 +86,27 @@ export async function assembleAdaptiveSituation(
       .select("tool_id, expires_at, revoked_at, tool:tool_id(tool_key, tool_version)")
       .eq("owner_user_id", ownerUserId)
       .is("revoked_at", null),
+    supabase
+      .from("memory_item")
+      .select("id, memory_scope, memory_type, status, content, structured_detail, provenance_type, provenance, confidence, importance, first_seen_at, last_confirmed_at, stale_at, source_observation_id, source_claim_id, source_id, created_at, updated_at")
+      .eq("owner_user_id", ownerUserId)
+      .is("pursuit_id", null)
+      .in("status", ["ACTIVE", "CANDIDATE"])
+      .order("importance", { ascending: false })
+      .order("updated_at", { ascending: false })
+      .limit(20),
+    supabase
+      .from("memory_item")
+      .select("id, memory_scope, memory_type, status, content, structured_detail, provenance_type, provenance, confidence, importance, first_seen_at, last_confirmed_at, stale_at, source_observation_id, source_claim_id, source_id, created_at, updated_at")
+      .eq("owner_user_id", ownerUserId)
+      .eq("pursuit_id", pursuitId)
+      .in("status", ["ACTIVE", "CANDIDATE"])
+      .order("importance", { ascending: false })
+      .order("updated_at", { ascending: false })
+      .limit(30),
   ]);
 
-  if (sourcesResult.error || actionsResult.error || observationsResult.error || sessionsResult.error || workerGrantsResult.error) {
+  if (sourcesResult.error || actionsResult.error || observationsResult.error || sessionsResult.error || workerGrantsResult.error || userMemoriesResult.error || pursuitMemoriesResult.error) {
     return { situation: null, error: "Unable to assemble adaptive Situation" };
   }
 
@@ -153,6 +193,12 @@ export async function assembleAdaptiveSituation(
     };
   });
 
+  const memoryById = new Map<string, MemoryItem>();
+  for (const memory of [...(userMemoriesResult.data ?? []), ...(pursuitMemoriesResult.data ?? [])]) {
+    memoryById.set(memory.id, memory as unknown as MemoryItem);
+  }
+  const memories = [...memoryById.values()];
+
   return {
     situation: {
       ...base.situation,
@@ -160,6 +206,7 @@ export async function assembleAdaptiveSituation(
       source_adaptations: adaptations,
       observations,
       episodic_memory: episodicMemory,
+      memories,
       worker_capabilities,
     },
     error: null,
