@@ -175,9 +175,24 @@ export function createModelProvider(config: ModelProviderConfig, fetchImpl: type
   const request = async (input: StructuredInput, stream: boolean, onText?: (text: string) => void) => {
     const url = config.provider === "gemini" ? `${config.baseUrl}/models/${encodeURIComponent(config.model)}:${stream ? "streamGenerateContent?alt=sse" : "generateContent"}` : `${config.baseUrl}/chat/completions`;
     const timeoutMs = modelTimeoutMs();
-    const signal = input.signal ? AbortSignal.any([input.signal, AbortSignal.timeout(timeoutMs)]) : AbortSignal.timeout(timeoutMs);
+    const timeoutController = new AbortController();
+    const timeoutHandle = setTimeout(() => {
+      timeoutController.abort(new DOMException("Provider request timed out", "TimeoutError"));
+    }, timeoutMs);
+    const signal = input.signal
+      ? AbortSignal.any([input.signal, timeoutController.signal])
+      : timeoutController.signal;
     let response: Response;
-    try { response = await fetchImpl(url, { method: "POST", headers: config.provider === "gemini" ? { "Content-Type": "application/json", "x-goog-api-key": config.apiKey } : { Authorization: `Bearer ${config.apiKey}`, "Content-Type": "application/json", "X-Title": "Stryde" }, body: JSON.stringify(body(config, input, stream)), signal, cache: "no-store" }); } catch (e) { const abortName = abortErrorName(e); if (abortName === "AbortError") throw new ModelProviderError(config.provider, "cancellation", "Aborted", false); if (abortName === "TimeoutError") throw new ModelProviderError(config.provider, "transport", `Provider request timed out after ${timeoutMs}ms`, true); throw new ModelProviderError(config.provider, "transport", e instanceof Error ? e.message : "Provider request failed", true); }
+    try {
+      response = await fetchImpl(url, { method: "POST", headers: config.provider === "gemini" ? { "Content-Type": "application/json", "x-goog-api-key": config.apiKey } : { Authorization: `Bearer ${config.apiKey}`, "Content-Type": "application/json", "X-Title": "Stryde" }, body: JSON.stringify(body(config, input, stream)), signal, cache: "no-store" });
+    } catch (e) {
+      const abortName = abortErrorName(e);
+      if (abortName === "AbortError") throw new ModelProviderError(config.provider, "cancellation", "Aborted", false);
+      if (abortName === "TimeoutError") throw new ModelProviderError(config.provider, "transport", `Provider request timed out after ${timeoutMs}ms`, true);
+      throw new ModelProviderError(config.provider, "transport", e instanceof Error ? e.message : "Provider request failed", true);
+    } finally {
+      clearTimeout(timeoutHandle);
+    }
     if (!response.ok) { const kind: ProviderFailureKind = response.status === 401 || response.status === 403 ? "authentication" : response.status === 429 ? "rate_limit" : "http"; throw new ModelProviderError(config.provider, kind, `Provider request failed (${response.status})`, kind !== "authentication" && response.status >= 500 || kind === "rate_limit", response.status); }
     if (!stream) return outputText(config.provider, await response.json());
     if (!response.body) throw new ModelProviderError(config.provider, "streaming", "Provider streaming response has no body", true);
