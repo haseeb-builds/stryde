@@ -25,12 +25,21 @@ type ConversationOption = {
   value: string;
 };
 
+export type ConversationMemoryCandidate = {
+  scope: "USER" | "PURSUIT";
+  memory_type: "FACT" | "CONSTRAINT" | "PREFERENCE" | "DECISION" | "COMMITMENT" | "EXPERIENCE" | "PATTERN" | "GOAL";
+  content: string;
+  confidence: number;
+  importance: number;
+};
+
 export type ConversationTurn = {
   message: string;
   question: string | null;
   options: ConversationOption[];
   ready_for_reasoning: boolean;
   focus: string | null;
+  memory_candidates: ConversationMemoryCandidate[];
   work: WorkingState;
 };
 

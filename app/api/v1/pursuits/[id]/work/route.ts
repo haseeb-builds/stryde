@@ -88,9 +88,11 @@ export async function POST(request: Request, context: RouteContext) {
       observation_id: string | null;
     } | null = null;
 
+    const researchMove = result.workingState.next_move;
     if (
-      result.workingState.next_move?.mode === "RESEARCH_WEB" &&
-      result.workingState.next_move.actor === "STRYDE" &&
+      researchMove &&
+      researchMove.mode === "RESEARCH_WEB" &&
+      researchMove.actor === "STRYDE" &&
       situationResult.situation.capabilities.web_search
     ) {
       try {
@@ -98,7 +100,7 @@ export async function POST(request: Request, context: RouteContext) {
           supabase,
           user.id,
           id,
-          result.workingState.next_move.title,
+          researchMove.title,
         );
         autonomousResearch = execution;
 
@@ -113,7 +115,7 @@ export async function POST(request: Request, context: RouteContext) {
         }
       } catch (error) {
         autonomousResearch = {
-          query: result.workingState.next_move.title,
+          query: researchMove.title,
           provider: "unavailable",
           results: [],
           observation_id: null,
@@ -126,7 +128,7 @@ export async function POST(request: Request, context: RouteContext) {
             understanding: "Stryde identified a research bottleneck but could not complete the research pass.",
             bottleneck: error instanceof Error ? error.message : "Web research is temporarily unavailable.",
             next_move: {
-              ...result.workingState.next_move,
+              ...researchMove,
               mode: "ASK_USER",
               actor: "HUMAN",
               worker_type: null,
