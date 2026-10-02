@@ -263,3 +263,49 @@ Restore Vercel project/runtime access and run a read/verify-only production test
 sign in → create/open Pursuit → create/open Conversation → send message → receive model response → verify final response persisted once → reload → verify history/working state → inspect corresponding Supabase records and runtime evidence.
 
 Do not change code or schema until the failure is classified.
+
+## 2026-10-02 evening engineering pass (this branch, HEAD 986a11e)
+
+Proven live (all on 2026-10-02):
+
+- Provider reliability repair: the router now retries a retryable failure in place
+  (3 attempts, exponential backoff, `STRYDE_MODEL_RETRY_BASE_DELAY_MS` tunable)
+  before failing over to the next provider leg. Motivated by server-confirmed
+  Gemini behavior: identical structured requests return 200 / 503 "high demand"
+  / 429 intermittently. 60/60 unit tests including new retry semantics.
+- Gemini free-tier reality (server-confirmed quota body): the current key's
+  `gemini-flash-latest` free tier allows 20 requests/day. Quota exhausted
+  2026-10-02 ("retry in 8h30m"). Free tier is structurally non-viable for a
+  public product; this is a product-authority billing decision, not an
+  engineering defect.
+- OmniRoute local server had stopped (502 through the tailnet proxy); restarted
+  via `omniroute restart`. `probe:provider -- omniroute` PASSED both live
+  contracts (ConversationTurn 8.3s, WorkingState 3.1s, auto/smart).
+- `e2e:model` PASSED 11 boundaries with the real provider (OmniRoute serving).
+  `e2e:human` PASSED 14 boundaries (BASE_URL now honors process env over
+  .env.local; port 3000 is occupied by an unrelated local app).
+- Branch Vercel previews were FAILING for the whole parallel-session lineage
+  (verified back to commit 075cb1e) because of two latent type defects in the
+  memory/research work: `ConversationMemoryCandidate` was referenced but never
+  defined, `ConversationTurn` lacked `memory_candidates`, and the /work route
+  lost `next_move` narrowing across the research try/catch. Fixed at 986a11e;
+  Vercel preview build status for 986a11e: SUCCESS (GitHub commit status).
+- Authenticated browser E2E on the local dev server: signed in through the
+  universal surface, created a real pursuit from one sentence, and held a
+  3-turn real-model conversation (OmniRoute serving). Quick-reply options,
+  "What matters now" next-move evolution, and post-reload history/persistence
+  all verified; persisted conversation_message rows have correct turn_key
+  pairing and no duplicates. Fixed in the process: the streamed assistant
+  placeholder reused a constant id, so the next turn overwrote the previous
+  assistant bubble in optimistic state (persistence was always correct).
+
+Human-owned blockers (unchanged in kind, now precisely scoped):
+
+1. Vercel access (`vercel login` or a VERCEL_TOKEN with the stryde project) —
+   required to set runtime env vars on preview/production and to promote the
+   verified branch to production. Without it, production remains the stale
+   old-main deployment.
+2. A production-viable model credential. The tailnet OmniRoute cannot be the
+   production path. Smallest viable options: enable billing on the Gemini key
+   (removes the 20/day cap) or fund OpenRouter (~$5) for `z-ai/glm-5.3-flash`
+   (evidence-backed candidate, see benchmark docs).
