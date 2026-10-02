@@ -41,6 +41,18 @@ export async function recordMemory(
   const content = input.content.trim();
   if (!content) return null;
 
+  if (input.sourceObservationId) {
+    const { data: existing } = await supabase
+      .from("memory_item")
+      .select("id")
+      .eq("owner_user_id", input.ownerUserId)
+      .eq("source_observation_id", input.sourceObservationId)
+      .eq("memory_type", input.memoryType)
+      .limit(1)
+      .maybeSingle();
+    if (existing?.id) return { id: existing.id as string };
+  }
+
   const { data, error } = await supabase
     .from("memory_item")
     .insert({
