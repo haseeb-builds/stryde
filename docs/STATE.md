@@ -747,3 +747,143 @@ multi-step, or production-hardened worker execution.
   legacy `public.loops` table has RLS with no policies, leaked-password
   protection is disabled, and the Supabase performance advisor reports
   unindexed foreign keys. None are exploitable data-access paths.
+
+## 2026-10-03 (capability completion pass): the six intended-but-missing capabilities
+
+This pass implemented the capabilities the canonical docs marked as build
+intent (HANDOFF items 2-5, PRODUCT.md user contract, DECISIONS D7/D8/D9) that
+the verification matrix marked NO. All are verified; see VERIFICATION_MATRIX.md
+for the evidence and scripts/e2e-*.ts for the harnesses.
+
+### What was built (all provider-neutral, no migration beyond one new table)
+
+1. PERSONAL MEMORY LIFECYCLE, RETRIEVAL, AND INSPECTABILITY (D7, constitution
+   17-19). On top of the memory_item foundation: content-aware dedupe and
+   confirmation (a repeated independent appearance raises confidence and
+   promotes a candidate at >= 0.8), model-proposed supersession (a confident
+   candidate may replace specific memories it was shown; lineage links
+   supersedes/superseded_by stay inspectable; below 0.7 confidence a
+   replacement proposal never retires anything), provenance-aware defaults
+   (MODEL_INFERENCE starts CANDIDATE; USER_REPORTED/VERIFIED start ACTIVE — the
+   user's own reports are reality statements from the authority), ranked
+   retrieval into the canonical situation (importance, confidence, recency,
+   and relevance to the current objective; EXPERIENCE decays after 90 days;
+   STALE/CONTRADICTED/SUPERSEDED never reach the model), and user control:
+   GET /api/v1/memory plus confirm/forget/delete at /api/v1/memory/[id],
+   surfaced as a contextual "What Stryde remembers" disclosure on the pursuit
+   page. Progress reports and settled decisions recorded in conversation are
+   additionally preserved VERBATIM as USER_REPORTED memories (turn-key
+   idempotent), distinct from model paraphrases.
+
+2. INPUT CLASSIFICATION (HANDOFF item 2). The ConversationTurn contract now
+   carries input_class (MESSAGE | QUESTION | CORRECTION | PROGRESS | DECISION).
+   A CORRECTION records the overridden working state in the turn metadata
+   (superseded_working_state) instead of silently discarding it; PROGRESS and
+   DECISION write verbatim USER_REPORTED memories. Absence or drift degrades
+   to MESSAGE — an unclassified input can never fail a turn.
+
+3. FILE INGESTION (constitution principle 6). The universal composer gained an
+   attach affordance: POST sources accepts multipart/form-data, a dependency-
+   free extractor handles text-like files (txt/md/csv/json/log, BOM, 200k cap)
+   and PDFs (node:zlib stream inflation, Tj/TJ extraction; encrypted or
+   image-only PDFs are UNSUPPORTED with an honest note), and extracted text
+   flows through the same ingestion/adaptation/citation path as pasted
+   content. Postgres stays the only store (D13); no blob storage, no new
+   dependencies (D14).
+
+4. USER-CONFIGURABLE AUTONOMY POLICY (D9). One new table
+   (user_autonomy_policy, applied to live as 20261003170000; migration parity
+   now 31/31). Semantics: no row = unconfigured = existing behavior; a row can
+   only TIGHTEN (delegation off, worker-type allowlist, research off). The
+   delegate route enforces it ahead of the unchanged explicit per-action
+   approval — the policy can refuse, never approve. Surfaced as "What Stryde
+   may do on its own" contextual disclosure.
+
+5. MECHANICAL AUTO-VERIFICATION (D8). A new VERIFY_WEB work mode: the
+   controller proposes checking one REPORTED claim against one public URL
+   whose content contains (or lacks) specific literal text; the trusted plane
+   executes the fetch (SSRF-guarded, reusing assertPublicHttpUrl), records a
+   URL_VERIFICATION observation, and links it VERIFIES/CONTRADICTS. The link
+   RPC can only move REPORTED -> OBSERVED; VERIFIED remains human-only.
+   UNREACHABLE (including SSRF refusals) is recorded as unknown evidence with
+   no link. The check also runs from the PERSISTED move when the model is
+   unavailable — a provider outage no longer disables the capabilities Stryde
+   can observe directly. An already-observed claim is never re-checked, so
+   repeated /work calls cannot accumulate duplicate evidence.
+
+6. PROACTIVE CONTINUITY (D3 "wait or continue"). The legacy /api/checkin cron
+   (queried a `loops` table that exists in no migration — it 500'd daily — and
+   emailed a hardcoded address) is deleted, with its quarantine page. New
+   GET /api/cron/continuity, Bearer CRON_SECRET, fail-closed: reconciles
+   expired worker leases (safety net for a dead dispatcher) and posts one
+   SYSTEM-authored check-in message per idle pursuit per day (deterministic
+   UUIDv5 turn_key from pursuit + UTC day; 23505 is treated as already
+   nudged). It never touches working_state and never grants authority.
+   vercel.json cron repointed; exercised live (11 nudges, 1 reconcile,
+   idempotent re-run, visible in the browser conversation).
+
+### Integration-boundary defects found while wiring (the pass's real finds)
+
+1. The claims/evidence panel and the source-material panel were never
+   imported by ANY page. The ONLY human adjudication surface — the path to
+   VERIFIED — and the source surface were unreachable in the browser while
+   their APIs worked. Both are now mounted as contextual disclosure on the
+   pursuit page (with the memory and autonomy panels), and the browser E2E
+   asserts their reachability and the no-ontology-as-primary-UI rule.
+2. The adaptive controller's ADAPTIVE_WORK_MODES excluded RESEARCH_WEB (and
+   had no VERIFY_WEB), so the model could never emit the moves the /work
+   route knows how to execute — both autonomous blocks were dead code in the
+   live path. Both modes are enabled, with verify-payload passthrough, and
+   the prompt documents when each is legitimate.
+3. WEB_SEARCH_RESULT observations have been silently DROPPED since the
+   2026-09-30 RLS hardening: research wrote observations through the user's
+   RLS client, but that migration removed owner INSERT on observation (the
+   human path works because stryde_complete_human_action writes on the
+   trusted plane). The unchecked error meant observation_id was always null
+   and research evidence never reached the situation. Research and mechanical
+   verification now record through the trusted plane, and a failed
+   observation insert fails loudly instead of silently losing evidence.
+
+### Verification performed (all live or real-browser, 2026-10-03)
+
+- npm test 127/127; typecheck clean; lint clean; production build clean.
+- e2e:human 14/14; e2e:controlled 19/19; e2e:verify-web 6/6 (NEW);
+  e2e:ui 12/12 (NEW panel boundaries) — all against live Supabase / a real
+  served build.
+- e2e:real-worker: dispatch proven against the real agent; the agent's own
+  build-time model hit its daily free quota (429) and the plane reported
+  FAILED honestly with the error preserved as evidence. The SUCCEEDED proof
+  from earlier the same day stands.
+- e2e:model honestly failed on 429 — no provider had available quota at run
+  time (see blockers below). The 2026-09-30 real-provider proof stands.
+- Continuity cron: fail-closed, 11 nudges + 1 reconcile, idempotent re-run.
+
+### Production (Vercel) — access restored, configuration repaired, redeploy pending
+
+- Vercel access was restored this pass (device-flow login as the project
+  owner). The previously recorded "edge /login rewrite masking every route"
+  no longer reproduces: https://stryde-topaz.vercel.app serves this
+  application (the root route is the sign-in surface; /api/health/model
+  responds; /api/v1/pursuits correctly 401s without a token).
+- The project environment was missing the variables the verified product
+  needs. Set on both Production and Preview (values from the local
+  environment, never printed): SUPABASE_SECRET_KEY (the trusted plane could
+  not run in production without it — adjudication and internal routes), 
+  CRON_SECRET (the continuity cron fail-closes without it), and the provider
+  path), STRYDE_PROVIDER_DISABLED=omniroute (tailnet-only, unreachable from
+  Vercel), STRYDE_GEMINI_MODEL=gemini-flash-latest. Gemini stays enabled as
+  the middle leg (free tier: 20 requests/day).
+- The stale production deployment predates the model-delist repair (its
+  health endpoint still reported gemini-2.5-flash). Promoting the current
+  verified tree to production is the remaining step.
+
+### Blockers (human-owned, billing only)
+
+1. OpenRouter holds $0.00 credits (verified twice this pass; the key is
+   valid and authenticated). Funding it (~$5) makes the production chain
+   fully viable: OpenRouter primary, Gemini free tier as fallback. This is
+   the only remaining gap between the verified local system and a fully
+   functional production conversation loop.
+2. Build-time agent models (Hermes stealth free tier, Gemini free tier) were
+   quota-exhausted by this pass's proofs — build-time cost, independent of
+   the Stryde runtime.

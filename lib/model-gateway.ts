@@ -31,7 +31,13 @@ export type ConversationMemoryCandidate = {
   content: string;
   confidence: number;
   importance: number;
+  revises_memory_ids: string[];
 };
+
+// What the user's input IS, decided by the turn interpreter. CORRECTION means
+// the user overrode the working interpretation; PROGRESS/DECISION are
+// real-world reports from the authority (recorded verbatim as memory).
+export type ConversationInputClass = "MESSAGE" | "QUESTION" | "CORRECTION" | "PROGRESS" | "DECISION";
 
 export type ConversationTurn = {
   message: string;
@@ -39,6 +45,7 @@ export type ConversationTurn = {
   options: ConversationOption[];
   ready_for_reasoning: boolean;
   focus: string | null;
+  input_class: ConversationInputClass;
   memory_candidates: ConversationMemoryCandidate[];
   work: WorkingState;
 };
@@ -81,11 +88,15 @@ const MODEL_PROPOSAL_SCHEMA = {
 const CONVERSATION_TURN_SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["message", "question", "memory_candidates", "options", "ready_for_reasoning", "focus", "work"],
+  required: ["message", "question", "memory_candidates", "input_class", "options", "ready_for_reasoning", "focus", "work"],
   properties: {
     message: { type: "string", minLength: 1, maxLength: 8000 },
     question: {
       anyOf: [{ type: "string", maxLength: 4000 }, { type: "null" }],
+    },
+    input_class: {
+      type: "string",
+      enum: ["MESSAGE", "QUESTION", "CORRECTION", "PROGRESS", "DECISION"],
     },
     memory_candidates: {
       type: "array",
@@ -100,6 +111,11 @@ const CONVERSATION_TURN_SCHEMA = {
           content: { type: "string", minLength: 1, maxLength: 600 },
           confidence: { type: "number", minimum: 0, maximum: 1 },
           importance: { type: "number", minimum: 0, maximum: 1 },
+          revises_memory_ids: {
+            type: "array",
+            maxItems: 3,
+            items: { type: "string", minLength: 1, maxLength: 128 },
+          },
         },
       },
     },
@@ -155,7 +171,7 @@ function sanitizeConversation(messages: ConversationMessage[]): ConversationMess
     .filter((item) => item.content.length > 0);
 }
 
-function validateConversationTurn(value: unknown): ConversationTurn {
+export function validateConversationTurn(value: unknown): ConversationTurn {
   if (typeof value !== "object" || value === null) throw new Error("Conversation turn must be an object");
   const candidate = value as Record<string, unknown>;
   if (typeof candidate.message !== "string" || !candidate.message.trim()) throw new Error("Conversation message is required");
@@ -179,16 +195,27 @@ function validateConversationTurn(value: unknown): ConversationTurn {
     if (typeof memory.content !== "string" || !memory.content.trim()) throw new Error("Memory candidate content is required");
     if (typeof memory.confidence !== "number" || memory.confidence < 0 || memory.confidence > 1) throw new Error("Memory candidate confidence must be between 0 and 1");
     if (typeof memory.importance !== "number" || memory.importance < 0 || memory.importance > 1) throw new Error("Memory candidate importance must be between 0 and 1");
+    const revises = Array.isArray(memory.revises_memory_ids)
+      ? memory.revises_memory_ids.filter((id): id is string => typeof id === "string" && id.trim().length > 0).slice(0, 3).map((id) => id.trim())
+      : [];
     return {
       scope: memory.scope as ConversationMemoryCandidate["scope"],
       memory_type: memory.memory_type as ConversationMemoryCandidate["memory_type"],
       content: memory.content.trim().slice(0, 600),
       confidence: memory.confidence,
       importance: memory.importance,
+      revises_memory_ids: revises,
     };
   });
   const work = validateWorkingState(candidate.work);
-  return { message: candidate.message.trim().slice(0, 8000), question, options, ready_for_reasoning: candidate.ready_for_reasoning as boolean, focus, memory_candidates, work };
+  // input_class is requested from the model but its absence or drift must not
+  // fail a turn: an unclassified input is an ordinary message, never a failed
+  // request. Only known synonyms-less values are accepted verbatim.
+  const inputClass = typeof candidate.input_class === "string" &&
+    ["MESSAGE", "QUESTION", "CORRECTION", "PROGRESS", "DECISION"].includes(candidate.input_class)
+    ? candidate.input_class as ConversationInputClass
+    : "MESSAGE";
+  return { message: candidate.message.trim().slice(0, 8000), question, options, ready_for_reasoning: candidate.ready_for_reasoning as boolean, focus, input_class: inputClass, memory_candidates, work };
 }
 
 function buildConversationPrompt(input: {
@@ -213,10 +240,12 @@ function buildConversationPrompt(input: {
     "The user may be vague, contradictory, emotional, incomplete, or unsure how to explain themselves. Treat that as useful signal.",
     "Absorb cognitive ambiguity rather than reflecting it back as work for the user.",
     "First interpret what the user is saying. Then move the situation forward with a useful response.",
+    "Classify the user's latest input as input_class: MESSAGE (ordinary conversation), QUESTION (a direct question), CORRECTION (it corrects or overrides your working interpretation, the current goal, or a prior fact), PROGRESS (it reports real-world progress, results, or setbacks on the pursuit), or DECISION (it expresses a settled decision).",
     "Do not automatically ask a question. Ask one only when it materially improves understanding.",
     "A useful response may combine an interpretation, observation, framing, small recommendation, question, and/or a few concrete choices.",
     "Also return up to three memory_candidates only for durable, user-specific information that is worth remembering beyond this conversation. Prefer constraints, preferences, enduring goals, meaningful decisions, repeated patterns, and consequential experiences. Do not store generic facts, transient details, assistant claims, speculative psychology, or information that is already adequately represented in canonical domain state.",
     "Memory candidates are MODEL_INFERENCE proposals, not truth. Use conservative confidence and importance values. Do not infer sensitive traits or hidden motives.",
+    "When a memory candidate updates or replaces an existing memory you were shown in canonical_situation.memories, set that candidate's revises_memory_ids to the ids it replaces (at most 3). Leave revises_memory_ids empty otherwise. Never propose a revision unless the user's own words or clear evidence support it.",
     "Do not force a fixed number of steps. Continue naturally until the situation is sufficiently understood for the next useful intervention.",
     "Offer choices when they reduce cognitive load, but never force the user into them.",
     "If the user says 'I don't know', help them discover what they mean rather than asking another broad diagnostic question.",

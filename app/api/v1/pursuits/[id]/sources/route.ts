@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { runSourceAdaptation, type SourceAdaptation } from "@/lib/adaptive-model";
 import { assembleAdaptiveSituation } from "@/lib/adaptive-situation";
-import { ingestPastedSource, ingestUrlSource } from "@/lib/source-ingestion";
+import { ingestPastedSource, ingestUrlSource, type IngestedSource } from "@/lib/source-ingestion";
+import { extractFileSourceText, type FileSourceExtraction } from "@/lib/file-source-extraction";
 import { requireAuthenticatedSupabase } from "@/lib/supabase/server";
 import { buildSourceCitation } from "@/lib/source-citation";
 
@@ -29,6 +30,64 @@ function normalizeAdaptationRows(rows: Array<Record<string, unknown>>) {
     if (sourceId && !latestBySource.has(sourceId)) latestBySource.set(sourceId, row);
   }
   return [...latestBySource.values()];
+}
+
+// Extracted file text flows through the same stored-content path as pasted
+// text (120k chars); anything beyond that is truncated and labeled PARTIAL.
+const MAX_STORED_CHARS = 120_000;
+
+type FileIngestResult =
+  | { ok: true; ingested: IngestedSource }
+  | { ok: false; message: string; status: number };
+
+async function ingestUploadedFile(file: File, title: string | null): Promise<FileIngestResult> {
+  const buffer = Buffer.from(await file.arrayBuffer());
+  let extracted: FileSourceExtraction;
+  try {
+    extracted = extractFileSourceText({ filename: file.name, mimeType: file.type, buffer });
+  } catch (error) {
+    return {
+      ok: false,
+      message: error instanceof Error ? error.message : "Stryde could not read this file.",
+      status: 413,
+    };
+  }
+
+  if (extracted.extraction === "UNSUPPORTED") {
+    return { ok: false, message: extracted.notes ?? "Stryde cannot extract text from this file type yet.", status: 415 };
+  }
+
+  const contentText = extracted.text.trim();
+  if (!contentText) {
+    return { ok: false, message: "Stryde could not extract any text from this file.", status: 422 };
+  }
+
+  let truncated = extracted.extraction === "PARTIAL";
+  let fetchStatus: IngestedSource["fetchStatus"] = extracted.extraction === "PARTIAL" ? "PARTIAL" : "FETCHED";
+  let stored = contentText;
+  if (stored.length > MAX_STORED_CHARS) {
+    stored = stored.slice(0, MAX_STORED_CHARS);
+    truncated = true;
+    fetchStatus = "PARTIAL";
+  }
+
+  const pasted = await ingestPastedSource({ content: stored, title: title ?? file.name });
+  return {
+    ok: true,
+    ingested: {
+      ...pasted,
+      contentType: file.type || "text/plain",
+      fetchStatus,
+      sourceMetadata: {
+        ingestion: "FILE",
+        filename: file.name.slice(0, 500),
+        mime_type: file.type || null,
+        extraction: extracted.extraction,
+        extraction_notes: extracted.notes ?? null,
+        truncated,
+      },
+    },
+  };
 }
 
 export async function GET(request: Request, context: RouteContext) {
@@ -90,15 +149,39 @@ export async function POST(request: Request, context: RouteContext) {
   try {
     const { supabase, user } = await requireAuthenticatedSupabase(request.headers.get("authorization"));
     const { id } = await context.params;
-    const body = (await request.json()) as Record<string, unknown>;
 
-    const url = nullableText(body.url, 2_000);
-    const content = nullableText(body.content, 120_000);
-    const title = nullableText(body.title, 500);
-    const pastedUri = nullableText(body.uri, 2_000);
+    let ingested: IngestedSource;
+    let title: string | null;
 
-    if (!!url === !!content) {
-      return errorResponse("Provide exactly one of url or content", 400);
+    if ((request.headers.get("content-type") ?? "").toLowerCase().includes("multipart/form-data")) {
+      let form: FormData;
+      try {
+        form = await request.formData();
+      } catch {
+        return errorResponse("Request body must be valid multipart form data", 400);
+      }
+      const file = form.get("file");
+      const titleField = form.get("title");
+      title = typeof titleField === "string" ? nullableText(titleField, 500) : null;
+      if (!(file instanceof File)) return errorResponse("Attach the source as a file field", 400);
+      const result = await ingestUploadedFile(file, title);
+      if (!result.ok) return errorResponse(result.message, result.status);
+      ingested = result.ingested;
+    } else {
+      const body = (await request.json()) as Record<string, unknown>;
+
+      const url = nullableText(body.url, 2_000);
+      const content = nullableText(body.content, 120_000);
+      title = nullableText(body.title, 500);
+      const pastedUri = nullableText(body.uri, 2_000);
+
+      if (!!url === !!content) {
+        return errorResponse("Provide exactly one of url or content", 400);
+      }
+
+      ingested = url
+        ? await ingestUrlSource(url)
+        : await ingestPastedSource({ content: content!, title, uri: pastedUri });
     }
 
     const { data: pursuit, error: pursuitError } = await supabase
@@ -109,10 +192,6 @@ export async function POST(request: Request, context: RouteContext) {
       .maybeSingle();
     if (pursuitError) return errorResponse("Unable to load Pursuit", 500);
     if (!pursuit) return errorResponse("Pursuit not found", 404);
-
-    const ingested = url
-      ? await ingestUrlSource(url)
-      : await ingestPastedSource({ content: content!, title, uri: pastedUri });
 
     const { data: source, error: sourceError } = await supabase
       .from("pursuit_source")

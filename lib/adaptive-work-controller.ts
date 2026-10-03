@@ -1,14 +1,20 @@
 import { ACTOR_TYPES, normalizeActor, normalizeWorkerType, WORKER_TYPES } from "@/lib/actor";
-import { WORK_STATUSES, type NextMove, type WorkingState } from "@/lib/work-controller";
+import { WORK_STATUSES, normalizeVerify, type NextMove, type WorkingState } from "@/lib/work-controller";
 import { normalizeWorkStatus } from "./working-state-normalization.ts";
 export { normalizeWorkStatus } from "./working-state-normalization.ts";
 
+// RESEARCH_WEB and VERIFY_WEB are enabled here because the /work route
+// executes them mechanically when selected (web search, mechanical URL
+// check). EXECUTE_TOOL stays excluded: no arbitrary tool runtime is exposed
+// to the adaptive controller in this product phase.
 export const ADAPTIVE_WORK_MODES = [
   "ASK_USER",
   "ANALYZE",
   "DRAFT",
   "DECIDE",
   "CREATE_ACTION",
+  "RESEARCH_WEB",
+  "VERIFY_WEB",
   "WAIT",
   "RECHECK",
   "STOP",
@@ -74,6 +80,16 @@ export const ADAPTIVE_WORKING_STATE_SCHEMA = {
             stryde_can_do: { type: "string", minLength: 1, maxLength: MAX_TEXT },
             user_needs_to_do: { type: "string", minLength: 1, maxLength: MAX_TEXT },
             completion_condition: { type: "string", minLength: 1, maxLength: MAX_TEXT },
+            verify: {
+              type: "object",
+              additionalProperties: false,
+              required: ["claim_id", "url", "expect_text"],
+              properties: {
+                claim_id: { type: "string", minLength: 1, maxLength: 64 },
+                url: { type: "string", minLength: 1, maxLength: 2000 },
+                expect_text: { type: "string", minLength: 1, maxLength: 300 },
+              },
+            },
           },
         },
         { type: "null" },
@@ -151,7 +167,14 @@ function validateWorkingStateShape(value: unknown): WorkingState {
       stryde_can_do: readText(move.stryde_can_do, "next_move.stryde_can_do"),
       user_needs_to_do: readText(move.user_needs_to_do, "next_move.user_needs_to_do"),
       completion_condition: readText(move.completion_condition, "next_move.completion_condition"),
+      verify: normalizeVerify(move.verify),
     };
+  }
+
+  // A mechanical verification proposal without its target payload can never
+  // execute; reject it here rather than letting the route degrade later.
+  if (next_move?.mode === "VERIFY_WEB" && !next_move.verify) {
+    throw new Error("VERIFY_WEB next move requires verify: claim_id, url, and expect_text");
   }
 
   if (candidate.status === "COMPLETE" && next_move) throw new Error("Complete working state cannot have a next move");
@@ -187,7 +210,8 @@ export function buildAdaptiveWorkControllerPrompt(input: {
     "The episodic_memory field contains excerpts from prior pursuit conversations. Use it for continuity and unresolved context, but treat prior Stryde messages as hypotheses rather than canonical facts.",
     "The memories field contains personal/pursuit memory records. CANDIDATE and MODEL_INFERENCE memories are hypotheses, not canonical facts; prefer verified/observed evidence and never silently upgrade a memory's authority.",
     "Every next move has an actor allocation: HUMAN, STRYDE, WORKER, or CONTROLLED_TOOL. Use WORKER only when the supplied situation shows an active worker capability, and include its worker_type. Do not allocate a worker merely because delegation sounds useful.",
-    "Never select EXECUTE_TOOL or RESEARCH_WEB unless the supplied runtime explicitly exposes those capabilities. Worker delegation is separate from CONTROLLED_TOOL execution.",
+    "RESEARCH_WEB runs mechanically when selected: select it (actor STRYDE) only when capabilities.web_search is present in the situation and the situation genuinely needs outside information. VERIFY_WEB runs a mechanical URL check: select it (actor STRYDE) only when a REPORTED or OBSERVED claim in the situation can be settled by fetching one public page whose content either contains or lacks specific literal text, and fill next_move.verify (claim_id, url, expect_text). VERIFY_WEB is for direct observation only — never for claims that require judgment or login-walled pages, and it can never mark a claim VERIFIED.",
+    "Never select EXECUTE_TOOL: no arbitrary tool runtime is exposed to this controller. Worker delegation is separate from CONTROLLED_TOOL execution.",
     "Never invent quantities, stakeholders, dates, customers, experiments, conversion rates, revenue, benchmarks, or outcomes.",
     "Sources are retrieved through the source-ingestion pathway; the controller must not claim it can fetch new sources in this runtime. For FAILED or UNSUPPORTED sources, choose ASK_USER and ask for usable material.",
     "Use RECHECK after an action/result exists and the next move is to reassess what reality says.",

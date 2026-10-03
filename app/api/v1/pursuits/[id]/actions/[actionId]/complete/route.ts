@@ -299,7 +299,6 @@ export async function POST(request: Request, context: RouteContext) {
           confidence: 0.6,
           importance: observation.blockers.length > 0 ? 0.85 : 0.7,
           sourceObservationId: completedObservationId,
-          status: "CANDIDATE",
         })
       : null;
 

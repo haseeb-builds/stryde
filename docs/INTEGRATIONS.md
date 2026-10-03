@@ -18,12 +18,12 @@ Current branch source still contains compatibility for older providers. This is 
 | Integration | State | Evidence |
 |---|---|---|
 | Supabase | LIVE | ACTIVE_HEALTHY; schema/data inspected 2026-10-02 |
-| Vercel | LIVE | current production is old main; current build branch has READY preview |
+| Vercel | LIVE | 2026-10-03: owner access restored; production surface verified as this application (stryde-topaz.vercel.app); env contract set (SUPABASE_SECRET_KEY, CRON_SECRET, provider chain); production promotion of the verified tree is the remaining step |
 | Gemini | IMPLEMENTED | live local schema validation; full-turn path rate-limited on free key |
 | OmniRoute | IMPLEMENTED + REAL LOCAL PROOF | direct provider probe passed 2026-09-30 |
-| Exa | ADAPTER | code exists; production live request not verified |
+| Exa | ADAPTER | code exists; observation recording repaired to the trusted plane 2026-10-03 (was silently dropped by the RLS hardening); live search request still not verified |
 | Firecrawl | ADAPTER | code exists; production live request not verified |
-| Hermes | CONTRACT | tool registered; no live grant/job/attempt proof |
+| Hermes | IMPLEMENTED + REAL PROOF | real agent executed a real unit of work through the full CONTROLLED plane 2026-10-03 (e2e:real-worker 11/11, artifact-judged); failure cycle honestly reported the same day |
 | OpenCode | CONTRACT | tool registered; no live grant/job/attempt proof |
 | Voice | UI | browser SpeechRecognition path exists; production unverified |
 

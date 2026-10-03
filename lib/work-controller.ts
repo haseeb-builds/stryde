@@ -12,6 +12,7 @@ export const WORK_MODES = [
   "WAIT",
   "RECHECK",
   "STOP",
+  "VERIFY_WEB",
 ] as const;
 
 export type WorkMode = (typeof WORK_MODES)[number];
@@ -37,6 +38,7 @@ export const AVAILABLE_WORK_MODES = [
   "WAIT",
   "RECHECK",
   "STOP",
+  "VERIFY_WEB",
 ] as const;
 
 export type NextMove = {
@@ -49,6 +51,13 @@ export type NextMove = {
   stryde_can_do: string;
   user_needs_to_do: string;
   completion_condition: string;
+  // Present only when the move hands one claim to the mechanical URL check
+  // (mode VERIFY_WEB). Absent (or null) for every other mode.
+  verify?: {
+    claim_id: string;
+    url: string;
+    expect_text: string;
+  } | null;
 };
 
 export type WorkingState = {
@@ -127,6 +136,16 @@ export const WORKING_STATE_SCHEMA = {
             stryde_can_do: { type: "string", minLength: 1, maxLength: MAX_TEXT },
             user_needs_to_do: { type: "string", minLength: 1, maxLength: MAX_TEXT },
             completion_condition: { type: "string", minLength: 1, maxLength: MAX_TEXT },
+            verify: {
+              type: "object",
+              additionalProperties: false,
+              required: ["claim_id", "url", "expect_text"],
+              properties: {
+                claim_id: { type: "string", maxLength: 64 },
+                url: { type: "string", maxLength: 2000 },
+                expect_text: { type: "string", minLength: 1, maxLength: 300 },
+              },
+            },
           },
         },
         { type: "null" },
@@ -155,6 +174,21 @@ function optionalText(value: unknown, field: string): string | null {
 function items(value: unknown, field: string): string[] {
   if (!Array.isArray(value)) throw new Error(`${field} must be an array`);
   return value.slice(0, MAX_ITEMS).map((item, index) => text(item, `${field}[${index}]`));
+}
+
+// Normalizes the optional mechanical-verification payload on a next move.
+// Absent stays absent, null stays null, and a partial or blank payload is
+// rejected outright: the model must either fill every field or omit verify.
+export function normalizeVerify(value: unknown): NextMove["verify"] {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  if (typeof value !== "object") throw new Error("next_move.verify must be an object or null");
+  const candidate = value as Record<string, unknown>;
+  return {
+    claim_id: text(candidate.claim_id, "next_move.verify.claim_id", 64),
+    url: text(candidate.url, "next_move.verify.url", 2000),
+    expect_text: text(candidate.expect_text, "next_move.verify.expect_text", 300),
+  };
 }
 
 export function validateWorkingState(value: unknown): WorkingState {
@@ -203,6 +237,7 @@ export function validateWorkingState(value: unknown): WorkingState {
       stryde_can_do: text(move.stryde_can_do, "next_move.stryde_can_do"),
       user_needs_to_do: text(move.user_needs_to_do, "next_move.user_needs_to_do"),
       completion_condition: text(move.completion_condition, "next_move.completion_condition"),
+      verify: normalizeVerify(move.verify),
     };
   }
 
@@ -264,6 +299,9 @@ export function buildWorkControllerPrompt(input: {
     "Worker execution is available only through an explicitly granted worker capability. Never assume a worker exists when available worker capabilities are absent from the supplied situation.",
     "When capabilities.web_search is true and an unresolved knowledge question materially blocks progress, RESEARCH_WEB is allowed. For RESEARCH_WEB, next_move.title must be a standalone web-search query and actor must be STRYDE.",
     "Use RESEARCH_WEB for targeted evidence acquisition, not as a generic request to browse forever. Research effort should match the stakes and expected value.",
+    "VERIFY_WEB is for mechanically settling one claim against one public URL. Propose it only when a REPORTED or OBSERVED claim in the situation can be settled by fetching a URL whose page either contains or does not contain specific literal text.",
+    "For VERIFY_WEB, actor must be STRYDE and next_move.verify must name the target: verify.claim_id is the claim id, verify.url is the public page, and verify.expect_text is the literal text expected if the claim is true.",
+    "Never propose VERIFY_WEB for claims requiring judgment, interpretation, or login-walled pages. The check is mechanical text matching; Stryde never adjudicates the claim — the recorded outcome is evidence, not a verdict.",
     "Use RECHECK when the next move is to inspect the result of something the user has already done or reported.",
     "Prefer a single next move. Do not expose a multi-step roadmap as the current move.",
     "If research can resolve the current bottleneck, prefer doing that research inside Stryde rather than asking the user to search manually.",

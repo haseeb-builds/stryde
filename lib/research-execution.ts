@@ -20,6 +20,7 @@ export async function executeWebResearch(
   ownerUserId: string,
   pursuitId: string,
   query: string,
+  observationSupabase?: SupabaseClient,
 ): Promise<ResearchExecution> {
   const normalizedQuery = query.trim().slice(0, 1_000);
   if (!normalizedQuery) throw new Error("Research query is empty");
@@ -37,7 +38,13 @@ export async function executeWebResearch(
     provider_metadata: result.providerMetadata,
   };
 
-  const { data: observation } = await supabase
+  // Observations are trusted-plane writes: the persistence hardening removed
+  // owner INSERT on observation (migration 20260915000200), so this must run
+  // with the service client the caller supplies. Recording through the user's
+  // client silently loses the evidence (the insert violates RLS), which is
+  // worse than failing: research results would never reach the situation.
+  const observationClient = observationSupabase ?? supabase;
+  const { data: observation, error: observationError } = await observationClient
     .from("observation")
     .insert({
       owner_user_id: ownerUserId,
@@ -55,11 +62,14 @@ export async function executeWebResearch(
     })
     .select("id")
     .single();
+  if (observationError || !observation) {
+    throw new Error(observationError?.message ?? "Unable to record the research observation");
+  }
 
   return {
     query: normalizedQuery,
     provider: provider.name,
     results: result.results,
-    observation_id: observation?.id ?? null,
+    observation_id: observation.id,
   };
 }

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import type { WorkingState } from "@/lib/work-controller";
 import { requireAuthenticatedSupabase } from "@/lib/supabase/server";
+import { checkWorkerDelegation, loadAutonomyPolicy } from "@/lib/autonomy-policy";
 
 export const runtime = "nodejs";
 type RouteContext = { params: Promise<{ id: string }> };
@@ -36,6 +37,15 @@ export async function POST(request: Request, context: RouteContext) {
     const move = workingState?.next_move;
     if (!workingState || !move || move.actor !== "WORKER" || !move.worker_type) {
       return errorResponse("The current next move is not ready for worker delegation", 409);
+    }
+
+    // The user's autonomy policy governs what may be delegated at all. It can
+    // only refuse — it never approves. Explicit per-action approval (checked
+    // above) remains mandatory regardless of what the policy allows.
+    const policy = await loadAutonomyPolicy(supabase, user.id);
+    const delegation = checkWorkerDelegation(policy, move.worker_type);
+    if (!delegation.allowed) {
+      return errorResponse(delegation.reason ?? "Worker delegation is not enabled", 403);
     }
 
     // Guard against double-delegation. A CONTROLLED Action that is still running

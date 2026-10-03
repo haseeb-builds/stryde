@@ -155,6 +155,8 @@ export async function POST(request: Request, context: RouteContext) {
 
           // Conversation turns can propose a few durable, user-specific memories.
           // These are stored as MODEL_INFERENCE candidates, never as verified truth.
+          // A confident candidate may explicitly supersede an existing memory the
+          // model judged outdated; the lineage stays inspectable either way.
           for (const memoryCandidate of result.turn.memory_candidates) {
             await recordMemory(supabase, {
               ownerUserId: user.id,
@@ -174,7 +176,31 @@ export async function POST(request: Request, context: RouteContext) {
               structuredDetail: {
                 focus: result.turn.focus,
               },
+              revisesMemoryIds: memoryCandidate.revises_memory_ids,
               status: "CANDIDATE",
+            });
+          }
+
+          // Progress reports and settled decisions arrive from the authority
+          // (the user), so they are preserved verbatim as USER_REPORTED memories
+          // — unlike model paraphrases, which stay candidates. Exactly-once is
+          // guaranteed by the turn key, so a replayed turn cannot double-record.
+          if (result.turn.input_class === "PROGRESS" || result.turn.input_class === "DECISION") {
+            await recordMemory(supabase, {
+              ownerUserId: user.id,
+              pursuitId: id,
+              memoryType: result.turn.input_class === "PROGRESS" ? "EXPERIENCE" : "DECISION",
+              content: message.slice(0, 4000),
+              structuredDetail: { input_class: result.turn.input_class, focus: result.turn.focus },
+              provenanceType: "USER_REPORTED",
+              provenance: {
+                source: "CONVERSATION_INPUT",
+                session_id: sessionId,
+                turn_key: turnKey,
+              },
+              confidence: 0.75,
+              importance: result.turn.input_class === "DECISION" ? 0.8 : 0.65,
+              dedupeTurnKey: turnKey,
             });
           }
 
@@ -190,6 +216,13 @@ export async function POST(request: Request, context: RouteContext) {
                   options: turn.options,
                   ready_for_reasoning: turn.ready_for_reasoning,
                   focus: turn.focus,
+                  input_class: turn.input_class,
+                  // A correction supersedes the working interpretation: keep the
+                  // overridden state inspectable in the turn metadata instead of
+                  // silently discarding it.
+                  ...(turn.input_class === "CORRECTION" && session.working_state
+                    ? { superseded_working_state: session.working_state }
+                    : {}),
                   work: committedWork,
                   memory_candidates: result.turn.memory_candidates,
                   universal_input: universalInput,

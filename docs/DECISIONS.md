@@ -74,11 +74,19 @@ No claim of production readiness without deployed authenticated E2E evidence app
 ## Open decisions
 
 - exact initial user wedge;
-- precise authority levels and policy grammar;
-- exact memory implementation;
-- browser provider;
-- document/media stack;
-- capability-routing implementation;
-- proactive continuity;
+- authority policy beyond the V1 grammar (implemented 2026-10-03 as a
+  tighten-only policy: delegation on/off, worker-type allowlist, research
+  on/off; it can refuse, never approve — per-action approval is unchanged);
+- memory implementation beyond the V1 lifecycle (implemented 2026-10-03:
+  confirmation, model-proposed supersession, ranked retrieval, user
+  control; semantic/embedding retrieval deliberately deferred while Postgres
+  remains the system of record);
+- browser provider (no browser-observation capability exists yet);
+- document/media stack beyond the 2026-10-03 text/PDF ingestion (image and
+  audio ingestion still deferred);
+- capability-routing implementation beyond the 2026-10-03 VERIFY_WEB and
+  RESEARCH_WEB mechanical executors;
+- proactive continuity beyond the 2026-10-03 daily check-in cron
+  (deterministic, no model calls; model-driven re-engagement deferred);
 - future social/network design;
 - long-term commercial model.

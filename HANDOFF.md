@@ -39,15 +39,28 @@ Stryde is a persistent personal pursuit system with one universal control surfac
 
 ## What must now be built
 
-1. Universal/simple user surface: one composer, contextual inline actions, no workflow dashboards.
-2. Natural-language capability interpretation so sources/research/progress/corrections do not require separate boxes.
-3. Automatic verification wherever observation is possible.
-4. Longitudinal personal/pursuit memory and reality model.
-5. Configurable authority/autonomy, including safe "take it from here" behavior.
-6. Evidence-aware adaptive research beyond any one provider.
-7. Real external capability/worker execution with bounded permissions.
-8. Production promotion and authenticated E2E proof.
-9. Final visual design pass once the product behavior is stable.
+Status 2026-10-03 (verified evidence in docs/STATE.md and docs/VERIFICATION_MATRIX.md):
+
+1. DONE — Universal/simple user surface: one composer; contextual source,
+   claims, memory, and autonomy disclosures mounted on the pursuit page.
+2. DONE in V1 form — input classification on the turn contract
+   (correction/progress/decision semantics), inline URL ingestion, file
+   attach with text/PDF extraction.
+3. DONE in V1 form — mechanical VERIFY_WEB verification (REPORTED → OBSERVED
+   via trusted-plane evidence; VERIFIED stays human-only).
+4. DONE in V1 form — memory lifecycle (confirmation, supersession, ranked
+   retrieval, user inspectability and control).
+5. DONE in V1 form — tighten-only autonomy policy; per-action approval
+   unchanged. "Take it from here" beyond this is still open.
+6. PARTIAL — Exa wired and its observation recording repaired
+   (trusted-plane); no live search proof yet; multi-provider acquisition
+   still open.
+7. DONE for Hermes — a real agent executed real work through the CONTROLLED
+   plane (artifact-judged). OpenCode execution remains contract-only.
+8. IN PROGRESS — production env contract set 2026-10-03; the production
+   conversation loop additionally needs a funded model credential
+   (OpenRouter holds $0.00 credits) and the verified tree promoted.
+9. NOT STARTED — final visual design pass.
 
 ## Non-negotiables
 

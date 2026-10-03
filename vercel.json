@@ -1,7 +1,7 @@
 {
   "crons": [
     {
-      "path": "/api/checkin",
+      "path": "/api/cron/continuity",
       "schedule": "0 18 * * *"
     }
   ]

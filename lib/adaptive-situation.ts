@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { assembleSituation, type Situation } from "@/lib/situation";
+import { rankMemories } from "@/lib/memory-core";
 
 export type MemoryEpisode = {
   session_id: string;
@@ -202,7 +203,20 @@ export async function assembleAdaptiveSituation(
   for (const memory of [...(userMemoriesResult.data ?? []), ...(pursuitMemoriesResult.data ?? [])]) {
     memoryById.set(memory.id, memory as unknown as MemoryItem);
   }
-  const memories = [...memoryById.values()];
+  // Memories reach the model ranked by importance, confidence, recency, and
+  // relevance to what the pursuit is about right now — not by volume.
+  const pursuitRow = base.situation.pursuit as { title?: string | null; objective_claim_id?: string | null } | undefined;
+  const objectiveClaim = (base.situation.claims as Array<{ id?: unknown; content?: unknown }>).find(
+    (claim) => claim && typeof claim === "object" && claim.id === pursuitRow?.objective_claim_id,
+  );
+  const memories = rankMemories(
+    [...memoryById.values()],
+    {
+      objective: typeof objectiveClaim?.content === "string" ? objectiveClaim.content : null,
+      focus: typeof pursuitRow?.title === "string" ? pursuitRow.title : null,
+    },
+    new Date(),
+  );
 
   return {
     situation: {

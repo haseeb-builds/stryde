@@ -5,6 +5,10 @@ import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { consumeConversationStream } from "@/lib/conversation-client-stream";
 import type { WorkingState } from "@/lib/work-controller";
+import PursuitWorkPanels from "./work-panels";
+import PursuitClaimsPanel from "./claims-panel";
+import PursuitMemoryPanel from "./memory-panel";
+import PursuitAutonomyRow from "./autonomy-row";
 
 type Pursuit = { id: string; title: string | null; status: string };
 type Option = { label: string; value: string };
@@ -101,9 +105,12 @@ export default function PursuitPage() {
   const [error, setError] = useState("");
   const [actionReport, setActionReport] = useState<ActionReportState | null>(null);
   const [listening, setListening] = useState(false);
+  const [fileNotice, setFileNotice] = useState("");
+  const [uploadingFile, setUploadingFile] = useState(false);
 
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const voiceRef = useRef<VoiceRecognition | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const title = useMemo(() => pursuit?.title || "Untitled pursuit", [pursuit]);
 
@@ -438,6 +445,47 @@ export default function PursuitPage() {
       setError(err instanceof Error ? err.message : "Stryde couldn't start this move.");
     } finally {
       setWorking(false);
+    }
+  }
+
+  async function attachFile(file: File) {
+    if (working || uploadingFile || session?.status !== "ACTIVE") return;
+
+    setUploadingFile(true);
+    setFileNotice("Adding " + file.name + "…");
+
+    try {
+      if (file.size > 10 * 1024 * 1024) {
+        throw new Error(file.name + " is larger than the 10 MB source limit.");
+      }
+
+      const access = await token();
+      const form = new FormData();
+      form.append("file", file);
+      const response = await fetch("/api/v1/pursuits/" + params.id + "/sources", {
+        method: "POST",
+        headers: { Authorization: "Bearer " + access },
+        body: form,
+      });
+
+      const body = (await response.json()) as {
+        source?: { title: string | null };
+        warning?: string | null;
+        error?: string;
+      };
+
+      if (!response.ok || !body.source) {
+        throw new Error(body.error || "Stryde could not read that file.");
+      }
+
+      setFileNotice(
+        "Added " + (body.source.title ?? file.name) + " to this pursuit's source material." +
+          (body.warning ? " " + body.warning : ""),
+      );
+    } catch (err) {
+      setFileNotice(err instanceof Error ? err.message : "Stryde could not read that file.");
+    } finally {
+      setUploadingFile(false);
     }
   }
 
@@ -988,6 +1036,25 @@ export default function PursuitPage() {
               )}
 
               {!hasMessages && !working && error === "" ? null : null}
+
+              {/* Contextual work surfaces: source material, claims/evidence,
+                  and what Stryde remembers. Collapsible, never primary
+                  navigation — the composer stays the one control surface. */}
+              <div className="mb-8 space-y-3">
+                <PursuitWorkPanels
+                  pursuitId={params.id}
+                  sessionId={session?.id ?? null}
+                  sessionActive={Boolean(session)}
+                  workingState={workingState}
+                  onWorkingStateChange={setWorkingState}
+                  onActionStatusRequest={(actionId, status) =>
+                    setActionReport({ actionId, terminalStatus: status })
+                  }
+                />
+                <PursuitClaimsPanel pursuitId={params.id} sessionActive={Boolean(session)} />
+                <PursuitMemoryPanel pursuitId={params.id} sessionActive={Boolean(session)} />
+                <PursuitAutonomyRow sessionActive={Boolean(session)} />
+              </div>
             </div>
           </div>
 
@@ -1043,6 +1110,26 @@ export default function PursuitPage() {
 
                 <div className="flex items-center justify-between px-1.5 pt-2">
                   <div className="flex min-w-0 items-center gap-2">
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      className="hidden"
+                      onChange={(event) => {
+                        const file = event.target.files?.[0];
+                        event.target.value = "";
+                        if (file) void attachFile(file);
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={working || uploadingFile || session?.status !== "ACTIVE"}
+                      className="shrink-0 rounded-lg border border-zinc-200 px-2.5 py-1.5 text-[11px] font-medium text-zinc-500 hover:text-zinc-900 disabled:opacity-30"
+                      aria-label="Attach a file as source material"
+                    >
+                      {uploadingFile ? "Adding…" : "Attach"}
+                    </button>
+
                     {voiceSupported && (
                       <button
                         type="button"
@@ -1066,9 +1153,11 @@ export default function PursuitPage() {
                     )}
 
                     <span className="truncate text-[11px] text-zinc-400">
-                      {actionReport
-                        ? "Say it naturally · Stryde will structure what matters"
-                        : "Enter to send · Shift+Enter for a new line"}
+                      {fileNotice
+                        ? fileNotice
+                        : actionReport
+                          ? "Say it naturally · Stryde will structure what matters"
+                          : "Enter to send · Shift+Enter for a new line"}
                     </span>
                   </div>
 

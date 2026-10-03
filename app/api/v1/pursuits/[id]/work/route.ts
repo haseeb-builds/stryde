@@ -2,7 +2,10 @@ import { NextResponse } from "next/server";
 import { runAdaptiveWorkController } from "@/lib/adaptive-model";
 import { assembleAdaptiveSituation } from "@/lib/adaptive-situation";
 import { requireAuthenticatedSupabase } from "@/lib/supabase/server";
+import { getSupabaseServiceClient } from "@/lib/supabase/service";
 import { executeWebResearch } from "@/lib/research-execution";
+import { executeMechanicalVerification } from "@/lib/verification-execution";
+import type { WorkingState } from "@/lib/work-controller";
 
 export const runtime = "nodejs";
 export const maxDuration = 55;
@@ -19,11 +22,12 @@ function errorResponse(message: string, status: number) {
 
 export async function POST(request: Request, context: RouteContext) {
   // Captured as soon as the persisted state is read so an unexpected provider
-  // failure can be reported without inventing replacement state.
+  // failure can be reported without inventing replacement state. The pursuit
+  // id is resolved outside the try because the degraded path needs it too.
   let degradedWorkingState: unknown = null;
+  const { id } = await context.params;
   try {
     const { supabase, user } = await requireAuthenticatedSupabase(request.headers.get("authorization"));
-    const { id } = await context.params;
     const body = (await request.json()) as RequestBody;
 
     if (typeof body.session_id !== "string" || !body.session_id.trim()) {
@@ -106,6 +110,7 @@ export async function POST(request: Request, context: RouteContext) {
           user.id,
           id,
           researchMove.title,
+          getSupabaseServiceClient(),
         );
         autonomousResearch = execution;
 
@@ -149,6 +154,82 @@ export async function POST(request: Request, context: RouteContext) {
       }
     }
 
+    let autonomousVerification: {
+      claim_id: string;
+      url: string;
+      outcome: string | null;
+      observation_id: string | null;
+      relation_type: string | null;
+      error: string | null;
+    } | null = null;
+
+    const verifyMove = result.workingState.next_move;
+    if (
+      verifyMove &&
+      verifyMove.mode === "VERIFY_WEB" &&
+      verifyMove.actor === "STRYDE" &&
+      verifyMove.verify
+    ) {
+      const verification = await executeMechanicalVerification({
+        userSupabase: supabase,
+        serviceSupabase: getSupabaseServiceClient(),
+        userId: user.id,
+        pursuitId: id,
+        verify: verifyMove.verify,
+      });
+      autonomousVerification = {
+        claim_id: verifyMove.verify.claim_id,
+        url: verifyMove.verify.url,
+        outcome: verification.check?.outcome ?? null,
+        observation_id: verification.observationId,
+        relation_type: verification.relationType,
+        error: verification.error,
+      };
+
+      if (verification.claimFound && !verification.claimChecked && !verification.error) {
+        // Skipped because the claim already carries evidence: not a failure,
+        // just nothing mechanical left to do for it.
+      } else if (verification.error && !verification.observationId) {
+        // The verification path itself failed before recording anything.
+        // Degrade honestly: never fabricate a new next move from code.
+        result = {
+          ...result,
+          workingState: {
+            ...result.workingState,
+            status: "STALLED",
+            understanding: "Stryde attempted the mechanical URL check but could not complete the verification path.",
+            bottleneck: verification.error,
+            next_move: {
+              ...verifyMove,
+              mode: "ASK_USER",
+              actor: "HUMAN",
+              worker_type: null,
+              verify: null,
+              title: "Decide how to settle the claim without the mechanical check.",
+              why: "The mechanical URL verification could not be completed.",
+              expected_change: "The claim is settled with real evidence or the check is retried later.",
+              stryde_can_do: "Retry the URL check when verification is available.",
+              user_needs_to_do: "Provide evidence only if you already have it; otherwise you can return later.",
+              completion_condition: "The claim is settled with real evidence or intentionally deferred.",
+            },
+          },
+        };
+      } else {
+        // Evidence was recorded (matched, mismatched, or honestly unreachable).
+        // Reassess with the updated situation; keep the recorded verification
+        // in the response so the user can see exactly what was observed.
+        const refreshedSituation = await assembleAdaptiveSituation(supabase, user.id, id);
+        if (!refreshedSituation.error && refreshedSituation.situation) {
+          result = await runAdaptiveWorkController({
+            pursuitTitle: pursuit.title ?? "Untitled pursuit",
+            situation: refreshedSituation.situation,
+            conversation,
+            previousWorkingState: result.workingState,
+          });
+        }
+      }
+    }
+
     const { error: persistError } = await supabase
       .from("conversation_session")
       .update({
@@ -177,16 +258,59 @@ export async function POST(request: Request, context: RouteContext) {
       active_action: activeAction ?? null,
       model: { provider: result.provider, model: result.model },
       autonomous_research: autonomousResearch,
+      autonomous_verification: autonomousVerification,
     });
   } catch (error) {
     if (error instanceof SyntaxError) return errorResponse("Request body must be valid JSON", 400);
     const message = error instanceof Error ? error.message : "Adaptive Work Controller failed";
     if (message.includes("token")) return errorResponse(message, 401);
-    // A provider-side failure (quota, transient 5xx, an out-of-contract model
-    // reply) must not read as a lost state change or a lost user request. The
-    // previously persisted working state is still the truth, so report the
-    // failure explicitly and hand back that state unchanged. Stryde never
-    // substitutes a fabricated next move for a real one.
+
+    // The model is unavailable (quota, transient 5xx, an out-of-contract
+    // reply, no provider configured). The persisted working state is still
+    // the truth — and if it holds a mechanical VERIFY_WEB move, that check
+    // needs no model at all. Execute it rather than letting a provider
+    // outage disable even the capabilities Stryde can observe directly.
+    const persistedMove = (degradedWorkingState as WorkingState | null)?.next_move;
+    if (persistedMove && persistedMove.mode === "VERIFY_WEB" && persistedMove.actor === "STRYDE" && persistedMove.verify) {
+      try {
+        const { supabase: authedSupabase, user: authedUser } = await requireAuthenticatedSupabase(request.headers.get("authorization"));
+        const verification = await executeMechanicalVerification({
+          userSupabase: authedSupabase,
+          serviceSupabase: getSupabaseServiceClient(),
+          userId: authedUser.id,
+          pursuitId: id,
+          verify: persistedMove.verify,
+        });
+        if (verification.observationId) {
+          return NextResponse.json(
+            {
+              working_state: degradedWorkingState,
+              autonomous_verification: {
+                claim_id: persistedMove.verify.claim_id,
+                url: persistedMove.verify.url,
+                outcome: verification.check?.outcome ?? null,
+                observation_id: verification.observationId,
+                relation_type: verification.relationType,
+                error: verification.error,
+              },
+              degraded: true,
+            },
+            { status: 200 },
+          );
+        }
+        console.error("[work] degraded verification completed without an observation:", JSON.stringify(verification));
+      } catch (degradedError) {
+        // The degraded verification attempt is best-effort; the honest 503
+        // below still reports the original provider failure.
+        console.error("[work] degraded verification failed:", degradedError);
+      }
+    }
+
+    // A provider-side failure must not read as a lost state change or a lost
+    // user request. The previously persisted working state is still the
+    // truth, so report the failure explicitly and hand back that state
+    // unchanged. Stryde never substitutes a fabricated next move for a real
+    // one.
     return NextResponse.json(
       {
         error: message,
