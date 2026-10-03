@@ -1,6 +1,23 @@
+import fs from "node:fs";
+import path from "node:path";
 import { createClient } from "@supabase/supabase-js";
 import { assertWorkerToolBinding, parseWorkerJobArguments } from "../lib/worker-contract.ts";
 import { getWorkerProvider, type WorkerResult } from "../lib/worker-gateway.ts";
+
+// Load .env.local the same way the other repository scripts do. Without this
+// the dispatcher aborts with a missing-credential error even when the local
+// environment is fully configured, which made the worker plane look
+// unreachable when it was only unconfigured-in-this-process.
+const repoRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname.replace(/^\//, "")), "..");
+const localEnvPath = path.join(repoRoot, ".env.local");
+if (fs.existsSync(localEnvPath)) {
+  const fileEnv = Object.fromEntries(
+    fs.readFileSync(localEnvPath, "utf8")
+      .split(/\r?\n/).filter((l) => l.includes("=") && !l.trimStart().startsWith("#"))
+      .map((l) => [l.slice(0, l.indexOf("=")), l.slice(l.indexOf("=") + 1)]),
+  );
+  for (const [k, v] of Object.entries(fileEnv)) if (!(k in process.env)) process.env[k] = v;
+}
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
@@ -40,13 +57,31 @@ function boundedResult(value: unknown): unknown {
   }
 }
 
+// Exported for unit tests: an empty queue is a NULL composite row, not JS null.
+export function leasedJobOrNull(data: unknown): LeaseJob | null {
+  const row = data as Partial<LeaseJob> | null;
+  if (!row || typeof row !== "object" || !row.id || typeof row.id !== "string") return null;
+  return row as LeaseJob;
+}
+
 async function leaseJob(): Promise<LeaseJob | null> {
   const { data, error } = await supabase.rpc("stryde_lease_next_job", {
     p_worker_id: workerId,
     p_lease_seconds: leaseSeconds,
   });
   if (error) throw error;
-  return (data as LeaseJob | null) ?? null;
+
+  // `stryde_lease_next_job` is declared `returns public.job`, so Postgres always
+  // hands back exactly one row. When the queue is empty that row is a
+  // NULL composite, which arrives as an object whose fields are all null. It is
+  // NOT a JavaScript null. Treating it as a job made the dispatcher call
+  // stryde_start_attempt with a null job_id and fail with
+  //   22P02 invalid input syntax for type uuid: "null"
+  // on every poll, which looked like a broken worker plane and stalled every
+  // queued job. An empty queue must be recognized as "no work", not as a job.
+  const row = data as Partial<LeaseJob> | null;
+  if (!row || typeof row !== "object" || !row.id || typeof row.id !== "string") return null;
+  return row as LeaseJob;
 }
 
 async function finishAttempt(attemptId: string, status: "SUCCEEDED" | "FAILED" | "UNKNOWN", externalId: string | null, result: unknown, errorDetail: unknown = null) {
@@ -157,13 +192,27 @@ async function processJob(job: LeaseJob) {
 async function main() {
   if (!Number.isFinite(pollMs) || pollMs < 100) throw new Error("STRYDE_WORKER_POLL_MS must be at least 100ms");
   for (;;) {
-    const job = await leaseJob();
+    // A single bad lease or dispatch must never kill the dispatcher. A worker
+    // plane that exits on the first transient database error stops processing
+    // every remaining job, which reads as "the worker plane is broken". Report
+    // the failure and keep the loop alive; jobs that need attention are
+    // recovered by the reconcile path, not by a crashed process.
+    let job: LeaseJob | null = null;
+    try {
+      job = await leaseJob();
+    } catch (error) {
+      console.error("[stryde-worker-dispatcher] lease failed:", error);
+    }
     if (!job) {
       if (once) return;
       await new Promise((resolve) => setTimeout(resolve, pollMs));
       continue;
     }
-    await processJob(job);
+    try {
+      await processJob(job);
+    } catch (error) {
+      console.error(`[stryde-worker-dispatcher] job ${job.id} failed:`, error);
+    }
     if (once) return;
   }
 }

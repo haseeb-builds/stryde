@@ -430,11 +430,70 @@ never to assign VERIFIED and never can.
    for Stryde could not be identified or exercised from this environment. No
    claim about production behavior is made. Production is NOT verified.
 
+## 2026-10-03 (later): the CONTROLLED worker plane is now proven
+
+The "contract only" note that previously appeared here is superseded. Driving the
+worker path end to end surfaced three defects that had made it unreachable, all
+now fixed.
+
+### Three worker-plane defects, each fatal on its own
+
+1. The dispatcher could not start at all. `lib/worker-gateway.ts` used
+   TypeScript parameter properties (`constructor(private readonly x: T)`). The
+   dispatcher runs under `node --experimental-strip-types`, which strips types
+   but does not transform syntax, so it died immediately with
+   `ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX`. Nothing in the worker plane could run
+   before this. Now explicit field assignment.
+
+2. The dispatcher never loaded `.env.local`. Every other repository script loads
+   it; the dispatcher did not, so it aborted with a missing-credential error
+   even when the local environment was fully configured, making a configured
+   plane look unconfigured.
+
+3. An empty queue was read as a leased job. `stryde_lease_next_job` is declared
+   `returns public.job`, so Postgres always returns exactly one row; when
+   nothing is queued that row is a NULL composite, arriving as a non-null
+   JavaScript object whose fields are all null. The dispatcher treated it as a
+   job and called `stryde_start_attempt` with a null id, failing every poll with
+   `22P02 invalid input syntax for type uuid: "null"`. This was the most
+   consequential: the plane appeared to fail continuously and every queued job
+   stalled. Now recognized as "no work", covered by 3 new unit tests in
+   tests/worker-dispatcher.test.ts.
+
+The dispatcher loop is also hardened: a failed lease or dispatch is reported and
+the loop continues rather than killing the process and stopping all remaining
+work. Recovery belongs to the reconcile path, not to a crashed worker.
+
+### CONTROLLED loop verified live
+
+`npm run e2e:controlled` PASSED 18/18 boundaries against live Supabase:
+
+- unapproved delegation is refused (human authority is real);
+- approved delegation commits a CONTROLLED action;
+- the trusted plane provisions a live capability grant that is tool-scoped,
+  time-bounded, and traceable to the user's approval decision;
+- job authorization is EXPLICIT_USER_APPROVAL, attributed to the approving user,
+  and bound to the argument hash, so authorization cannot outlive the arguments
+  it was granted for;
+- the job freezes a validated worker contract, not free text;
+- the dispatcher leases, starts an attempt, submits to the worker, polls, and
+  finishes SUCCEEDED with the worker's external correlation id;
+- the trusted plane finalizes the CONTROLLED action COMPLETED;
+- the worker result becomes a MECHANICAL_ATTEMPT_RESULT Observation attributed
+  to CONTROLLED_EXECUTION;
+- no worker-only claim reached VERIFIED without human adjudication.
+
+Scope of that claim, stated honestly: it proves the CONTROLLED plane executes,
+records, and closes the loop. It does NOT prove any specific worker
+implementation performs real work. `scripts/worker-stub.ts` implements the
+`lib/worker-gateway.ts` HTTP contract for this purpose; a real Hermes/OpenCode
+worker endpoint can be targeted by setting `STRYDE_HERMES_URL` /
+`STRYDE_OPENCODE_URL`. Running a genuine worker agent remains open.
+
 ### Not addressed
 
-- Worker execution (`worker.hermes`, `worker.opencode`) remains contract-only:
-  job/attempt/observation are all zero on live. The authority-repair migration
-  fixes the commit path that blocked it, but no real worker run is proven.
+- A real worker agent has still never executed a job. The plane around it is
+  proven; the executor behind it is not.
 - Security: the two findings recorded in docs/RUNTIME.md were re-checked
   empirically this session and are STALE, not open.
   - The tautological `pursuit_source_citation` INSERT policy was already

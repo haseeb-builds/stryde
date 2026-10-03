@@ -30,12 +30,22 @@ export interface WorkerProvider {
   result(externalWorkId: string): Promise<WorkerResult>;
 }
 
+// Note: this class assigns fields explicitly rather than using TypeScript
+// parameter properties. The worker dispatcher runs under
+// `node --experimental-strip-types`, which strips types but does not transform
+// syntax; parameter properties are a compile-time-only construct and crash the
+// dispatcher at startup with ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX. Keeping the
+// runtime free of type-only syntax is what makes the worker plane runnable.
 class HttpWorkerProvider implements WorkerProvider {
-  constructor(
-    private readonly workerType: WorkerType,
-    private readonly baseUrl: string,
-    private readonly token: string | null,
-  ) {}
+  private readonly workerType: WorkerType;
+  private readonly baseUrl: string;
+  private readonly token: string | null;
+
+  constructor(workerType: WorkerType, baseUrl: string, token: string | null) {
+    this.workerType = workerType;
+    this.baseUrl = baseUrl;
+    this.token = token;
+  }
 
   private headers() {
     return {
