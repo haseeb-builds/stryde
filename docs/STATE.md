@@ -426,9 +426,26 @@ never to assign VERIFIED and never can.
      `/api/health/model`.
    - The reachable deployment is behind Vercel Authentication
      (`Protected deployment`, 401), so its runtime env vars are unknown.
-   CONCLUSION: a Vercel build of this commit succeeded, but the production URL
-   for Stryde could not be identified or exercised from this environment. No
-   claim about production behavior is made. Production is NOT verified.
+   - The actual deployment for this commit was identified precisely, via the
+     GitHub deployments API:
+       environment: Preview, sha 558d590
+       https://stryde-oafog1qrx-abdhaseebtech-5772s-projects.vercel.app
+     It is reachable and returns a well-formed response, but EVERY route returns
+     401 "Protected deployment" with `vercel_auth_enabled: true`. It sits behind
+     Vercel Authentication (Vercel SSO) and cannot be exercised without an
+     authenticated Vercel account.
+   - The `stryde-git-main-...` host seen earlier is not this project's current
+     build: it returns the same immutable deployment id
+     (dpl_DB5Vj6Uen...) for every path including /api/health/model, and rewrites
+     everything to /login, a route this repository does not have.
+   CONCLUSION: a Vercel build of this commit succeeded and its URL is known, but
+   the deployment is behind Vercel Authentication, so no runtime behavior,
+   environment variable, or user flow can be verified from here. No claim about
+   production behavior is made. Production is BUILT but NOT VERIFIED.
+
+   The single change that would unblock verification: disable Vercel
+   Authentication for preview/production on this project (or supply a Vercel
+   token so `vercel curl <deployment-url>` can fetch it).
 
 ## 2026-10-03 (later): the CONTROLLED worker plane is now proven
 
