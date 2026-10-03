@@ -60,12 +60,34 @@ END-TO-END VERIFIED = the complete intended loop was demonstrated.
 - migration parity 30/30, zero divergence;
 - RLS tenant isolation and RPC privilege posture verified empirically.
 
+2026-10-03 (later): CONTROLLED worker plane
+- three defects that made the worker plane unreachable were found and fixed:
+  the dispatcher crashed on start (TypeScript parameter properties are not
+  supported by `node --experimental-strip-types`), never loaded .env.local, and
+  read an empty queue as a leased job (a NULL composite row is a non-null JS
+  object), failing every poll with 22P02 and stalling the whole queue;
+- npm run e2e:controlled PASSED 18/18 boundaries against live Supabase:
+  approval required, trusted-plane capability grant provisioned and tool-scoped
+  and time-bounded, authorization bound to the argument hash, job freezes a
+  validated worker contract, attempt leases and finishes SUCCEEDED with the
+  worker's correlation id, CONTROLLED action finalized COMPLETED, result
+  recorded as a CONTROLLED_EXECUTION Observation, and no worker-only claim
+  reaches VERIFIED without human adjudication;
+- live job/attempt counts moved from 0 to 12 SUCCEEDED, and
+  MECHANICAL_ATTEMPT_RESULT observations from 0 to 15;
+- 67/67 unit tests (3 new pin the empty-queue regression), typecheck, lint, and
+  build clean.
+
 Still NOT established by any of the above:
-- production (Vercel) verification — no Vercel access exists in this
-  environment, so no deployed claim can be made;
-- worker execution — job/attempt/observation remain zero on live. The authority
-  commit path that blocked delegation was repaired, but no real worker run is
-  proven;
+- production (Vercel) verification — the deployment URL is known
+  (https://stryde-oafog1qrx-abdhaseebtech-5772s-projects.vercel.app, Preview for
+  the verified commit) and Vercel reports success, but every route returns 401
+  "Protected deployment" with vercel_auth_enabled: true. No runtime behavior,
+  environment variable, or user flow can be inspected without an authenticated
+  Vercel account;
+- a REAL worker agent executing a real job. The CONTROLLED plane around it is
+  proven end to end; the executor behind it is a contract stub
+  (scripts/worker-stub.ts) implementing the lib/worker-gateway.ts HTTP contract;
 - model quality under sustained production load: the only usable provider in
   this environment is rate-limited or unfunded.
 
