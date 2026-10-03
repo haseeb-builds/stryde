@@ -426,26 +426,35 @@ never to assign VERIFIED and never can.
      `/api/health/model`.
    - The reachable deployment is behind Vercel Authentication
      (`Protected deployment`, 401), so its runtime env vars are unknown.
-   - The actual deployment for this commit was identified precisely, via the
-     GitHub deployments API:
-       environment: Preview, sha 558d590
-       https://stryde-oafog1qrx-abdhaseebtech-5772s-projects.vercel.app
-     It is reachable and returns a well-formed response, but EVERY route returns
-     401 "Protected deployment" with `vercel_auth_enabled: true`. It sits behind
-     Vercel Authentication (Vercel SSO) and cannot be exercised without an
-     authenticated Vercel account.
-   - The `stryde-git-main-...` host seen earlier is not this project's current
-     build: it returns the same immutable deployment id
-     (dpl_DB5Vj6Uen...) for every path including /api/health/model, and rewrites
-     everything to /login, a route this repository does not have.
-   CONCLUSION: a Vercel build of this commit succeeded and its URL is known, but
-   the deployment is behind Vercel Authentication, so no runtime behavior,
-   environment variable, or user flow can be verified from here. No claim about
-   production behavior is made. Production is BUILT but NOT VERIFIED.
+   - Deployments for the verified commits were identified precisely via the
+     GitHub deployments API. Each commit produces both a Preview and a
+     Production deployment, and Vercel reports success for both:
+       22191ca  Preview      stryde-5yt5jpjjs-...vercel.app
+       22191ca  Production   stryde-qjn7mj01m-...vercel.app
+       558d590  Preview      stryde-oafog1qrx-...vercel.app
+   - NONE of them can be exercised. Every route on every one of them returns the
+     identical response for every path:
+       HTTP 200, X-Matched-Path: /login, dpl_DB5Vj6UenKGBpJDW536tMzpmvAvw
+     including /api/health/model and /api/v1/pursuits. The deployment id is the
+     SAME across different commits, which means this response is not produced by
+     the built application at all; it is an edge-level rewrite or interception
+     applied uniformly in front of it. This repository has no /login route: its
+     root route IS the sign-in page.
+   - Separately, stryde.vercel.app is an unrelated Vite SPA.
+   CONCLUSION: Vercel builds succeed and deploy, but the surface behind those
+   URLs is not this application, so nothing about production runtime behavior,
+   environment variables, or user flow can be verified or even observed from
+   here. Production is BUILT but NOT VERIFIED, and the blocker is broader than
+   credentials: it is the Vercel project's configuration.
 
-   The single change that would unblock verification: disable Vercel
-   Authentication for preview/production on this project (or supply a Vercel
-   token so `vercel curl <deployment-url>` can fetch it).
+   This is a single human-owned configuration issue with two parts, both in the
+   Vercel project settings for `stryde` under the `abdhaseebtech-5772s` scope:
+     1. remove or scope the deployment-protection / rewrite rule that returns
+        dpl_DB5Vj6Uen... at /login (it is masking every route);
+     2. disable Vercel Authentication, or supply a VERCEL_TOKEN so
+        `vercel curl <deployment-url>` can fetch the real app.
+   Until (1) is resolved, even an authenticated fetch would return the wrong
+   application, so the "just add a token" fix alone is not sufficient.
 
 ## 2026-10-03 (later): the CONTROLLED worker plane is now proven
 
