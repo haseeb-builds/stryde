@@ -132,22 +132,35 @@ Therefore:
 - verification primitives: IMPLEMENTED;
 - verification E2E: NOT PROVEN.
 
-## Security findings
+## Security findings (current)
 
-Supabase security advisor observed:
-- INFO: public.loops has RLS enabled with no policies;
-- WARN: four SECURITY DEFINER functions in public are executable by authenticated users: stryde_commit_conversation_turn, stryde_create_conversation_session, stryde_create_pursuit, stryde_record_conversation_user_input;
-- WARN: leaked-password protection is disabled.
+Re-verified empirically 2026-10-03 (see docs/STATE.md that date): no
+unauthenticated mutation path succeeded; tenant isolation held under a
+user-scoped token; the authority boundary (the adjudication RPC returns 403
+even to the owner's direct client call) holds end to end.
 
-Live privileges additionally show anon/PUBLIC EXECUTE for some mutation RPCs, including stryde_commit_intervention, stryde_create_claim, and stryde_create_thread. Their bodies check auth.uid(), but the privilege surface is broader than the intended authenticated mutation posture.
+Remaining advisory items, none exploitable data-access paths:
+- INFO: public.loops (legacy check-in table, quarantined and now fully
+  unreferenced in code since the continuity cron replaced /api/checkin) has
+  RLS enabled with no policies — deny-all for non-service roles. Its data is
+  intentionally retained; dropping it would be a destructive repair with no
+  product benefit.
+- WARN: four SECURITY DEFINER functions callable by authenticated users
+  (stryde_commit_conversation_turn, stryde_create_conversation_session,
+  stryde_create_pursuit, stryde_record_conversation_user_input) — their
+  bodies are the server-owned conversation write paths that check
+  auth.uid(); this is the designed shape of the persistence contract.
+- WARN: leaked-password protection is disabled — a Supabase dashboard toggle
+  (Authentication → Policies). Enabling it requires a personal access token
+  with account-level scope, which the automation environment deliberately
+  does not hold. Recorded for the product owner.
 
-These are documented, not remediated.
+## Live RLS anomaly — RESOLVED
 
-## Live RLS anomaly
-
-The live insert policy for pursuit_source_citation contains a tautological predicate equivalent to s.pursuit_id = s.pursuit_id.
-
-The exact security impact is UNKNOWN because no adversarial policy test was performed.
+The tautological pursuit_source_citation INSERT predicate was repaired by
+migration 20260930000000_rpc_privilege_hardening_and_citation_policy_fix.sql,
+which recreates the policy with real ownership predicates on both the pursuit
+and the source. The earlier UNKNOWN-impact note is historical.
 
 ## Performance
 

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getExaSearchProvider } from "@/lib/search-provider";
+import { getSearchProviderChain } from "@/lib/search-provider";
 import { requireAuthenticatedSupabase } from "@/lib/supabase/server";
 import { ingestUrlSource } from "@/lib/source-ingestion";
 import { buildSourceCitation } from "@/lib/source-citation";
@@ -65,8 +65,23 @@ export async function POST(request: Request, context: RouteContext) {
       return NextResponse.json({ source, adaptation, materialized: true, warning }, { status: 201 });
     }
     const query = scope ? `${question}\nScope: ${scope}` : question;
-    const result = await getExaSearchProvider().search({ query, maxResults, freshnessDays: freshnessDays ?? undefined, signal: request.signal });
-    return NextResponse.json({ research: { question, scope: scope || null, freshness_days: freshnessDays ?? null, results: result.results, provider: result.providerMetadata } });
+    // Walk the configured provider chain in preferred order (D11: appropriate
+    // evidence) — first successful call serves the request; the last failure
+    // surfaces only when every configured leg failed.
+    let lastSearchError: unknown = null;
+    let search: { results: Array<{ url?: string } & Record<string, unknown>>; providerMetadata: Record<string, unknown> } | null = null;
+    for (const provider of getSearchProviderChain()) {
+      try {
+        search = await provider.search({ query, maxResults, freshnessDays: freshnessDays ?? undefined, signal: request.signal });
+        break;
+      } catch (searchError) {
+        lastSearchError = searchError;
+      }
+    }
+    if (!search) {
+      throw lastSearchError ?? new Error("Missing research configuration: no search provider is configured");
+    }
+    return NextResponse.json({ research: { question, scope: scope || null, freshness_days: freshnessDays ?? null, results: search.results, provider: search.providerMetadata } });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Research search failed";
     return NextResponse.json({ error: message }, { status: message.includes("token") ? 401 : 502 });

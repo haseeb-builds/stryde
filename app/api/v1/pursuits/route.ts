@@ -15,6 +15,10 @@ export async function GET(request: Request) {
 
     const url = new URL(request.url);
     const status = url.searchParams.get("status");
+    // A pursuit list is a calm surface, not an archive: the caller caps what
+    // it shows. Default keeps responses bounded for long-lived accounts.
+    const limitParam = Number(url.searchParams.get("limit") ?? 50);
+    const limit = Math.min(200, Math.max(1, Number.isFinite(limitParam) ? limitParam : 50));
     const allowedStatuses = new Set([
       "ACTIVE",
       "PAUSED",
@@ -32,7 +36,8 @@ export async function GET(request: Request) {
         "id, title, status, objective_claim_id, origin_thread_id, predecessor_pursuit_id, created_at, updated_at, active_at, paused_at, completed_at, abandoned_at",
       )
       .eq("owner_user_id", ownerId(user))
-      .order("updated_at", { ascending: false });
+      .order("updated_at", { ascending: false })
+      .limit(limit);
 
     if (status) query = query.eq("status", status);
 

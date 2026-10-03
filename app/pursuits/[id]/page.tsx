@@ -180,7 +180,7 @@ export default function PursuitPage() {
           .select("id, title, status")
           .eq("id", params.id)
           .single(),
-        fetch("/api/v1/pursuits", {
+        fetch("/api/v1/pursuits?limit=30", {
           headers: { Authorization: "Bearer " + accessToken },
         }),
         fetch("/api/v1/pursuits/" + params.id + "/conversations", {
@@ -1050,6 +1050,7 @@ export default function PursuitPage() {
                   onActionStatusRequest={(actionId, status) =>
                     setActionReport({ actionId, terminalStatus: status })
                   }
+                  showExecutionSection={false}
                 />
                 <PursuitClaimsPanel pursuitId={params.id} sessionActive={Boolean(session)} />
                 <PursuitMemoryPanel pursuitId={params.id} sessionActive={Boolean(session)} />

@@ -1,5 +1,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { getExaSearchProvider } from "@/lib/search-provider";
+// Relative .ts import (not the @/ alias): this module is exercised under
+// node --experimental-strip-types by the tests, which cannot resolve tsconfig
+// path aliases.
+import { getSearchProviderChain, type SearchProvider } from "./search-provider.ts";
 
 export type ResearchExecution = {
   query: string;
@@ -25,11 +28,28 @@ export async function executeWebResearch(
   const normalizedQuery = query.trim().slice(0, 1_000);
   if (!normalizedQuery) throw new Error("Research query is empty");
 
-  const provider = getExaSearchProvider();
-  const result = await provider.search({
-    query: normalizedQuery,
-    maxResults: 5,
-  });
+  // Providers are tried in the configured order and the first successful CALL
+  // serves the research. A leg failing at call time (429/402/5xx/network)
+  // moves the request to the next configured leg; with a single key configured
+  // the chain has one entry, which is exactly the previous behavior.
+  const chain = getSearchProviderChain();
+  if (!chain.length) throw new Error("Missing research configuration: EXA_API_KEY or FIRECRAWL_API_KEY");
+
+  let provider: SearchProvider | null = null;
+  let result: Awaited<ReturnType<SearchProvider["search"]>> | null = null;
+  let lastError: unknown = null;
+  for (const candidate of chain) {
+    try {
+      result = await candidate.search({ query: normalizedQuery, maxResults: 5 });
+      provider = candidate;
+      break;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  if (!provider || !result) {
+    throw lastError instanceof Error ? lastError : new Error("No configured search provider could serve the research");
+  }
 
   const observationPayload = {
     query: normalizedQuery,

@@ -22,22 +22,22 @@ END-TO-END VERIFIED = the complete intended loop was demonstrated.
 | Human action approval/start | YES | YES local E2E | YES | PARTIAL (loop proven live 2026-10-03) | YES local |
 | Human action report → Observation | YES | YES local E2E | YES | PARTIAL | YES local |
 | Claim + evidence link + adjudication | YES | YES local E2E | YES | PARTIAL | YES local |
-| Source ingestion: URL/paste | YES | tests + partial local | YES | PARTIAL (inline URL ingestion proven in browser) | PARTIAL |
+| Source ingestion: URL/paste | YES | YES (e2e:evidence-loop: live URL fetch + storage) | YES | PARTIAL (inline URL ingestion proven in browser) | YES local |
 | Source ingestion: FILE upload | YES | YES unit + route | YES | NO | YES local (unit + route) |
-| Source adaptation/citation | YES | partial local | YES | PARTIAL | PARTIAL |
+| Source adaptation/citation | YES | YES (real character-range locators with an honest located flag; e2e:evidence-loop 5/5) | YES | PARTIAL (adaptation itself is model-dependent) | YES local |
 | Capability registry/worker gateway | YES | YES | YES | NO | YES local |
 | Hermes worker execution (real agent) | YES | YES — SUCCEEDED proof 2026-10-03; failure cycle proven with real agent same day | YES | NO | YES local |
-| OpenCode worker execution | CONTRACT ONLY | NO real execution proof | YES | NO | NO |
+| OpenCode worker execution | YES | YES — real agent, artifact-judged SUCCEEDED proof 2026-10-04 (e2e:opencode-worker 12/12) | YES | NO | YES local |
 | Universal composer (one surface) | YES | YES browser | YES | YES (browser 2026-10-03) | YES local |
 | Universal composer: file attach | YES | YES unit + browser | YES | NO | YES local |
 | Natural-language input classification | YES (input_class on the turn contract) | YES unit | YES | NO | PARTIAL |
 | Automatic verification where observable | YES (mechanical URL check: VERIFY_WEB) | YES — e2e:verify-web 6/6 live | YES | NO | YES local |
 | Personal memory/reality model | YES (foundation + lifecycle + retrieval + inspectability) | YES unit + live loop | YES | NO | YES local (write paths live) |
-| Memory user control (confirm/forget/delete) | YES | YES route + browser reachability | YES | NO | PARTIAL |
+| Memory user control (confirm/forget/delete) | YES | YES — e2e:memory-loop 9/9 (confirm/forget/delete + contradiction flip + cross-session retrieval) | YES | NO | YES local |
 | User-configurable authority/autonomy policy | YES (tighten-only policy; approval semantics untouched) | YES unit + enforcement + browser | YES | NO | PARTIAL |
-| Multi-provider adaptive evidence acquisition | PARTIAL (Exa wired; observations fixed to trusted plane) | partial | YES | NO | PARTIAL |
+| Multi-provider adaptive evidence acquisition | YES (configured-provider search chain: Exa + Firecrawl; JS-rendered page observation via the approved Firecrawl adapter) | YES mock + live DIRECT path; Firecrawl legs mock-only (no key) | YES | NO | YES local |
 | Proactive continuity | YES (cron: reconcile + SYSTEM check-in, idempotent) | YES live cron + unit 16 | YES | NO (needs CRON_SECRET on deployed env — set 2026-10-03) | YES local |
-| Browser capability | NO | NO | NO | NO | NO |
+| Browser capability | NO (runtime) — the product need (JS-rendered pages) is served by the Firecrawl render fallback 2026-10-04 | mock-proven | NO | NO | NO |
 | Document/media ingestion beyond text/PDF | NO (media stack: open decision) | NO | NO | NO | NO |
 | General MCP runtime | NO | NO | NO | NO | NO |
 | Social/community | NO (out of V1 by decision) | NO | NO | NO | NO |
@@ -105,13 +105,46 @@ END-TO-END VERIFIED = the complete intended loop was demonstrated.
   the source-material surface were unreachable in the browser despite working
   APIs. Both are now mounted as contextual disclosure on the pursuit page.
 
+2026-10-04 (final closure pass):
+- 173/173 unit tests (deterministic clock in the ranking tests — three
+  consecutive clean full-suite runs), typecheck, lint, production build clean;
+- e2e:opencode-worker NEW — PASSED 12/12 against a REAL OpenCode agent:
+  job SUCCEEDED, CONTROLLED action COMPLETED, observation attributed to
+  OPENCODE with the attempt correlation id, one real artifact proof.md
+  judged by content, nothing auto-verified. The first run was an honest
+  FAILED cycle that exposed (and fixed) a Windows spawn defect;
+- e2e:memory-loop NEW — PASSED 9/9 against live Supabase: reality report to
+  USER_REPORTED ACTIVE memory; user confirm/forget/delete; outcome learning
+  (VERIFIED claim to durable memory); contradiction (CONTRADICTED claim to
+  memory flip with history kept); cross-session continuation (a NEW
+  session adaptive situation carries live memories and prior episodic
+  history and excludes contradicted/forgotten memories);
+- e2e:evidence-loop NEW — PASSED 5/5: unauthenticated ingestion refused;
+  file upload extracted and stored with FILE provenance; live URL ingestion;
+  materialization with a source-bound citation; search and adaptation legs
+  degrade honestly where credentials/quota are absent;
+- citation locators are real now: normalized-search with offset mapping
+  yields actual character ranges plus a located flag; unlocatable
+  statements fall back to full-range honestly (8 new tests);
+- research gained a configured-provider chain (Exa + Firecrawl search,
+  STRYDE_SEARCH_PROVIDER chooses order) wired into the research route and
+  executeWebResearch; page observation (VERIFY_WEB and URL ingestion) now
+  records its renderer and falls back to the approved Firecrawl scrape for
+  JS-rendered pages when a key is configured (mock-proven; the live DIRECT
+  path was proven against the real web);
+- UX closure: the duplicated execution surface (work-panels Execution vs the
+  pursuit page primary card) is fixed; pursuit lists are capped at 30 with
+  an honest hint; e2e:ui 12/12 in a real browser;
 Still NOT established by any of the above:
-- production verification of the NEW deployment (the env contract was set on
-  Vercel 2026-10-03 and the code promotion is the last step);
-- a production-viable model credential: OpenRouter holds $0.00 credits
-  (verified twice on 2026-10-03); every free path was quota-exhausted by the
-  day's proofs. Funding is a human billing decision;
-- OpenCode worker execution beyond the contract;
+- production verification of the CURRENT tree (the closure pass is deployed
+  in this delivery; each capability row's Production column reflects the
+  runtime that was live when it was proven);
+- a production-viable model credential (OpenRouter $0.00 credits — the ONLY
+  external dependency left) and search/research provider keys (EXA_API_KEY,
+  FIRECRAWL_API_KEY are absent from the build environment; every code path
+  degrades honestly without them);
+- the browser RUNTIME itself (intentionally deferred: no pre-approved
+  provider per INTEGRATIONS policy, and serverless cannot host a browser);
 - model quality under sustained production load.
 
 ## Verification rule

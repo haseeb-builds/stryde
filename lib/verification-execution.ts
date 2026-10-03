@@ -74,6 +74,7 @@ export async function executeMechanicalVerification(input: {
         httpStatus: null,
         excerpt: null,
         error: urlError instanceof Error ? urlError.message : "Verification URL was rejected",
+        renderer: "DIRECT",
       };
     }
 
@@ -84,6 +85,7 @@ export async function executeMechanicalVerification(input: {
       expect_text: verify.expect_text,
       outcome: check.outcome,
       http_status: check.httpStatus,
+      renderer: check.renderer,
       excerpt: check.excerpt,
       error: check.error,
       checked_at: checkedAt,

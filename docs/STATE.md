@@ -887,3 +887,70 @@ for the evidence and scripts/e2e-*.ts for the harnesses.
 2. Build-time agent models (Hermes stealth free tier, Gemini free tier) were
    quota-exhausted by this pass's proofs — build-time cost, independent of
    the Stryde runtime.
+
+## 2026-10-04 (final closure pass): the remaining capability gaps are closed
+
+This pass closed every capability the verification matrix still marked
+CONTRACT ONLY or as a closable PARTIAL. It did not touch the model/provider
+routing layer. All evidence is in docs/VERIFICATION_MATRIX.md; the new
+harnesses are scripts/e2e-opencode-worker.ts, scripts/e2e-memory-loop.ts,
+and scripts/e2e-evidence-loop.ts.
+
+### What was closed
+
+1. REAL OPENCODE EXECUTION (was CONTRACT ONLY). scripts/opencode-worker.ts
+   implements the same gateway contract and epistemics as the Hermes worker
+   (no artifacts + exit 0 = FAILED; timeout = UNKNOWN; non-zero = FAILED),
+   with per-job sandbox directories. Empirical Windows findings fixed on the
+   way: bare-name spawn ENOENT (npm shim resolution), piped-stdin deadlock,
+   and opencode state-DB locking (jobs serialized). e2e:opencode-worker
+   PASSED 12/12 against a REAL agent with an artifact-judged SUCCEEDED
+   proof; both worker tools of the CONTROLLED plane are now really proven.
+
+2. EVIDENCE ACQUISITION BEYOND ONE PROVIDER. lib/search-provider.ts now
+   exposes a configured-provider chain (Exa + Firecrawl search, preferred
+   order via STRYDE_SEARCH_PROVIDER); the research route and
+   executeWebResearch walk it, first success serves, last failure surfaces.
+   lib/page-fetch.ts adds JS-rendered page observation: direct fetch first,
+   approved Firecrawl scrape fallback for thin JS shells when a key is
+   configured, renderer recorded in observations and source metadata. This
+   is the product answer to browser observation without an un-approved
+   browser runtime (and without a browser on serverless).
+
+3. REAL CITATION LOCATORS (was a full-range stub). buildSourceCitation now
+   locates the statement in the stored content through normalized search
+   with offset mapping and returns the actual character range plus a
+   located flag; unlocatable statements fall back honestly. No migration
+   needed (locator is unconstrained jsonb — verified against the lineage
+   migrations).
+
+4. MEMORY/CONTRADICTION/CONTINUATION PROOF. A read-only adaptive-situation
+   endpoint (?adaptive=1, owner-scoped) makes what the model sees
+   inspectable, and e2e:memory-loop (9/9, live) proves the loop: report ->
+   USER_REPORTED ACTIVE memory; user confirm/forget/delete; verified
+   outcome -> durable memory; contradicted claim -> memory flip with
+   history; a NEW session reconstructs from live memories + episodic
+   history while dead memories stay out of the situation.
+
+5. PRODUCT QUALITY. The duplicated execution surface was removed (the
+   work-panels Execution section repeated the pursuit page primary card and
+   action banner — every action was offered twice); pursuit lists are
+   capped (API limit param, UI shows 30 with an honest hint) — an unbounded
+   wall of records is not a calm surface; RUNTIME.md security findings were
+   reconciled with the empirical state (the citation-policy anomaly is
+   resolved; leaked-password protection is a dashboard toggle the product
+   owner must flip; the legacy loops table is deny-all and retained).
+
+### Verification (2026-10-04)
+
+- 173/173 unit tests (ranking tests now deterministic; three consecutive
+  clean full-suite runs), typecheck clean, lint clean, build clean.
+- Live/real: e2e:human 14/14; e2e:memory-loop 9/9; e2e:evidence-loop 5/5;
+  e2e:opencode-worker 12/12 (real agent); e2e:ui 12/12 (real browser).
+- Honest degrades recorded rather than faked: research search (no provider
+  key in the build environment), source adaptation (model 429), Firecrawl
+  legs (mock-proven only).
+
+The remaining gap is exactly the funded runtime: OpenRouter credits for the
+production conversation, plus optional EXA/FIRECRAWL keys for live research
+and rendered-page observation. Everything else is implemented and verified.

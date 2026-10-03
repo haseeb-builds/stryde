@@ -8,8 +8,12 @@ import {
   tokenizeMemoryContent,
 } from "../lib/memory-core.ts";
 
+// A fixed clock makes the ranking assertions fully deterministic — the
+// recency score is computed against FIXED_NOW, not the real wall clock.
+const FIXED_NOW = new Date("2026-10-04T12:00:00.000Z");
+
 function daysAgo(days: number): string {
-  return new Date(Date.now() - days * 86_400_000).toISOString();
+  return new Date(FIXED_NOW.getTime() - days * 86_400_000).toISOString();
 }
 
 test("normalizeMemoryKey collapses case, punctuation, and whitespace", () => {
@@ -75,7 +79,7 @@ test("rankMemories drops non-live statuses", () => {
       memory({ id: "live", content: "real thing" }),
     ],
     {},
-    new Date(),
+    FIXED_NOW,
   );
   assert.deepEqual(ranked.map((m) => m.id), ["live"]);
 });
@@ -87,7 +91,7 @@ test("rankMemories prefers relevance to the current objective", () => {
       memory({ id: "relevant", content: "wants the berlin apartment by march", importance: 0.6, confidence: 0.6 }),
     ],
     { objective: "secure the berlin apartment" },
-    new Date(),
+    FIXED_NOW,
   );
   assert.equal(ranked[0].id, "relevant");
 });
@@ -99,7 +103,7 @@ test("rankMemories penalizes stale candidates harder than stale active memories"
       memory({ id: "old-active", content: "long-standing reality", updated_at: daysAgo(30), last_confirmed_at: daysAgo(30) }),
     ],
     {},
-    new Date(),
+    FIXED_NOW,
   );
   assert.equal(ranked[0].id, "old-active");
 });
@@ -113,7 +117,7 @@ test("rankMemories applies separate user and pursuit limits", () => {
       memory({ id: "p1", memory_scope: "PURSUIT", content: "pursuit fact one" }),
     ],
     {},
-    new Date(),
+    FIXED_NOW,
     { user: 2, pursuit: 1 },
   );
   assert.equal(ranked.length, 3);

@@ -25,7 +25,7 @@ export default function HomePage() {
       return;
     }
     setSessionReady(true);
-    const response = await fetch("/api/v1/pursuits", { headers: { Authorization: `Bearer ${token}` } });
+    const response = await fetch("/api/v1/pursuits?limit=30", { headers: { Authorization: `Bearer ${token}` } });
     if (!response.ok) return;
     const body = (await response.json()) as { pursuits?: Pursuit[] };
     setPursuits(body.pursuits ?? []);
@@ -126,7 +126,7 @@ export default function HomePage() {
       <div className="mx-auto max-w-3xl space-y-8">
         <header className="flex items-start justify-between gap-6"><div><p className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-400">Stryde</p><h1 className="mt-2 text-4xl font-semibold tracking-tight">What needs to move?</h1><p className="mt-2 text-zinc-500">Start with a real outcome. Stryde will help you work the situation.</p></div><button onClick={() => void signOut()} className="text-sm text-zinc-500">Sign out</button></header>
         <form onSubmit={createPursuit} className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm space-y-4"><input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Land my first AI-native operations client" className="w-full rounded-xl border border-zinc-300 px-4 py-4 text-lg outline-none focus:border-zinc-950"/><button disabled={loading || !title.trim()} className="rounded-full bg-zinc-950 px-5 py-2.5 text-sm font-medium text-white disabled:opacity-40">Start pursuit</button>{error && <p className="text-sm text-red-600">{error}</p>}</form>
-        <section className="space-y-3"><p className="text-sm font-medium text-zinc-500">Active pursuits</p>{pursuits.length === 0 ? <div className="rounded-2xl border border-dashed border-zinc-300 p-8 text-sm text-zinc-500">No pursuits yet. Start with something real.</div> : pursuits.map((pursuit) => <button key={pursuit.id} onClick={() => router.push(`/pursuits/${pursuit.id}`)} className="block w-full rounded-2xl border border-zinc-200 bg-white p-5 text-left shadow-sm hover:border-zinc-400"><p className="font-medium">{pursuit.title || "Untitled pursuit"}</p><p className="mt-1 text-xs text-zinc-500">{pursuit.status}</p></button>)}</section>
+        <section className="space-y-3"><p className="text-sm font-medium text-zinc-500">Active pursuits</p>{pursuits.length === 0 ? <div className="rounded-2xl border border-dashed border-zinc-300 p-8 text-sm text-zinc-500">No pursuits yet. Start with something real.</div> : pursuits.map((pursuit) => <button key={pursuit.id} onClick={() => router.push(`/pursuits/${pursuit.id}`)} className="block w-full rounded-2xl border border-zinc-200 bg-white p-5 text-left shadow-sm hover:border-zinc-400"><p className="font-medium">{pursuit.title || "Untitled pursuit"}</p><p className="mt-1 text-xs text-zinc-500">{pursuit.status}</p></button>)}{pursuits.length >= 30 && <p className="text-xs text-zinc-400">Showing your 30 most recent pursuits.</p>}</section>
       </div>
     </main>
   );

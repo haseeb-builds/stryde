@@ -21,10 +21,10 @@ Current branch source still contains compatibility for older providers. This is 
 | Vercel | LIVE | 2026-10-03: owner access restored; production surface verified as this application (stryde-topaz.vercel.app); env contract set (SUPABASE_SECRET_KEY, CRON_SECRET, provider chain); production promotion of the verified tree is the remaining step |
 | Gemini | IMPLEMENTED | live local schema validation; full-turn path rate-limited on free key |
 | OmniRoute | IMPLEMENTED + REAL LOCAL PROOF | direct provider probe passed 2026-09-30 |
-| Exa | ADAPTER | code exists; observation recording repaired to the trusted plane 2026-10-03 (was silently dropped by the RLS hardening); live search request still not verified |
-| Firecrawl | ADAPTER | code exists; production live request not verified |
+| Exa | ADAPTER + CHAIN | search-provider chain added 2026-10-04 (Exa preferred when configured; Firecrawl search second); observation recording on the trusted plane; no Exa key in the build environment, so the live request remains unverified |
+| Firecrawl | ADAPTER + RENDER FALLBACK | 2026-10-04: search provider and JS-rendering scrape fallback for page observation and URL ingestion (direct fetch first; scrape when the direct body is a thin JS shell); mock-proven only — no key in the build environment |
 | Hermes | IMPLEMENTED + REAL PROOF | real agent executed a real unit of work through the full CONTROLLED plane 2026-10-03 (e2e:real-worker 11/11, artifact-judged); failure cycle honestly reported the same day |
-| OpenCode | CONTRACT | tool registered; no live grant/job/attempt proof |
+| OpenCode | IMPLEMENTED + REAL PROOF | real agent executed a real unit of work through the full CONTROLLED plane 2026-10-04 (e2e:opencode-worker 12/12, artifact-judged); sandboxed per-job directories; timeout-UNKNOWN and empty-artifact-FAILED epistemics identical to Hermes |
 | Voice | UI | browser SpeechRecognition path exists; production unverified |
 
 ## Capability strategy

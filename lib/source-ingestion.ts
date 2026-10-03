@@ -1,6 +1,9 @@
 import { createHash } from "node:crypto";
 import dns from "node:dns/promises";
-import { getFirecrawlSourceProvider } from "./source-provider.ts";
+// Relative .ts imports (not the @/ alias): this module is exercised under
+// node --experimental-strip-types by the tests, which cannot resolve tsconfig
+// path aliases.
+import { fetchPageText, htmlToText } from "./page-fetch.ts";
 
 const MAX_SOURCE_CHARS = 120_000;
 
@@ -71,29 +74,54 @@ export async function ingestPastedSource(input: { content: string; title?: strin
 }
 
 export async function ingestUrlSource(rawUrl: string): Promise<IngestedSource> {
+  // SSRF stays HERE: assertPublicHttpUrl resolves DNS and blocks private
+  // targets before any fetch. fetchPageText performs no network guard of its
+  // own — same division as the verification check.
   const url = await assertPublicHttpUrl(rawUrl.trim());
   try {
-    const extracted = await getFirecrawlSourceProvider().extractPublicUrl({ url: url.toString() });
-    let contentText = extracted.content;
-    let fetchStatus = extracted.status;
-    if (contentText && contentText.length > MAX_SOURCE_CHARS) { contentText = contentText.slice(0, MAX_SOURCE_CHARS); fetchStatus = "PARTIAL"; }
+    // Direct GET first; the approved Firecrawl scrape adapter re-observes the
+    // page (rendered markdown) when it is configured and the direct body is a
+    // suspiciously thin JS-rendered shell or the direct fetch failed at the
+    // network level. `renderer` in the metadata records which path served.
+    const page = await fetchPageText(url.toString());
+    if (!page.text) {
+      return {
+        sourceKind: "URL",
+        uri: url.toString(),
+        title: null,
+        contentType: null,
+        fetchStatus: "FAILED",
+        contentText: null,
+        contentSha256: null,
+        sourceMetadata: {
+          ingestion: "URL",
+          requested_url: url.toString(),
+          renderer: page.renderer,
+          retrieval_at: new Date().toISOString(),
+          error: page.error ?? "Page fetch returned no content",
+        },
+      };
+    }
+    // Content stays extracted text: Firecrawl markdown as served, or — for a
+    // direct fetch — the page's visible text (tags/scripts stripped), so a
+    // raw HTML dump never becomes source material.
+    let contentText = page.renderer === "FIRECRAWL" ? page.text : htmlToText(page.text);
+    let fetchStatus: IngestedSource["fetchStatus"] = "FETCHED";
+    if (contentText.length > MAX_SOURCE_CHARS) { contentText = contentText.slice(0, MAX_SOURCE_CHARS); fetchStatus = "PARTIAL"; }
     return {
       sourceKind: "URL",
-      uri: extracted.finalUrl || url.toString(),
-      title: extracted.title,
-      contentType: extracted.contentType,
+      uri: url.toString(),
+      title: null,
+      contentType: page.renderer === "FIRECRAWL" ? "text/markdown" : null,
       fetchStatus,
       contentText,
       contentSha256: contentText ? hash(contentText) : null,
       sourceMetadata: {
         ingestion: "URL",
         requested_url: url.toString(),
-        final_url: extracted.finalUrl,
-        provider: extracted.provider,
-        provider_version: extracted.providerVersion,
-        provider_request_id: extracted.requestId,
+        renderer: page.renderer,
         retrieval_at: new Date().toISOString(),
-        ...extracted.metadata,
+        ...(page.error ? { note: page.error } : {}),
         truncated: contentText ? contentText.length >= MAX_SOURCE_CHARS : false,
       },
     };

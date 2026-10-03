@@ -16,8 +16,11 @@
     "worker:stub": "node --experimental-strip-types scripts/worker-stub.ts",
     "worker:hermes": "node --experimental-strip-types scripts/hermes-worker.ts",
     "e2e:real-worker": "node --experimental-strip-types scripts/e2e-real-worker.ts",
+    "e2e:opencode-worker": "node --experimental-strip-types scripts/e2e-opencode-worker.ts",
     "e2e:ui": "node scripts/e2e-ui-flow.mjs",
-    "e2e:verify-web": "node --experimental-strip-types scripts/e2e-verify-web.ts"
+    "e2e:verify-web": "node --experimental-strip-types scripts/e2e-verify-web.ts",
+    "e2e:memory-loop": "node --experimental-strip-types scripts/e2e-memory-loop.ts",
+    "e2e:evidence-loop": "node --experimental-strip-types scripts/e2e-evidence-loop.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.110.0",
