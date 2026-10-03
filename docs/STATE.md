@@ -406,11 +406,29 @@ never to assign VERIFIED and never can.
    Smallest unblocking action: add credits to an OpenRouter key, or enable
    billing on the Gemini key to lift the 20/day cap.
 
-2. No Vercel access. No token is present anywhere in this environment
-   (`~/.vercel` absent, CLI config has no auth.json, no VERCEL_TOKEN in the
-   process environment). Deployment therefore cannot be performed or verified
-   from here. Note that `https://stryde.vercel.app` is NOT this application: it
-   serves an unrelated Vite SPA and has no `/api/health/model`.
+2. Vercel: pushed and deployed, but the production surface cannot be verified
+   as this application.
+   CONFIRMED this session:
+   - No Vercel token exists anywhere in this environment (`~/.vercel` absent,
+     CLI config has no auth.json, no VERCEL_TOKEN in the process environment),
+     so env vars cannot be set and the deployment cannot be inspected directly.
+   - `main` was fast-forwarded to the verified commit eabfcca and pushed.
+     GitHub CI ran the full gate on that commit and passed: npm test, typecheck,
+     lint, and production build. (CI does run `npm test`, contrary to the older
+     note in this file that it does not.)
+   - Vercel reported "Deployment has completed" (success) for eabfcca.
+   CONTRADICTED — the deployed surface is not this codebase:
+   - The deployment reachable at
+     `stryde-git-main-abdhaseebtech-5772s-projects.vercel.app` returns
+     `X-Matched-Path: /login` for every path, including `/api/health/model`.
+     This repository has no `/login` route; its root route IS the sign-in page.
+   - `https://stryde.vercel.app` is an unrelated Vite SPA with no
+     `/api/health/model`.
+   - The reachable deployment is behind Vercel Authentication
+     (`Protected deployment`, 401), so its runtime env vars are unknown.
+   CONCLUSION: a Vercel build of this commit succeeded, but the production URL
+   for Stryde could not be identified or exercised from this environment. No
+   claim about production behavior is made. Production is NOT verified.
 
 ### Not addressed
 
