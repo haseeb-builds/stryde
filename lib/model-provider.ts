@@ -144,7 +144,11 @@ function geminiSchema(schema: unknown): unknown {
 
 function outputText(provider: ModelProviderName, envelope: any): string {
   const text = provider === "gemini" ? envelope?.candidates?.[0]?.content?.parts?.map((p: any) => typeof p?.text === "string" ? p.text : "").join("") : envelope?.choices?.[0]?.message?.content;
-  if (typeof text !== "string" || !text.trim()) throw new ModelProviderError(provider, "malformed_output", "Provider returned no text output", false);
+  // An empty completion is usually transient on auto-routed providers (a routed
+  // model may return no content for a structured request). Marking it
+  // non-retryable made a single empty reply terminate the whole turn, so the
+  // user saw a failed request instead of a provider recovering.
+  if (typeof text !== "string" || !text.trim()) throw new ModelProviderError(provider, "malformed_output", "Provider returned no text output", true);
   return text.trim();
 }
 
@@ -205,7 +209,28 @@ export function createModelProvider(config: ModelProviderConfig, fetchImpl: type
       throw new ModelProviderError(config.provider, "streaming", error instanceof Error ? error.message : "Provider stream failed", true);
     }
   };
-  return { name: config.provider, model: config.model, generateStructured: async (i) => JSON.parse(await request(i, false) as string), streamStructured: async (i) => { await request(i, true, i.onText); } };
+  return {
+    name: config.provider,
+    model: config.model,
+    // A provider that rotates across underlying models will intermittently
+    // return truncated or non-JSON text. That is a provider miss, not a client
+    // error, so it must be retryable: otherwise one malformed reply ends the
+    // user's turn instead of the request being re-served.
+    generateStructured: async (i) => {
+      const raw = await request(i, false) as string;
+      try {
+        return JSON.parse(raw);
+      } catch (error) {
+        throw new ModelProviderError(
+          config.provider,
+          "malformed_output",
+          `Provider returned unparseable JSON: ${error instanceof Error ? error.message : "parse failed"}`,
+          true,
+        );
+      }
+    },
+    streamStructured: async (i) => { await request(i, true, i.onText); },
+  };
 }
 
 // Free-tier primary models intermittently return retryable 503/429 ("high demand")

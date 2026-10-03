@@ -577,6 +577,50 @@ error), validating `worker_type` when the gateway actually sends camelCase
 `workerType`, and assuming a freshly provisioned grant when the correct
 behavior is to reuse a live one.
 
+## 2026-10-03 (provider layer): three real defects found by probing the production leg
+
+The probe harness only accepted `gemini | omniroute`, so whichever provider was
+actually configured as primary could never be probed directly. With the
+production chain pointed at OpenRouter, three defects surfaced. All are fixed.
+
+1. The non-streaming conversation turn under-requested output. `runConversationTurn`
+   called the model with the generic 1,000-token default while the streaming
+   path used 2,800. The ConversationTurn contract has seven required fields, so
+   providers truncated the reply and validation failed. Both paths now request
+   `MAX_CONVERSATION_TURN_OUTPUT_TOKENS`. Pinned by
+   tests/model-gateway-budget.test.ts, which fails if the two paths diverge again.
+2. An empty provider completion was fatal. A routed model returning no content
+   is transient, but the error was marked non-retryable, so one empty reply ended
+   the user's entire turn. Now retryable.
+3. Unparseable JSON was fatal. `generateStructured` called `JSON.parse` bare, so a
+   truncated reply threw a raw SyntaxError that escaped the provider abstraction
+   and could not be retried or classified. It now raises a retryable
+   `malformed_output` provider error.
+
+Effect measured through the real gateway: `probe:provider -- openrouter` went
+from 0/3 full passes before the fixes to 2/5 after.
+
+### Provider reliability, measured not assumed
+
+The production-viable question was answered by measurement rather than hope:
+
+- `openrouter/free` (the model the repository defaults to) routes each call to a
+  DIFFERENT free model - nemotron, gemma, dots, apodex, lfm were all observed. Its
+  shape conformance was acceptable (0/5 violations) but it intermittently returns
+  malformed or non-JSON output, and during this session it moved to HTTP 429.
+  Full-gateway reliability: 2/5. NOT production-viable.
+- `response-healing` is load-bearing, not decoration. Measured on the identical
+  contract: 3/3 with it, 1-2/3 without, across two different models. It stays.
+- The only model that reliably served the real contracts in this environment was
+  `stealth/space-bunny-alpha` (3/3 at the real budget). It is deliberately NOT
+  configured as the runtime default: the product must not depend on the
+  build-time engineering agent.
+
+CONCLUSION, stated plainly: the provider layer is now correct and provider-neutral,
+and the failures that were code defects are fixed. The remaining production gap
+is a funded provider credential, not architecture. `openrouter/free` must not be
+relied on for production; it is suitable for local experimentation only.
+
 ## 2026-10-03 (final): a REAL agent now executes REAL work
 
 The last capability claimed as unproven is now proven. A real Hermes agent

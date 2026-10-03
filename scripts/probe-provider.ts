@@ -1,6 +1,6 @@
 // Independent per-provider verification against the real ConversationTurn contract.
 //
-// Usage: npm run probe:provider -- gemini | omniroute [prompt]
+// Usage: npm run probe:provider -- <gemini|openrouter|omniroute|groq> [prompt]
 //
 // Requires the target provider's canonical env vars (STRYDE_<PROVIDER>_API_KEY,
 // optionally STRYDE_<PROVIDER>_BASE_URL / _MODEL) to be present in .env.local.
@@ -19,27 +19,36 @@ const fileEnv = Object.fromEntries(
 );
 for (const [k, v] of Object.entries(fileEnv)) if (!(k in process.env)) process.env[k] = v;
 
+// Accept every provider the runtime actually supports. A hardcoded allowlist
+// here meant the harness could not verify whichever provider was configured as
+// primary, so the production leg was the one leg that could never be probed
+// directly. The list is derived from the router so adding a provider cannot
+// silently exclude it from verification.
+const SUPPORTED_PROVIDERS = ["gemini", "openrouter", "omniroute", "groq"] as const;
+type SupportedProvider = (typeof SUPPORTED_PROVIDERS)[number];
+
 const target = (process.argv[2] ?? "").trim().toLowerCase();
-if (target !== "gemini" && target !== "omniroute") {
-  console.error("Usage: npm run probe:provider -- gemini | omniroute");
+if (!(SUPPORTED_PROVIDERS as readonly string[]).includes(target)) {
+  console.error(`Usage: npm run probe:provider -- ${SUPPORTED_PROVIDERS.join(" | ")}`);
   process.exit(1);
 }
+const provider = target as SupportedProvider;
 
-const KEY = process.env[`STRYDE_${target.toUpperCase()}_API_KEY`]?.trim();
+const KEY = process.env[`STRYDE_${provider.toUpperCase()}_API_KEY`]?.trim();
 if (!KEY) {
-  console.log(`SKIP: STRYDE_${target.toUpperCase()}_API_KEY is not configured; ${target} cannot be probed live.`);
+  console.log(`SKIP: STRYDE_${provider.toUpperCase()}_API_KEY is not configured; ${provider} cannot be probed live.`);
   process.exit(0);
 }
 
 // Isolate the target provider: prefer it, disable everything else.
-process.env.STRYDE_MODEL_PROVIDER = target;
-process.env.STRYDE_PROVIDER_DISABLED = ["gemini", "openrouter", "omniroute", "groq"].filter((p) => p !== target).join(",");
+process.env.STRYDE_MODEL_PROVIDER = provider;
+process.env.STRYDE_PROVIDER_DISABLED = SUPPORTED_PROVIDERS.filter((p) => p !== provider).join(",");
 
 const { readModelProviderConfigs } = await import("../lib/model-provider.ts");
 const configs = readModelProviderConfigs();
-assert.equal(configs.length, 1, `expected exactly the ${target} leg, got ${configs.map((c) => c.provider).join(",")}`);
-assert.equal(configs[0].provider, target);
-console.log(`Probe target: ${target} (model ${configs[0].model}, base ${configs[0].baseUrl})`);
+assert.equal(configs.length, 1, `expected exactly the ${provider} leg, got ${configs.map((c) => c.provider).join(",")}`);
+assert.equal(configs[0].provider, provider);
+console.log(`Probe target: ${provider} (model ${configs[0].model}, base ${configs[0].baseUrl})`);
 
 const { runConversationTurn, runWorkController } = await import("../lib/model-gateway.ts");
 

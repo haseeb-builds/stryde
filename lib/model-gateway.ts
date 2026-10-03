@@ -275,7 +275,12 @@ export async function runConversationTurn(input: {
 
   const prompt = buildConversationPrompt(input);
 
-  const result = await callStructuredModel("stryde_conversation_turn", CONVERSATION_TURN_SCHEMA, prompt);
+  // Must use the same budget as the streaming path. The non-streaming path
+  // previously took the 1,000-token default, which is not enough to emit the
+  // seven-field ConversationTurn contract; providers truncated the reply and the
+  // turn failed validation. Both paths must request the same budget or the
+  // product behaves differently depending on which path served the request.
+  const result = await callStructuredModel("stryde_conversation_turn", CONVERSATION_TURN_SCHEMA, prompt, MAX_CONVERSATION_TURN_OUTPUT_TOKENS);
   return { turn: validateConversationTurn(result.parsed), provider: result.provider, model: result.model };
 }
 
