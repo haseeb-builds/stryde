@@ -39,16 +39,35 @@ END-TO-END VERIFIED = the complete intended loop was demonstrated.
 | Proactive continuity | NO | NO | NO | NO | NO |
 | Social/community | NO | NO | NO | NO | NO |
 
-## Local evidence
+## Evidence
 
-2026-09-30:
+2026-09-30 (earlier pass):
 - npm test 51/51;
 - e2e:human 14/14;
 - probe:provider -- omniroute PASSED;
 - e2e:model PASSED 11 boundaries via Gemini 429 → OmniRoute fallback;
 - browser verification showed real model working-state UI locally.
 
-These do not establish production verification.
+2026-10-03 (live-system pass):
+- npm test 64/64 (4 new tests pin the working-state normalization boundary);
+- typecheck, lint, and production build all clean;
+- e2e:human PASSED 14/14 against the LIVE Supabase project (pvijrnwdnolvnoibarrj)
+  — pursuit creation, working-state seeding, action start, exactly-once replay,
+  completion, FAILED cycle, claim creation, evidence linking, human
+  adjudication to VERIFIED. This is live-database evidence, not local-only;
+- probe:provider -- gemini PASSED both live contracts (ConversationTurn and
+  WorkingState) against a real provider;
+- migration parity 30/30, zero divergence;
+- RLS tenant isolation and RPC privilege posture verified empirically.
+
+Still NOT established by any of the above:
+- production (Vercel) verification — no Vercel access exists in this
+  environment, so no deployed claim can be made;
+- worker execution — job/attempt/observation remain zero on live. The authority
+  commit path that blocked delegation was repaired, but no real worker run is
+  proven;
+- model quality under sustained production load: the only usable provider in
+  this environment is rate-limited or unfunded.
 
 ## Verification rule
 

@@ -309,3 +309,132 @@ Human-owned blockers (unchanged in kind, now precisely scoped):
    production path. Smallest viable options: enable billing on the Gemini key
    (removes the 20/day cap) or fund OpenRouter (~$5) for `z-ai/glm-5.3-flash`
    (evidence-backed candidate, see benchmark docs).
+
+## 2026-10-03 engineering pass (live-system verification and repair)
+
+This section records verified reality established by running the system against
+the live Supabase project and a real model provider. It supersedes the
+reconciliation snapshot above wherever they disagree.
+
+### Repository
+
+CONFIRMED (verified this session):
+- Active branch: `codex/model-routing-migration-clean`, now merged with
+  `origin/main`; `main` carried two commits (527b4bf, 6cbfcfe) that are an
+  earlier iteration of provider routing which this branch supersedes.
+- Working tree is the source of truth for the first time; the earlier
+  "local working tree was not available" caveat no longer applies.
+
+### Migration lineage
+
+RECONCILED (verified via `supabase migration list` and `supabase db push`):
+- 30 migrations, local and remote identical, zero divergence.
+- Drift found: `20261002180000_controlled_execution_authority_repair` existed
+  only on live. Fetched into the repository, then repaired (see below).
+- Three migrations added this session, all applied to live.
+
+### Two live defects that blocked the core loop
+
+Both were in the controlled-execution authority path and both broke the loop
+before it reached human action. Found by running e2e against live Supabase, not
+by reading code.
+
+1. `function digest(text, unknown) does not exist` (500 on every action start).
+   The 20261002180000 body set `search_path = public, pg_temp` while calling
+   `digest()` unqualified; pgcrypto's `digest()` lives in `extensions`, which is
+   not on that path. Repaired by 20261003115408.
+
+2. `Terminal Decision is immutable` (400 on every action start).
+   The same body inserted the ACTION_APPROVAL Decision already `RESOLVED`, then
+   issued a separate UPDATE to attach `chosen_option_id`. The
+   `decision_immutable_guard` trigger correctly refuses any update to a RESOLVED
+   Decision, so the second statement always raised. This reverted the lifecycle
+   that 20260926161200 had established. Repaired by 20261003115621, which
+   inserts as `OPEN` and transitions `OPEN -> RESOLVED` in the same statement.
+
+Authority semantics are unchanged by either repair: a commit still requires the
+caller's authenticated approval and still records the user's rationale.
+
+### Model-boundary repair
+
+A third failure surfaced once the database was repaired:
+
+- `500 {"error":"Working state version must be 1"}` from `/work`.
+  Cause: model output is a proposal, but a provider that cannot express
+  `enum: [1]` (the Gemini REST API rejects non-string enums, so `geminiSchema()`
+  strips them) intermittently emitted an out-of-contract `status`. The
+  validator threw, and as a 500 the user's request looked lost.
+  Repaired in two parts: recoverable status synonyms now normalize to canonical
+  values (`normalizeWorkStatus`, unit-tested), and a provider failure now
+  degrades to `503` carrying the previously persisted `working_state` with
+  `degraded: true` instead of failing the request. Stryde never fabricates a
+  replacement next move and never upgrades authority on degradation.
+
+### Verification performed (all live, this session)
+
+CONFIRMED:
+- `npm test` 64/64 (60 pre-existing + 4 new for the normalization boundary).
+- `npx tsc --noEmit` clean; `npm run lint` clean; `npm run build` clean.
+- `npm run e2e:human` PASSED 14/14 boundaries against live Supabase. This is
+  the first time the human loop has been proven end to end against live data.
+  It covers pursuit creation, working-state seeding, action start, exactly-once
+  replay, completion, the FAILED cycle, claim creation (REPORTED), evidence
+  linking (REPORTED -> OBSERVED), and human adjudication (OBSERVED -> VERIFIED).
+- `npm run probe:provider -- gemini` PASSED both live contracts
+  (ConversationTurn and WorkingState) served by a real provider.
+- Dev server root route 200; `/api/v1/pursuits` correctly 401 without a token.
+- Live row counts contradict the earlier snapshot in this file, which is stale:
+  observation 40, claim 15, action 41, decision 41, conversation_session 42,
+  pursuit 38, run 16. Claims: 10 VERIFIED, 5 REPORTED.
+
+Verified-correct behavior worth recording: the 10 VERIFIED claims are not model
+assertions. Each has a `claim_status_event` with `actor_type = USER` and a
+human-written reason, and the epistemic transition runs in SQL
+(`stryde_adjudicate_claim`), not in application code. The model is instructed
+never to assign VERIFIED and never can.
+
+### Blockers (human-owned, both billing/access)
+
+1. No production-viable model credential.
+   - Gemini free tier: 20 requests/day. Verified working today (both contracts
+     PASSED live), then quota exhausted during this session.
+   - OpenRouter key present in this environment returns HTTP 402 Payment
+     Required on every paid model (`is_free_tier: true`, usage 0.19, no
+     credits). The `:free` slugs are deprecated/404. Not a code problem.
+   - OmniRoute is reachable locally but is a tailnet-only address and cannot be
+     a production dependency.
+   Smallest unblocking action: add credits to an OpenRouter key, or enable
+   billing on the Gemini key to lift the 20/day cap.
+
+2. No Vercel access. No token is present anywhere in this environment
+   (`~/.vercel` absent, CLI config has no auth.json, no VERCEL_TOKEN in the
+   process environment). Deployment therefore cannot be performed or verified
+   from here. Note that `https://stryde.vercel.app` is NOT this application: it
+   serves an unrelated Vite SPA and has no `/api/health/model`.
+
+### Not addressed
+
+- Worker execution (`worker.hermes`, `worker.opencode`) remains contract-only:
+  job/attempt/observation are all zero on live. The authority-repair migration
+  fixes the commit path that blocked it, but no real worker run is proven.
+- Security: the two findings recorded in docs/RUNTIME.md were re-checked
+  empirically this session and are STALE, not open.
+  - The tautological `pursuit_source_citation` INSERT policy was already
+    repaired by 20260930000000_rpc_privilege_hardening_and_citation_policy_fix.sql,
+    which drops and recreates it with real ownership predicates on both the
+    pursuit and the source.
+  - The "anon/PUBLIC EXECUTE on mutation RPCs" concern was tested, not just
+    read. Unauthenticated calls to `stryde_create_claim` and
+    `stryde_adjudicate_claim` return 401 from the in-function auth guard;
+    `stryde_create_thread` and `stryde_commit_intervention` return 404 because
+    execute has been revoked from anon. No unauthenticated mutation succeeded.
+  - Tenant isolation verified: a user-scoped token sees 16 claims belonging to
+    exactly 1 owner, so RLS is not leaking across owners.
+  - The authority boundary holds end to end: `stryde_adjudicate_claim` returns
+    403 to a direct client call even for the owner's own claim. Epistemic
+    transitions therefore cannot bypass the server route, which is what keeps
+    user authority real.
+  Remaining known security debt is limited to the informational items: the
+  legacy `public.loops` table has RLS with no policies, leaked-password
+  protection is disabled, and the Supabase performance advisor reports
+  unindexed foreign keys. None are exploitable data-access paths.
