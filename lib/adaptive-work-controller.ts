@@ -1,5 +1,7 @@
 import { ACTOR_TYPES, normalizeActor, normalizeWorkerType, WORKER_TYPES } from "@/lib/actor";
 import { WORK_STATUSES, type NextMove, type WorkingState } from "@/lib/work-controller";
+import { normalizeWorkStatus } from "./working-state-normalization.ts";
+export { normalizeWorkStatus } from "./working-state-normalization.ts";
 
 export const ADAPTIVE_WORK_MODES = [
   "ASK_USER",
@@ -91,9 +93,14 @@ export function validateAdaptiveWorkingState(value: unknown): WorkingState {
 function validateWorkingStateShape(value: unknown): WorkingState {
   if (typeof value !== "object" || value === null) throw new Error("Working state must be an object");
   const candidate = value as Record<string, unknown>;
-  if (candidate.version !== 1) throw new Error("Working state version must be 1");
-  if (!WORK_STATUSES.includes(candidate.status as WorkingState["status"])) {
-    throw new Error("Invalid working state status");
+  // A provider that could not express `version: {enum:[1]}` (Gemini rejects
+  // non-string enums) still returns the integer. Accept the integer and the
+  // stringified form; reject anything else so a genuinely incompatible
+  // payload cannot be silently reinterpreted.
+  if (candidate.version !== 1 && candidate.version !== "1") throw new Error("Working state version must be 1");
+  const normalizedStatus = normalizeWorkStatus(candidate.status);
+  if (!normalizedStatus) {
+    throw new Error(`Invalid working state status: ${JSON.stringify(candidate.status)}`);
   }
 
   const readText = (value: unknown, field: string, max = MAX_TEXT) => {
@@ -153,7 +160,7 @@ function validateWorkingStateShape(value: unknown): WorkingState {
     throw new Error("Active working state requires a next move");
   }
 
-  return { version: 1, status: candidate.status as WorkingState["status"], objective, understanding, known, unknowns, bottleneck, next_move };
+  return { version: 1, status: normalizedStatus, objective, understanding, known, unknowns, bottleneck, next_move };
 }
 
 export function buildAdaptiveWorkControllerPrompt(input: {

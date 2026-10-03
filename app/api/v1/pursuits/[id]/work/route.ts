@@ -18,6 +18,9 @@ function errorResponse(message: string, status: number) {
 }
 
 export async function POST(request: Request, context: RouteContext) {
+  // Captured as soon as the persisted state is read so an unexpected provider
+  // failure can be reported without inventing replacement state.
+  let degradedWorkingState: unknown = null;
   try {
     const { supabase, user } = await requireAuthenticatedSupabase(request.headers.get("authorization"));
     const { id } = await context.params;
@@ -50,6 +53,8 @@ export async function POST(request: Request, context: RouteContext) {
     if (session.status !== "ACTIVE") {
       return errorResponse("Conversation is archived. Start a new conversation to continue.", 409);
     }
+
+    degradedWorkingState = session.working_state ?? null;
 
     const { data: messages, error: messageError } = await supabase
       .from("conversation_message")
@@ -176,6 +181,19 @@ export async function POST(request: Request, context: RouteContext) {
   } catch (error) {
     if (error instanceof SyntaxError) return errorResponse("Request body must be valid JSON", 400);
     const message = error instanceof Error ? error.message : "Adaptive Work Controller failed";
-    return errorResponse(message, message.includes("token") ? 401 : 500);
+    if (message.includes("token")) return errorResponse(message, 401);
+    // A provider-side failure (quota, transient 5xx, an out-of-contract model
+    // reply) must not read as a lost state change or a lost user request. The
+    // previously persisted working state is still the truth, so report the
+    // failure explicitly and hand back that state unchanged. Stryde never
+    // substitutes a fabricated next move for a real one.
+    return NextResponse.json(
+      {
+        error: message,
+        working_state: degradedWorkingState,
+        degraded: true,
+      },
+      { status: 503 },
+    );
   }
 }
