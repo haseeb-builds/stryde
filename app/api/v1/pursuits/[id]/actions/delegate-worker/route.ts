@@ -34,8 +34,28 @@ export async function POST(request: Request, context: RouteContext) {
 
     const workingState = session.working_state as WorkingState | null;
     const move = workingState?.next_move;
-    if (!move || move.actor !== "WORKER" || !move.worker_type) {
+    if (!workingState || !move || move.actor !== "WORKER" || !move.worker_type) {
       return errorResponse("The current next move is not ready for worker delegation", 409);
+    }
+
+    // Guard against double-delegation. A CONTROLLED Action that is still running
+    // means work for this pursuit is already in flight. Without this check a
+    // second approval (a double tap, a retried request, or simply the user
+    // approving again while waiting) committed a brand new Action and Job, so
+    // the same work could be executed twice with two independent worker runs.
+    // Waiting on external reality is not a second decision to make.
+    const { data: activeControlled, error: activeError } = await supabase
+      .from("action")
+      .select("id, intent_summary, status, execution_mode")
+      .eq("owner_user_id", user.id)
+      .eq("pursuit_id", pursuitId)
+      .eq("execution_mode", "CONTROLLED")
+      .eq("status", "IN_PROGRESS")
+      .limit(1)
+      .maybeSingle();
+    if (activeError) return errorResponse("Unable to check for in-flight delegated work", 500);
+    if (activeControlled) {
+      return errorResponse("Delegated work is already in flight for this Pursuit", 409);
     }
 
     const toolKey = move.worker_type === "HERMES" ? "worker.hermes" : "worker.opencode";
@@ -86,7 +106,26 @@ export async function POST(request: Request, context: RouteContext) {
       return errorResponse(clientError ? message : "Unable to delegate work", clientError ? 400 : 500);
     }
 
-    return NextResponse.json({ delegated: true, ...data }, { status: 201 });
+    // Delegation hands work to an external executor, so the pursuit is now
+    // waiting on reality rather than holding a move it can act on. Persisting
+    // this is what lets the UI and the next turn say "waiting on the worker"
+    // instead of re-offering a move that is already in flight. Without it the
+    // session kept claiming a pending next move after the job was committed,
+    // and a second delegation could be attempted against work already running.
+    const waitingWorkingState: WorkingState = {
+      ...workingState,
+      status: "WAITING_EXTERNAL",
+    };
+    const { error: persistError } = await supabase
+      .from("conversation_session")
+      .update({ working_state: waitingWorkingState, updated_at: new Date().toISOString() })
+      .eq("id", sessionId)
+      .eq("owner_user_id", user.id);
+    if (persistError) {
+      return errorResponse("Delegation committed, but working-state persistence failed", 500);
+    }
+
+    return NextResponse.json({ delegated: true, ...data, working_state: waitingWorkingState }, { status: 201 });
   } catch (error) {
     if (error instanceof SyntaxError) return errorResponse("Request body must be valid JSON", 400);
     const message = error instanceof Error ? error.message : "Unable to delegate work";

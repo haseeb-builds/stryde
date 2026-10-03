@@ -507,10 +507,74 @@ implementation performs real work. `scripts/worker-stub.ts` implements the
 worker endpoint can be targeted by setting `STRYDE_HERMES_URL` /
 `STRYDE_OPENCODE_URL`. Running a genuine worker agent remains open.
 
+## 2026-10-03 (later still): adversarial worker verification, and two more real defects
+
+An unexamined sibling working tree (`stryde-exec-repair`, branch
+`codex/controlled-execution-repair`) held uncommitted work that had never been
+reconciled. Its migration is byte-identical to the live-fetched copy apart from
+trailing blank lines, so it contained no schema work. Its E2E harness, however,
+was materially better than the one written earlier today: it drove three
+outcomes instead of one. It was ported and the earlier single-cycle harness
+replaced.
+
+Porting it immediately exposed two further defects, both now fixed.
+
+1. Delegation did not persist working state. `actions/delegate-worker` read the
+   conversation session but never updated it, so after delegating, the pursuit
+   still advertised a next move it could act on even though the work was in
+   flight. Unlike `actions/start`, it never set WAITING_EXTERNAL. The user would
+   be offered a move that was already running, and a second delegation could be
+   attempted against it. Now persists WAITING_EXTERNAL, matching the human
+   action path.
+
+2. Double-delegation was possible. A second approved delegation for a pursuit
+   with an in-flight CONTROLLED Action committed an entirely new Action and Job,
+   so the same work could be executed twice by two independent worker runs. A
+   double tap, a retried request, or a user simply approving again while waiting
+   was enough to trigger it. Delegation now refuses with 409 while CONTROLLED
+   work is in flight. Waiting on external reality is not a second decision.
+
+Both are authority and lifecycle defects, found only by asserting on behavior
+rather than on the happy path.
+
+### Worker verification now covers all three outcomes
+
+`npm run e2e:controlled` PASSED 19/19 boundaries across three cycles against
+live Supabase, and manages its own dispatcher and stub worker so a run is
+self-contained:
+
+- Cycle 1, worker SUCCEEDS: authority provisioning or renewal by the user, a
+  WORKER move rejected by the human action path with 409, delegation committed
+  with working state WAITING_EXTERNAL, authorization bound to the argument hash,
+  the existing grant reused rather than duplicated, second delegation refused,
+  attempt SUCCEEDED with an external correlation id, job SUCCEEDED and action
+  COMPLETED, result recorded as a MECHANICAL_ATTEMPT_RESULT observation, and no
+  claim auto-verified by mechanical execution.
+- Cycle 2, worker FAILS: job FAILED, action FAILED with a terminal timestamp,
+  ACTION_FAILED_BY_WORKER event recorded, and the failure preserved as an
+  observation. A failed worker run is evidence, not discarded output.
+- Cycle 3, worker hangs: attempt and job UNKNOWN, `resolved_at` NOT set, and
+  the action deliberately left IN_PROGRESS. An unresolved external result must
+  not be resolved into a false conclusion.
+
+Cycle 3 is the one that matters most for the product's defining claim: UNKNOWN
+stays UNKNOWN. Nothing in the control plane converts an unanswered worker into a
+finished action.
+
+Three harness defects were also fixed so failures are attributed correctly
+rather than masking the product: an assertion thrown inside the stub's HTTP
+handler (it escaped the request callback and produced an opaque transport
+error), validating `worker_type` when the gateway actually sends camelCase
+`workerType`, and assuming a freshly provisioned grant when the correct
+behavior is to reuse a live one.
+
 ### Not addressed
 
 - A real worker agent has still never executed a job. The plane around it is
-  proven; the executor behind it is not.
+  proven across success, failure, and unknown; the executor behind it is a
+  contract stub implementing the lib/worker-gateway.ts HTTP contract. A real
+  Hermes/OpenCode endpoint can be targeted via STRYDE_HERMES_URL /
+  STRYDE_OPENCODE_URL.
 - Security: the two findings recorded in docs/RUNTIME.md were re-checked
   empirically this session and are STALE, not open.
   - The tautological `pursuit_source_citation` INSERT policy was already
