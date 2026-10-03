@@ -13,7 +13,9 @@
     "e2e:model": "node --experimental-strip-types scripts/e2e-model-loop.ts",
     "probe:provider": "node --experimental-strip-types scripts/probe-provider.ts",
     "e2e:controlled": "node --experimental-strip-types scripts/e2e-controlled-worker-loop.ts",
-    "worker:stub": "node --experimental-strip-types scripts/worker-stub.ts"
+    "worker:stub": "node --experimental-strip-types scripts/worker-stub.ts",
+    "worker:hermes": "node --experimental-strip-types scripts/hermes-worker.ts",
+    "e2e:real-worker": "node --experimental-strip-types scripts/e2e-real-worker.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.110.0",

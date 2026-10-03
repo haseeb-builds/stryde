@@ -577,13 +577,63 @@ error), validating `worker_type` when the gateway actually sends camelCase
 `workerType`, and assuming a freshly provisioned grant when the correct
 behavior is to reuse a live one.
 
-### Not addressed
+## 2026-10-03 (final): a REAL agent now executes REAL work
 
-- A real worker agent has still never executed a job. The plane around it is
-  proven across success, failure, and unknown; the executor behind it is a
-  contract stub implementing the lib/worker-gateway.ts HTTP contract. A real
-  Hermes/OpenCode endpoint can be targeted via STRYDE_HERMES_URL /
-  STRYDE_OPENCODE_URL.
+The last capability claimed as unproven is now proven. A real Hermes agent
+performs a real unit of work through the real CONTROLLED plane, and the result is
+judged only by an artifact read back off disk.
+
+### New: a real worker endpoint
+
+`scripts/hermes-worker.ts` implements the exact contract `lib/worker-gateway.ts`
+speaks, backed by `hermes -z` one-shot runs instead of canned answers. Each unit
+of work executes in its own per-job directory, and the artifacts it leaves behind
+are the observable result.
+
+Its epistemic rules are the same ones Stryde applies to itself:
+- exit 0 with NO artifacts is FAILED, not success. A worker that did nothing is
+  not a success. This is not theoretical: an early real run produced correct
+  output while writing it outside the sandbox, and the endpoint correctly
+  reported FAILED instead of claiming the agent's own "VERIFIED" summary.
+- killed by timeout is UNKNOWN, never FAILED and never SUCCEEDED;
+- non-zero exit is FAILED, with the tail of stderr retained as evidence.
+
+### Two environment findings, established by measurement
+
+1. `spawn`'s `cwd`, and Hermes' own `--in` flag, do NOT control where the
+   agent's file and terminal tools operate. Verified directly: with both set to
+   a sandbox, the agent still reported and wrote inside
+   `C:\Users\DELL\Desktop\Stryde`. `TERMINAL_CWD` is the variable the agent
+   actually honors for tool execution, so it is pinned per job. Without this the
+   agent's real work lands outside the sandbox and every run looks like an empty
+   failure.
+2. Hermes' default model rejected a 16384-token request against this key with
+   HTTP 402 while a small request succeeded, i.e. the account holds only a very
+   small credit balance. `stealth/space-bunny-alpha` serves that request. This
+   is a build-time worker cost, independent of Stryde's own runtime model
+   configuration, which remains provider-neutral and separately configured.
+
+### e2e:real-worker PASSED 11/11 against a real agent
+
+`npm run e2e:real-worker` delegates through the real authenticated API, runs the
+real dispatcher, and lets a real agent work. It asserts:
+- a real SUCCEEDED job with a real worker correlation id;
+- the CONTROLLED action finalized COMPLETED by the trusted plane;
+- the observation carries a NON-EMPTY artifact list, and the artifact content
+  satisfies the stated completion condition. An empty artifact list fails the
+  suite, so "the agent said it was done" cannot pass as proof;
+- the result is attributed to CONTROLLED_EXECUTION, never to the user;
+- no claim is auto-verified from worker output.
+
+Live evidence from the passing run: job SUCCEEDED, action COMPLETED, observation
+carrying artifact `proof.md` (78 bytes) whose content was read back from disk.
+
+Scope, stated honestly: this proves one real agent performing one bounded unit of
+real work through the full CONTROLLED plane, including authority, lease,
+attempt, artifact capture, and observation. It does not prove long-running,
+multi-step, or production-hardened worker execution.
+
+### Not addressed
 - Security: the two findings recorded in docs/RUNTIME.md were re-checked
   empirically this session and are STALE, not open.
   - The tautological `pursuit_source_citation` INSERT policy was already
