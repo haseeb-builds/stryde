@@ -577,6 +577,54 @@ error), validating `worker_type` when the gateway actually sends camelCase
 `workerType`, and assuming a freshly provisioned grant when the correct
 behavior is to reuse a live one.
 
+## 2026-10-03 (UI layer): the product was never exercised in a browser
+
+Every previous verification in this repository was at the API, SQL, or provider
+layer. The user-facing surface - including a 1094-line pursuit page - had never
+been run in a real browser. That blind spot mattered: a build can compile, pass
+every server test, deploy successfully, and still ship a UI that never hydrates.
+
+### What the browser found
+
+Driving the served app over the Chrome DevTools Protocol surfaced an
+investigation that no amount of API testing could have:
+
+- A valid, correctly-filled sign-in form produced NO submit event and NO auth
+  request. The visible symptom was a button that silently did nothing.
+- The cause was React never attaching to the DOM: zero `__react` fibers on the
+  form and no `__NEXT_DATA__`. `window.next` existed, so the Next.js runtime booted
+  while hydration did not complete.
+- Chasing it further would have been the wrong conclusion. The same app served by
+  the PRODUCTION build hydrates correctly (React fibers present) and signs in
+  successfully. The unhydrated behavior was specific to the dev server. Recorded
+  here because the diagnostic path is the reusable part: the difference between
+  "the product is broken" and "this server mode is broken" is only visible by
+  testing the artifact that actually ships.
+
+### What is now verified
+
+`npm run e2e:ui` drives a real headless Chrome against a real served build and
+PASSED 8/8, including from a cold start with a fresh browser profile:
+
+- the page hydrates on a real build;
+- the landing surface exposes no internal ontology;
+- sign-in works through the actual form and establishes a Supabase session;
+- the signed-in surface lists real pursuits loaded from the database;
+- navigation to a real pursuit works and the page is not stuck on a loader;
+- the pursuit surface exposes no internal ontology as primary UI.
+
+One harness detail worth keeping: React controlled inputs ignore plain DOM
+assignment. The harness assigns through the prototype value setter and dispatches
+the event React listens for, and then asserts the field actually retained the
+value. Without that check a harness can "fill" a form that never received input
+and then conclude the product is broken.
+
+Scope, stated honestly: this verifies hydration, authentication, navigation, and
+the no-ontology invariant on the landing and pursuit surfaces. It does not verify
+streaming conversation rendering in the browser, because the only provider that
+reliably serves the real contracts in this environment is not configured as the
+runtime default (see the provider-layer section above).
+
 ## 2026-10-03 (provider layer): three real defects found by probing the production leg
 
 The probe harness only accepted `gemini | omniroute`, so whichever provider was
