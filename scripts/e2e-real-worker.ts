@@ -96,13 +96,24 @@ const actionId = (delegated.json.action as Json).id as string;
 ok("approved delegation committed a real CONTROLLED job");
 
 // Drive the real dispatcher to completion.
+//
+// This suite does NOT spawn the hermes worker: an operator runs
+// `npm run worker:hermes` separately. That worker now FAILS CLOSED without
+// STRYDE_HERMES_TOKEN (lib/worker-server-auth.ts), so this suite passes the
+// operator's token through to the dispatcher's gateway, and checks that the
+// worker is reachable WITH it before doing anything else.
 const { spawn } = await import("node:child_process");
 console.log("  ... running the real dispatcher against the real agent (this executes real work)");
 const workerUrl = process.env.STRYDE_HERMES_URL ?? "http://127.0.0.1:8899";
+const workerToken = process.env.STRYDE_HERMES_TOKEN?.trim();
+assert.ok(workerToken, "STRYDE_HERMES_TOKEN is required: the hermes worker fails closed without it (lib/worker-server-auth.ts)");
+const workerProbe = await fetch(`${workerUrl}/work/__probe__`, { headers: { Authorization: `Bearer ${workerToken}` } })
+  .then((r) => r.status).catch(() => 0);
+assert.ok(workerProbe > 0, "hermes worker is not answering authenticated requests at " + workerUrl + " (got " + workerProbe + "); is `npm run worker:hermes` running with the same STRYDE_HERMES_TOKEN?");
 const run = await new Promise<{ code: number | null; output: string }>((resolve) => {
   const child = spawn(process.execPath, ["--experimental-strip-types", "scripts/worker-dispatcher.ts"], {
     cwd: repoRoot,
-    env: { ...process.env, STRYDE_HERMES_URL: workerUrl, STRYDE_WORKER_ONCE: "1", STRYDE_WORKER_POLL_MS: "500", STRYDE_WORKER_MAX_RUNTIME_MS: "300000" },
+    env: { ...process.env, STRYDE_HERMES_URL: workerUrl, STRYDE_HERMES_TOKEN: workerToken, STRYDE_WORKER_ONCE: "1", STRYDE_WORKER_POLL_MS: "500", STRYDE_WORKER_MAX_RUNTIME_MS: "300000" },
     stdio: ["ignore", "pipe", "pipe"],
   });
   let output = "";

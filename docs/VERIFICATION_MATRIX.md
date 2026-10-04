@@ -25,7 +25,7 @@ END-TO-END VERIFIED = the complete intended loop was demonstrated.
 | Source ingestion: URL/paste | YES | YES (e2e:evidence-loop: live URL fetch + storage) | YES | PARTIAL (inline URL ingestion proven in browser) | YES local |
 | Source ingestion: FILE upload | YES | YES unit + route | YES | NO | YES local (unit + route) |
 | Source adaptation/citation | YES | YES (real character-range locators with an honest located flag; e2e:evidence-loop 5/5) | YES | PARTIAL (adaptation itself is model-dependent) | YES local |
-| Capability registry/worker gateway | YES | YES | YES | NO | YES local |
+| Capability registry/worker gateway | YES | YES — bearer auth enforced server-side (fail-closed), verified live | YES | NO | YES local |
 | Hermes worker execution (real agent) | YES | YES — SUCCEEDED proof 2026-10-03; failure cycle proven with real agent same day | YES | NO | YES local |
 | OpenCode worker execution | YES | YES — real agent, artifact-judged SUCCEEDED proof 2026-10-04 (e2e:opencode-worker 12/12) | YES | NO | YES local |
 | Universal composer (one surface) | YES | YES browser | YES | YES (browser 2026-10-03) | YES local |

@@ -954,3 +954,35 @@ and scripts/e2e-evidence-loop.ts.
 The remaining gap is exactly the funded runtime: OpenRouter credits for the
 production conversation, plus optional EXA/FIRECRAWL keys for live research
 and rendered-page observation. Everything else is implemented and verified.
+
+## 2026-10-04 (later): worker-plane credential contract enforced; capability-reuse audit closed
+
+- **Worker auth is now real.** The gateway always SENT bearer tokens, but no
+  worker server checked them: any process that could reach a worker port
+  could submit and read work. New lib/worker-server-auth.ts enforces the
+  credential the tool contract declares — constant-time comparison,
+  per-worker-type scoped, FAILS CLOSED when no token is configured. Both
+  worker servers gate every request. Verified live (no token 401, wrong
+  token 401, correct token passes) and by both real-agent E2E suites
+  running through the authenticated path.
+- **Worker neutrality.** WORKER_TYPES is the single source of truth; tool
+  keys and env prefixes are derived, so a third worker type needs no edits
+  to shared modules. The extensionless-import module-resolution defect in
+  lib/worker-contract.ts is fixed with the repo explicit-.ts convention.
+- **Worker servers now load .env.local** (dispatcher pattern; existing env
+  wins). Without this, the documented npm run worker:<type> flow produced a
+  fail-closed worker that rejected everything — a silently misconfigured
+  worker is exactly what the auth contract must not hide. A Windows pathname
+  normalization bug in the first attempt of this loader was caught because
+  the live gate test still returned 401 for the correct token, and fixed.
+- **Dead dependency removed:** resend (legacy of the replaced check-in cron),
+  from package.json, lockfile, CI env, and .env.example. Zero references
+  remain. worker:opencode npm alias added for operator parity.
+- **docs/STRYDE_CAPABILITY_REUSE_AUDIT.md** closes the capability-reuse
+  question: zero REPLACE decisions; the only DELETE was resend; external
+  app code rejected for runtime reuse on license-ambiguity, no-CI, and
+  tutorial-grade-persistence grounds (D10/D14). Evidence labels
+  CONFIRMED/INFERRED/UNKNOWN/BLOCKED throughout.
+- Verification: 179/179 unit tests; typecheck, lint, build clean; both
+  real-agent E2E suites green through the authenticated path (OpenCode 12/12,
+  Hermes 11/11).

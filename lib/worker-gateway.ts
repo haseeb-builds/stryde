@@ -107,8 +107,17 @@ class HttpWorkerProvider implements WorkerProvider {
   }
 }
 
+// Every worker type is configured through the SAME derived env contract,
+// STRYDE_<WORKER_TYPE>_{URL,TOKEN}, rather than a per-branch ternary. Adding a
+// third worker type therefore requires no edit to this shared module: it is
+// declared in WORKER_TYPES and served by its own adapter. See
+// lib/worker-server-auth.ts for the server side of the same contract.
+export function workerEnvPrefix(type: WorkerType): string {
+  return `STRYDE_${type}`;
+}
+
 export function getWorkerProvider(type: WorkerType, env: NodeJS.ProcessEnv = process.env): WorkerProvider {
-  const prefix = type === "HERMES" ? "STRYDE_HERMES" : "STRYDE_OPENCODE";
+  const prefix = workerEnvPrefix(type);
   const baseUrl = env[`${prefix}_URL`]?.trim();
   if (!baseUrl) throw new Error(`Worker provider ${type} is not configured`);
   const token = env[`${prefix}_TOKEN`]?.trim() || null;

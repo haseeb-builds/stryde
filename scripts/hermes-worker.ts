@@ -22,6 +22,24 @@ import { randomUUID } from "node:crypto";
 import { mkdtempSync, readFileSync, readdirSync, statSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { isAuthorizedWorkerRequest } from "../lib/worker-server-auth.ts";
+
+
+// Load .env.local the same way the dispatcher does, so the documented
+// "npm run worker:hermes" flow sees STRYDE_HERMES_TOKEN without the operator
+// exporting it manually. Without this a fully configured local environment
+// still produced a fail-closed worker that rejected everything, which is
+// silent misconfiguration of exactly the kind the auth contract must not hide.
+const repoRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname.replace(/^\//, "")), "..");
+const localEnvPath = path.join(repoRoot, ".env.local");
+if (existsSync(localEnvPath)) {
+  const fileEnv = Object.fromEntries(
+    readFileSync(localEnvPath, "utf8")
+      .split(/\r?\n/).filter((l) => l.includes("=") && !l.trimStart().startsWith("#"))
+      .map((l) => [l.slice(0, l.indexOf("=")), l.slice(l.indexOf("=") + 1)]),
+  );
+  for (const [k, v] of Object.entries(fileEnv)) if (!(k in process.env)) process.env[k] = v;
+}
 
 type JobState = "RUNNING" | "SUCCEEDED" | "FAILED" | "UNKNOWN";
 type Job = {
@@ -166,6 +184,14 @@ const server = createServer((req, res) => {
     res.writeHead(code, { "Content-Type": "application/json" });
     res.end(JSON.stringify(body));
   };
+
+  // Inbound auth gate for the whole worker contract. lib/worker-gateway.ts sends
+  // `Authorization: Bearer <STRYDE_<WORKER>_TOKEN>`; this server must reject
+  // anything else before any work is read or returned. Fails closed when the
+  // token is unset (see lib/worker-server-auth.ts).
+  if (!isAuthorizedWorkerRequest("HERMES", req.headers)) {
+    return send(401, { error: "unauthorized" });
+  }
 
   if (req.method === "POST" && url.pathname === "/work") {
     let raw = "";

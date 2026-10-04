@@ -18,6 +18,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
+import { randomUUID } from "node:crypto";
 
 const repoRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname.replace(/^\//, "")), "..");
 const env = Object.fromEntries(
@@ -130,7 +131,14 @@ ok("job is bound to the worker.opencode tool");
 const { spawn } = await import("node:child_process");
 const workerPort = Number(new URL(process.env.STRYDE_OPENCODE_URL ?? "http://127.0.0.1:8898").port || 8898);
 const workerUrl = `http://127.0.0.1:${workerPort}`;
-const alreadyListening = await fetch(`${workerUrl}/work/__probe__`).then((r) => r.status).catch(() => 0);
+// The worker FAILS CLOSED without a bearer token (lib/worker-server-auth.ts), so
+// this suite mints one and hands the SAME value to both ends: the worker server
+// that must validate it and the dispatcher's gateway that must present it. A
+// mismatch here would surface as a 401, never as a silent success.
+const workerToken = process.env.STRYDE_OPENCODE_TOKEN?.trim() || `e2e-${randomUUID()}`;
+const authedProbe = (headers: Record<string, string>) =>
+  fetch(`${workerUrl}/work/__probe__`, { headers }).then((r) => r.status).catch(() => 0);
+const alreadyListening = await authedProbe({ Authorization: `Bearer ${workerToken}` });
 assert.ok(!alreadyListening, `port ${workerPort} is already in use; free it so this suite can manage its own worker`);
 
 const workerChild = spawn(process.execPath, ["--experimental-strip-types", "scripts/opencode-worker.ts"], {
@@ -139,6 +147,7 @@ const workerChild = spawn(process.execPath, ["--experimental-strip-types", "scri
     ...process.env,
     STRYDE_OPENCODE_WORKER_PORT: String(workerPort),
     STRYDE_OPENCODE_TIMEOUT_MS: process.env.STRYDE_OPENCODE_TIMEOUT_MS ?? "240000",
+    STRYDE_OPENCODE_TOKEN: workerToken,
   },
   stdio: ["ignore", "pipe", "pipe"],
 });
@@ -156,7 +165,7 @@ process.on("exit", teardownWorker);
 console.log(`  ... waiting for the opencode worker on ${workerUrl}`);
 let workerUp = false;
 for (let i = 0; i < 60 && !workerUp; i++) {
-  workerUp = await fetch(`${workerUrl}/work/__probe__`).then((r) => r.status > 0).catch(() => false);
+  workerUp = await authedProbe({ Authorization: `Bearer ${workerToken}` }).then((s) => s > 0);
   if (!workerUp) await new Promise((r) => setTimeout(r, 500));
 }
 assert.ok(workerUp, `opencode worker never became ready: ${workerOutput}`);
@@ -170,7 +179,7 @@ try {
   run = await new Promise<{ code: number | null; output: string }>((resolve) => {
     const child = spawn(process.execPath, ["--experimental-strip-types", "scripts/worker-dispatcher.ts"], {
       cwd: repoRoot,
-      env: { ...process.env, STRYDE_OPENCODE_URL: workerUrl, STRYDE_WORKER_ONCE: "1", STRYDE_WORKER_POLL_MS: "500", STRYDE_WORKER_MAX_RUNTIME_MS: "300000" },
+      env: { ...process.env, STRYDE_OPENCODE_URL: workerUrl, STRYDE_OPENCODE_TOKEN: workerToken, STRYDE_WORKER_ONCE: "1", STRYDE_WORKER_POLL_MS: "500", STRYDE_WORKER_MAX_RUNTIME_MS: "300000" },
       stdio: ["ignore", "pipe", "pipe"],
     });
     let output = "";

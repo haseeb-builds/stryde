@@ -1,4 +1,8 @@
-import type { WorkerType } from "./worker-gateway";
+import { WORKER_TYPES, type WorkerType } from "./worker-gateway.ts";
+
+function isKnownWorkerType(value: unknown): value is WorkerType {
+  return typeof value === "string" && (WORKER_TYPES as readonly string[]).includes(value);
+}
 
 const MAX_INSTRUCTION = 12_000;
 const MAX_KEY = 500;
@@ -25,8 +29,10 @@ export function parseWorkerJobArguments(value: unknown): WorkerJobArguments {
 
   const record = value as Record<string, unknown>;
   const workerType = record.worker_type;
-  if (workerType !== "HERMES" && workerType !== "OPENCODE") {
-    throw new Error("worker_type must be HERMES or OPENCODE");
+  // Membership in WORKER_TYPES is the single source of truth for which worker
+  // types exist, so this validation cannot drift from the gateway's own list.
+  if (!isKnownWorkerType(workerType)) {
+    throw new Error(`worker_type must be one of ${WORKER_TYPES.join(", ")}`);
   }
 
   const context = record.context;
@@ -42,10 +48,18 @@ export function parseWorkerJobArguments(value: unknown): WorkerJobArguments {
   };
 }
 
+// A worker tool key is derived from the worker type: "worker." + the type in
+// lower case. Deriving it means a newly declared worker type is automatically
+// addressable by tool key with no edit here (and no Hermes-specific branch).
+export function workerToolKey(type: WorkerType): string {
+  return `worker.${type.toLowerCase()}`;
+}
+
 export function workerTypeForToolKey(toolKey: unknown): WorkerType {
-  if (toolKey === "worker.hermes") return "HERMES";
-  if (toolKey === "worker.opencode") return "OPENCODE";
-  throw new Error("Unsupported worker tool");
+  if (typeof toolKey !== "string") throw new Error("Unsupported worker tool");
+  const match = WORKER_TYPES.find((type) => workerToolKey(type) === toolKey);
+  if (!match) throw new Error("Unsupported worker tool");
+  return match;
 }
 
 export function assertWorkerToolBinding(toolKey: unknown, toolVersion: unknown, args: WorkerJobArguments) {
