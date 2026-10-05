@@ -1,7 +1,7 @@
 export const ACTOR_TYPES = ["HUMAN", "STRYDE", "WORKER", "CONTROLLED_TOOL"] as const;
 export type ActorType = (typeof ACTOR_TYPES)[number];
 
-export const WORKER_TYPES = ["HERMES", "OPENCODE", "BROWSER"] as const;
+export const WORKER_TYPES = ["HERMES", "OPENCODE", "BROWSER", "MCP"] as const;
 export type WorkerType = (typeof WORKER_TYPES)[number];
 
 export function normalizeWorkerType(actor: ActorType, value: unknown): WorkerType | null {

@@ -58,6 +58,14 @@ export type NextMove = {
     url: string;
     expect_text: string;
   } | null;
+  // Present only when the move is one bounded MCP capability call: which
+  // configured server, which tool, and the JSON arguments. Absent for every
+  // other mode; never carries credentials.
+  tool_call?: {
+    server: string;
+    tool: string;
+    arguments: Record<string, unknown>;
+  } | null;
 };
 
 export type WorkingState = {
@@ -146,6 +154,16 @@ export const WORKING_STATE_SCHEMA = {
                 expect_text: { type: "string", minLength: 1, maxLength: 300 },
               },
             },
+            tool_call: {
+              type: "object",
+              additionalProperties: false,
+              required: ["server", "tool", "arguments"],
+              properties: {
+                server: { type: "string", minLength: 1, maxLength: 100 },
+                tool: { type: "string", minLength: 1, maxLength: 200 },
+                arguments: { type: "object" },
+              },
+            },
           },
         },
         { type: "null" },
@@ -174,6 +192,26 @@ function optionalText(value: unknown, field: string): string | null {
 function items(value: unknown, field: string): string[] {
   if (!Array.isArray(value)) throw new Error(`${field} must be an array`);
   return value.slice(0, MAX_ITEMS).map((item, index) => text(item, `${field}[${index}]`));
+}
+
+// Normalizes the optional MCP capability-call payload on a next move.
+// The same honesty rule as verify: filled completely or omitted, never partial.
+export function normalizeToolCall(value: unknown): NextMove["tool_call"] {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  if (typeof value !== "object") throw new Error("next_move.tool_call must be an object or null");
+  const candidate = value as Record<string, unknown>;
+  if (typeof candidate.arguments !== "object" || candidate.arguments === null || Array.isArray(candidate.arguments)) {
+    throw new Error("next_move.tool_call.arguments must be an object");
+  }
+  if (Object.keys(candidate.arguments).length > 20) {
+    throw new Error("next_move.tool_call.arguments exceeds 20 entries");
+  }
+  return {
+    server: text(candidate.server, "next_move.tool_call.server", 100),
+    tool: text(candidate.tool, "next_move.tool_call.tool", 200),
+    arguments: candidate.arguments as Record<string, unknown>,
+  };
 }
 
 // Normalizes the optional mechanical-verification payload on a next move.
@@ -238,6 +276,7 @@ export function validateWorkingState(value: unknown): WorkingState {
       user_needs_to_do: text(move.user_needs_to_do, "next_move.user_needs_to_do"),
       completion_condition: text(move.completion_condition, "next_move.completion_condition"),
       verify: normalizeVerify(move.verify),
+      tool_call: normalizeToolCall(move.tool_call),
     };
   }
 

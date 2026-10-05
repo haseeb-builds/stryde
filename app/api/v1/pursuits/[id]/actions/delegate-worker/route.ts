@@ -96,6 +96,9 @@ export async function POST(request: Request, context: RouteContext) {
         known: workingState?.known ?? [],
         unknowns: workingState?.unknowns ?? [],
         bottleneck: workingState?.bottleneck ?? null,
+        // A bounded MCP capability call travels with its structured target so
+        // the worker never has to parse intent out of prose.
+        ...(move.tool_call ? { tool_call: move.tool_call } : {}),
       },
       idempotency_key: idempotencyKey,
     };

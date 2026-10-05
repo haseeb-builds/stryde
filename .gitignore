@@ -44,3 +44,5 @@ next-env.d.ts
 supabase/.temp/
 
 .audit-research/
+supabase/config.toml
+supabase/snippets/

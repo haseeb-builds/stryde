@@ -24,7 +24,9 @@
     "e2e:evidence-loop": "node --experimental-strip-types scripts/e2e-evidence-loop.ts",
     "worker:browser": "node --experimental-strip-types scripts/browser-worker.ts",
     "e2e:browser-worker": "node --experimental-strip-types scripts/e2e-browser-worker.ts",
-    "e2e:skills-agent": "node --experimental-strip-types scripts/e2e-skills-agent.ts"
+    "e2e:skills-agent": "node --experimental-strip-types scripts/e2e-skills-agent.ts",
+    "worker:mcp": "node --experimental-strip-types scripts/mcp-worker.ts",
+    "e2e:mcp-worker": "node --experimental-strip-types scripts/e2e-mcp-worker.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.110.0",
