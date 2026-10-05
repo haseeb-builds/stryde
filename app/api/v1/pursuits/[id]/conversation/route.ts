@@ -6,7 +6,9 @@ import { requireAuthenticatedSupabase } from "@/lib/supabase/server";
 import { createConversationCommitter } from "@/lib/conversation-commit";
 import { recordMemory } from "@/lib/memory";
 import { processUniversalInput } from "@/lib/universal-input";
-import { compileContext } from "@/lib/context-compiler";
+import { compileForSituation } from "@/lib/context-compiler";
+import { recordSkillUsage } from "@/lib/skills";
+import { recordFunnelEvent } from "@/lib/instrumentation";
 
 export const runtime = "nodejs";
 export const maxDuration = 55;
@@ -110,12 +112,29 @@ export async function POST(request: Request, context: RouteContext) {
     // The Context Compiler turns the canonical Situation into a task-specific
     // packet for THIS turn. The model never sees the full situation replay;
     // the selection report is persisted so retrieval stays inspectable.
-    const pursuitRow = situationResult.situation.pursuit as { title?: string | null; objective_claim_id?: string | null } | undefined;
-    const objectiveClaim = (situationResult.situation.claims as Array<{ id?: unknown; content?: unknown }>).find(
-      (claim) => claim && typeof claim === "object" && claim.id === pursuitRow?.objective_claim_id,
-    );
-    const objective = typeof objectiveClaim?.content === "string" ? objectiveClaim.content : null;
-    const compiled = compileContext(situationResult.situation, { userMessage: message, focus: null, objective });
+    const compiled = compileForSituation(situationResult.situation, { userMessage: message });
+    // Skills that reached this turn's packet count as used: usage tracking is
+    // how procedural memory proves it earns its retrieval slot.
+    void recordSkillUsage(
+      supabase,
+      user.id,
+      compiled.packet.skills.map((skill) => String(skill.id)),
+    ).catch(() => {});
+    // First turn on this pursuit is a funnel boundary, recorded once per
+    // pursuit and fail-open. No content is attached — only the milestone.
+    if (conversation.length === 0) {
+      const { data: priorFirstTurn } = await supabase
+        .from("funnel_event")
+        .select("id")
+        .eq("owner_user_id", user.id)
+        .eq("pursuit_id", id)
+        .eq("event_type", "FIRST_TURN")
+        .limit(1)
+        .maybeSingle();
+      if (!priorFirstTurn) {
+        void recordFunnelEvent(supabase, { ownerUserId: user.id, eventType: "FIRST_TURN", pursuitId: id });
+      }
+    }
 
     const conversationWithUser: ConversationMessage[] = [
       ...conversation,
@@ -152,7 +171,7 @@ export async function POST(request: Request, context: RouteContext) {
               // Recompile against the fresh situation: the adaptive
               // reassessment happens after the universal-input effects above
               // landed, so its packet may legitimately differ from the turn's.
-              const adaptiveCompiled = compileContext(adaptiveSituationResult.situation, { userMessage: message, focus: null, objective });
+              const adaptiveCompiled = compileForSituation(adaptiveSituationResult.situation, { userMessage: message });
               const adaptive = await runAdaptiveWorkController({
                 pursuitTitle: pursuit.title ?? "Untitled pursuit",
                 contextPacket: adaptiveCompiled.packet,

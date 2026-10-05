@@ -71,7 +71,16 @@ export default function HomePage() {
     }
     const { data, error: authError } = await supabase.auth.signUp({ email: email.trim(), password });
     if (authError) setError(authError.message);
-    else setMessage(data.session ? "Account created." : "Account created. Check your email to confirm it.");
+    else {
+      setMessage(data.session ? "Account created." : "Account created. Check your email to confirm it.");
+      if (data.session) {
+        void fetch("/api/v1/events", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${data.session.access_token}` },
+          body: JSON.stringify({ event_type: "SIGNUP" }),
+        });
+      }
+    }
     setLoading(false);
   }
 
@@ -95,15 +104,46 @@ export default function HomePage() {
 
   async function signOut() { await supabase.auth.signOut(); setPursuits([]); setSessionReady(false); }
 
+  async function foundingAccess() {
+    setLoading(true); setError(""); setMessage("");
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
+      if (!token) { setError("Please sign in first."); setLoading(false); return; }
+      void fetch("/api/v1/events", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ event_type: "PAID_CTA_CLICK" }),
+      });
+      const response = await fetch("/api/v1/billing/checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      });
+      const body = (await response.json()) as { checkout_url?: string; error?: string };
+      if (response.ok && body.checkout_url) {
+        window.location.href = body.checkout_url;
+        return;
+      }
+      setMessage(body.error ?? "Founding access is not open for payment yet.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
   if (!sessionReady) {
     return (
       <main className="min-h-screen bg-zinc-50 px-6 py-16 text-zinc-950">
         <div className="mx-auto max-w-md space-y-8">
           <header className="space-y-3">
             <p className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-400">Stryde</p>
-            <h1 className="text-4xl font-semibold tracking-tight">What needs to move?</h1>
-            <p className="text-zinc-500">A persistent intelligence layer for understanding situations and moving real work forward.</p>
+            <h1 className="text-4xl font-semibold tracking-tight">What are you trying to make happen?</h1>
+            <p className="text-zinc-500">Stryde is a personal AI agent that helps you actually make important things happen — it plans with you, does the work it can, watches what changed, and keeps things moving.</p>
           </header>
+          <ol className="space-y-2 text-sm text-zinc-600">
+            <li className="rounded-xl border border-zinc-200 bg-white px-4 py-3"><strong className="font-medium text-zinc-900">Say the goal.</strong> A sentence, a roadmap from another AI, or one big messy brain-dump.</li>
+            <li className="rounded-xl border border-zinc-200 bg-white px-4 py-3"><strong className="font-medium text-zinc-900">Stryde works it.</strong> It asks only what matters, then does the real work it can — and shows you what it did.</li>
+            <li className="rounded-xl border border-zinc-200 bg-white px-4 py-3"><strong className="font-medium text-zinc-900">Reality, verified.</strong> Stryde checks outcomes itself and comes back with the next move.</li>
+          </ol>
           <form onSubmit={signIn} className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm space-y-4">
             <div className="space-y-2">
               <label htmlFor="email" className="text-sm font-medium">Email</label>
@@ -134,6 +174,11 @@ export default function HomePage() {
   )}
 </form>
         <section className="space-y-3"><p className="text-sm font-medium text-zinc-500">Active pursuits</p>{pursuits.length === 0 ? <div className="rounded-2xl border border-dashed border-zinc-300 p-8 text-sm text-zinc-500">No pursuits yet. Start with something real.</div> : pursuits.map((pursuit) => <button key={pursuit.id} onClick={() => router.push(`/pursuits/${pursuit.id}`)} className="block w-full rounded-2xl border border-zinc-200 bg-white p-5 text-left shadow-sm hover:border-zinc-400"><p className="font-medium">{pursuit.title || "Untitled pursuit"}</p><p className="mt-1 text-xs text-zinc-500">{pursuit.status}</p></button>)}{pursuits.length >= 30 && <p className="text-xs text-zinc-400">Showing your 30 most recent pursuits.</p>}</section>
+        <section className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm space-y-2">
+          <p className="text-sm font-medium">Founding access</p>
+          <p className="text-sm text-zinc-500">Support Stryde early and lock in the founding rate. Payments are handled by Stripe when billing is switched on — until then nothing is charged and nothing pretends to be.</p>
+          <button onClick={() => void foundingAccess()} disabled={loading} className="rounded-full bg-zinc-950 px-5 py-2.5 text-sm font-medium text-white disabled:opacity-40">Request founding access</button>
+        </section>
       </div>
     </main>
   );

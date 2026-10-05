@@ -3,6 +3,7 @@ import type { WorkingState } from "@/lib/work-controller";
 import { requireAuthenticatedSupabase } from "@/lib/supabase/server";
 import { checkWorkerDelegation, loadAutonomyPolicy } from "@/lib/autonomy-policy";
 import { workerToolKey } from "@/lib/worker-contract";
+import { recordFunnelEvent } from "@/lib/instrumentation";
 
 export const runtime = "nodejs";
 type RouteContext = { params: Promise<{ id: string }> };
@@ -141,6 +142,12 @@ export async function POST(request: Request, context: RouteContext) {
       return errorResponse("Delegation committed, but working-state persistence failed", 500);
     }
 
+    void recordFunnelEvent(supabase, {
+      ownerUserId: user.id,
+      eventType: "WORKER_EXECUTION",
+      pursuitId,
+      metadata: { worker_type: move.worker_type },
+    });
     return NextResponse.json({ delegated: true, ...data, working_state: waitingWorkingState }, { status: 201 });
   } catch (error) {
     if (error instanceof SyntaxError) return errorResponse("Request body must be valid JSON", 400);

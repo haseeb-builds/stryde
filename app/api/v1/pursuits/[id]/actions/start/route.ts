@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { validateAdaptiveWorkingState } from "@/lib/adaptive-work-controller";
 import { requireAuthenticatedSupabase } from "@/lib/supabase/server";
+import { recordFunnelEvent } from "@/lib/instrumentation";
 
 export const runtime = "nodejs";
 
@@ -88,6 +89,7 @@ export async function POST(request: Request, context: RouteContext) {
 
     if (persistError) return errorResponse("Action started, but working-state persistence failed", 500);
 
+    void recordFunnelEvent(supabase, { ownerUserId: user.id, eventType: "ACTION_STARTED", pursuitId: id });
     return NextResponse.json({ ...data, working_state: nextWorkingState }, { status: 201 });
   } catch (error) {
     if (error instanceof SyntaxError) return errorResponse("Request body must be valid JSON", 400);

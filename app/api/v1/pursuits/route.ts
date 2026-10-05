@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { ownerId, requireAuthenticatedSupabase } from "@/lib/supabase/server";
 import { ingestPastedSource } from "@/lib/source-ingestion";
 import { adaptAndStoreSource } from "@/lib/source-adaptation-store";
+import { recordFunnelEvent } from "@/lib/instrumentation";
 
 export const runtime = "nodejs";
 
@@ -45,6 +46,23 @@ export async function GET(request: Request) {
 
     const { data, error } = await query;
     if (error) return errorResponse("Unable to load pursuits", 500);
+
+    // A return session is a real product signal (the user came back), recorded
+    // at most once per UTC day and fail-open.
+    const dayStart = new Date();
+    dayStart.setUTCHours(0, 0, 0, 0);
+    const { data: returnedToday } = await supabase
+      .from("funnel_event")
+      .select("id")
+      .eq("owner_user_id", ownerId(user))
+      .eq("event_type", "RETURN_SESSION")
+      .gte("created_at", dayStart.toISOString())
+      .limit(1)
+      .maybeSingle();
+    if (!returnedToday) {
+      void recordFunnelEvent(supabase, { ownerUserId: ownerId(user), eventType: "RETURN_SESSION" });
+    }
+
     return NextResponse.json({ pursuits: data ?? [] });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unauthorized";
@@ -134,6 +152,13 @@ export async function POST(request: Request) {
         intake = { source_id: source.id as string, adapted: Boolean(stored.adaptation_id), warning: stored.warning };
       }
     }
+
+    void recordFunnelEvent(supabase, {
+      ownerUserId: user.id,
+      eventType: "PURSUIT_CREATED",
+      pursuitId: pursuit.id,
+      metadata: { with_initial_input: Boolean(initialInput) },
+    });
 
     return NextResponse.json({ pursuit, intake }, { status: 201 });
   } catch (error) {

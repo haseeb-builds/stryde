@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireAuthenticatedSupabase } from "@/lib/supabase/server";
+import { recordFunnelEvent } from "@/lib/instrumentation";
 import { getSupabaseServiceClient } from "@/lib/supabase/service";
 import { recordMemory } from "@/lib/memory";
 
@@ -75,6 +76,7 @@ export async function POST(request: Request, context: RouteContext) {
     }
 
     if (toStatus === "VERIFIED") {
+      void recordFunnelEvent(supabase, { ownerUserId: user.id, eventType: "VERIFIED_OUTCOME", pursuitId: claim.pursuit_id });
       const memoryType = claim.kind === "OUTCOME" ? "EXPERIENCE" : "FACT";
       await recordMemory(supabase, {
         ownerUserId: user.id,
