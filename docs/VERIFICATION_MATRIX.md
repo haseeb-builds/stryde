@@ -1,7 +1,7 @@
 # Stryde Verification Matrix
 
 Status: canonical verification matrix
-Reconciliation date: 2026-10-03
+Reconciliation date: 2026-10-05
 
 IMPLEMENTED = machinery exists.
 TESTED = relevant execution evidence exists.
@@ -37,7 +37,15 @@ END-TO-END VERIFIED = the complete intended loop was demonstrated.
 | User-configurable authority/autonomy policy | YES (tighten-only policy; approval semantics untouched) | YES unit + enforcement + browser | YES | NO | PARTIAL |
 | Multi-provider adaptive evidence acquisition | YES (configured-provider search chain: Exa + Firecrawl; JS-rendered page observation via the approved Firecrawl adapter) | YES mock + live DIRECT path; Firecrawl legs mock-only (no key) | YES | NO | YES local |
 | Proactive continuity | YES (cron: reconcile + SYSTEM check-in, idempotent) | YES live cron + unit 16 | YES | NO (needs CRON_SECRET on deployed env — set 2026-10-03) | YES local |
-| Browser capability | NO (runtime) — the product need (JS-rendered pages) is served by the Firecrawl render fallback 2026-10-04 | mock-proven | NO | NO | NO |
+| Browser capability | YES (BROWSER worker type + scripts/browser-worker.ts: real headless Edge/Chrome render, OBSERVE_PAGE bounded authority, SSRF guard) | YES — e2e:browser-worker 14/14 (real render, content-judged artifacts, nothing auto-verified) | YES | YES (2026-10-05: worker.browser tool registered on the live project; E2E ran against the live DB) | YES local + live-plane |
+| Stryde Skills (procedural memory) | YES (skill + skill_version tables, security scan, scan-gated lifecycle, approval gate, usage tracking, rollback-as-new-version, contextual UI panel) | YES — e2e:skills-agent (16-boundary suite covers clean/flagged/blocked lifecycle, revision, rollback, situation surfacing, archive semantics) | YES | NO — live DDL is an operator step (see below); product code fails open | YES local (local Supabase stack, all migrations) |
+| Agent selection (global + per-pursuit override + auto) | YES (user_agent_preference, situation-resolved hint; unconnected preference degrades honestly) | YES — e2e:skills-agent | YES | NO — live DDL is an operator step; product code fails open | YES local |
+| MCP capability transport | YES (MCP worker type + first-party JSON-RPC 2.0 stdio client; one bounded tool call per job via next_move.tool_call; STRYDE_MCP_SERVERS config) | YES — e2e:mcp-worker 10/10 (real MCP stdio server round-trip, content-judged) | YES | YES (worker.mcp registered on the live project; E2E ran against the live DB) | YES local + live-plane |
+| Voice input | YES (SpeechRecognition dictation in the composer feeding the same turn pipeline; graceful unsupported degradation) | YES browser | YES | YES (2026-10-05 production browser pass) | YES |
+| Market instrumentation (first-party funnel) | YES (funnel_event table + lib/instrumentation: SIGNUP → PURSUIT_CREATED → FIRST_TURN → ACTION_STARTED → WORKER_EXECUTION → VERIFIED_OUTCOME → RETURN_SESSION → PAID_CTA_CLICK; counters with scope, no content; fail-open) | YES (all write paths exercised by the E2E suites; queryable via GET /api/v1/events) | YES | NO — live DDL is an operator step; product code fails open | YES local |
+| Paid access | YES (honest 503 when unconfigured; real Stripe Checkout via platform-native fetch when configured; founding CTA records PAID_CTA_CLICK; activation runbook in docs/PAID_ACCESS.md) | YES (401/503 paths + client flow) | YES | PARTIAL (route live, honestly unconfigured until the operator adds Stripe keys) | YES local |
+| Context Compiler | YES (lib/context-compiler.ts: task-specific packet, relevance+recency+importance ranking, budget with value-ordered drops, compression with recoverable originals, supersession filtering, persisted selection report) | YES — 8 unit tests + every turn/E2E exercises it | YES | YES (live turns serve compiled packets; context_selection persisted in turn metadata) | YES |
+| Public landing (market UX) | YES ("What are you trying to make happen?" hero, three-step value story, zero internal ontology) | YES — e2e:ui 12/12 incl. no-ontology checks | YES | YES (2026-10-05: e2e:ui against https://stryde-topaz.vercel.app) | YES |
 | Document/media ingestion beyond text/PDF | NO (media stack: open decision) | NO | NO | NO | NO |
 | General MCP runtime | NO | NO | NO | NO | NO |
 | Social/community | NO (out of V1 by decision) | NO | NO | NO | NO |
@@ -136,9 +144,12 @@ END-TO-END VERIFIED = the complete intended loop was demonstrated.
   pursuit page primary card) is fixed; pursuit lists are capped at 30 with
   an honest hint; e2e:ui 12/12 in a real browser;
 Still NOT established by any of the above:
-- production verification of the CURRENT tree (the closure pass is deployed
-  in this delivery; each capability row's Production column reflects the
-  runtime that was live when it was proven);
+- live application of migrations 20261005010000 (agent preference),
+  20261005020000 (skills), 20261005040000 (funnel events) — this environment
+  deliberately holds no Supabase DDL credentials (RUNTIME.md); the product
+  fails open without them and the full behavior is proven on the local
+  Supabase stack. Operator step: apply these three migrations (Supabase CLI
+  or dashboard SQL editor);
 - a production-viable model credential (OpenRouter $0.00 credits — the ONLY
   external dependency left) and search/research provider keys (EXA_API_KEY,
   FIRECRAWL_API_KEY are absent from the build environment; every code path
@@ -151,3 +162,67 @@ Still NOT established by any of the above:
 
 Stryde should progressively remove verification work from the user when a reliable observation path exists. User reporting is a reality input, not an obligation to manually adjudicate facts that the system can establish itself.
 
+
+## Evidence (2026-10-05 — Issue #6 product-closure pass)
+
+Baseline: e393140 (verified recovery baseline, untouched; built forward on top).
+
+New product capabilities, all vertical slices (commit range cc3081e..646db26):
+- Context Compiler (3a4e5ef): the full Situation is no longer replayed into
+  every model call. Packets are task-specific, budgeted, relevance-ranked,
+  compressed with recoverable originals, supersession-filtered, and every
+  inclusion/drop is persisted in turn metadata (context_selection).
+- Pursuit intake (cc3081e): a pursuit can start from a goal, an existing
+  roadmap, or a messy dump (120k chars) — ingested as a hash-bound PASTED
+  source with PURSUIT_INTAKE provenance and interpreted, never prompt-dumped.
+- BROWSER worker (a525857): real headless render through the CONTROLLED
+  plane; SSRF-guarded; artifacts content-judged; browser_success_is_not_
+  verification declared in the tool's verification capability.
+- Agent selection + Skills (f901eca): policy B (global preference, pursuit
+  override, Stryde auto; hint not authority) and decision C skills (security
+  scan BLOCKED/FLAGGED/PASS, auto-activate clean, approval gate flagged,
+  refuse blocked, append-only versions, rollback-as-new-version, usage
+  tracking, archive semantics, contextual UI panel).
+- MCP transport (9000bd4): first-party JSON-RPC 2.0 stdio client; MCP worker
+  type with bounded one-tool-call jobs via next_move.tool_call; reference
+  echo server doubles as the worked example.
+- Instrumentation + paid + landing (3ed8233): first-party funnel with
+  fail-open recording; honest founding-access path (503 until Stripe keys;
+  real Checkout when configured; docs/PAID_ACCESS.md runbook); market-ready
+  signed-out hero with zero ontology.
+- Two latent control-plane defects repaired (3475417): FAILED human actions
+  now mechanically always carry blockers (the model could return none —
+  earlier passes had only seen the 429 fallback path); fresh worker-capability
+  provisioning crashed on a NOT NULL violation (only the renewal path had
+  ever been exercised).
+- One production defect found and fixed by actually exercising the production
+  conversation (646db26): a hallucinated memory candidate type failed the
+  whole turn; candidates are proposals and are now dropped individually.
+
+Live/real verification runs (2026-10-05, against the live Supabase project
+and the production build):
+- npm test 210/210; typecheck, lint, production build clean;
+- e2e:human 14/14; e2e:memory-loop 9/9; e2e:evidence-loop 5/5;
+  e2e:verify-web 6/6; e2e:controlled 19/19; e2e:opencode-worker 12/12
+  (real agent through the authenticated path);
+- e2e:browser-worker 14/14 (real headless render of a live page);
+- e2e:mcp-worker 10/10 (real MCP stdio round-trip);
+- e2e:skills-agent 16/16 (local Supabase stack, all 33 migrations);
+- e2e:ui 12/12 against PRODUCTION (https://stryde-topaz.vercel.app):
+  hydrate, sign-in, session, pursuit list, pursuit page, contextual panels,
+  no-ontology checks;
+- production conversation verified live on the deployed product: messy-dump
+  intake stored and adapted (warning null), a real model turn served by the
+  provider chain (openrouter) with adaptive question + options + working
+  state, context_selection persisted.
+
+Deployment: production deployment Ready (Vercel project stryde). The public
+surface is https://stryde-topaz.vercel.app (project domain, exempt from Vercel
+SSO deployment protection; the direct deployment URLs remain SSO-gated).
+
+HUMAN ACTION REQUIRED (recorded, not engineering):
+- apply migrations 20261005010000 / 20261005020000 / 20261005040000 to the
+  live project (agent preference, skills, funnel events) — no DDL credential
+  in this environment by design; product code fails open meanwhile;
+- optional: fund Stripe keys to open founding access (runbook exists);
+- optional: EXA/FIRECRAWL keys for live research legs (unchanged from 10-04).
