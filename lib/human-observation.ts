@@ -159,8 +159,17 @@ export async function interpretHumanActionReport(input: {
     maxOutputTokens: 2_200,
   });
 
+  const observation = validateHumanObservation(result.parsed);
+  // Product rule, enforced mechanically rather than trusted to the model's
+  // phrasing: a FAILED action always routes its blocker somewhere inspectable.
+  // The model may paraphrase the report into cleaner blockers, but it may not
+  // return none — the report itself is the floor.
+  if (input.terminalStatus === "FAILED" && observation.blockers.length === 0) {
+    observation.blockers = [input.report];
+  }
+
   return {
-    observation: validateHumanObservation(result.parsed),
+    observation,
     provider: result.provider,
     model: result.model,
   };

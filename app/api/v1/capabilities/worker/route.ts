@@ -118,10 +118,25 @@ export async function POST(request: Request) {
       return NextResponse.json({ active: true, worker_type: workerType, expires_at: expiresAt, renewed: true, event_id: event.id }, { status: 200 });
     }
 
+    // The capability decision is user-scoped, but the decision table demands a
+    // pursuit context: attribute it to the user's most recent pursuit — the
+    // place the delegation will actually operate. With no pursuit at all there
+    // is nothing to attribute, and an unattributable authority grant must be
+    // refused, not silently recorded.
+    const { data: contextPursuit } = await supabase
+      .from("pursuit")
+      .select("id")
+      .eq("owner_user_id", user.id)
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (!contextPursuit) return errorResponse("Create a Pursuit before enabling worker delegation", 409);
+
     const { data: decision, error: decisionError } = await supabase
       .from("decision")
       .insert({
         owner_user_id: user.id,
+        pursuit_id: contextPursuit.id,
         kind: "STRATEGIC",
         status: "RESOLVED",
         resolution_actor_type: "USER",

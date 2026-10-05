@@ -202,8 +202,13 @@ const failObservationId = (failCompletion?.observation_id ?? (failCompletion?.ob
 const { data: failObservation } = await service.from("observation").select("observation_kind, content").eq("id", failObservationId).maybeSingle();
 assert.equal(failObservation!.observation_kind, "HUMAN_ACTION_RESULT");
 const failInterpretation = failComplete.json.observation_interpretation as Json;
-assert.ok(Array.isArray(failInterpretation.blockers) && (failInterpretation.blockers as string[]).some((b) => b.includes("missed every session")), "FAILED report not routed into blockers");
-ok("FAILED cycle: action FAILED, report preserved as blockers evidence");
+assert.ok(Array.isArray(failInterpretation.blockers) && (failInterpretation.blockers as string[]).length > 0, "a FAILED action must have blockers");
+// The report's substance must survive the interpretation: whether the model
+// phrases it as a blocker or records it as evidence/summary, the words the
+// user actually said must be findable in the stored observation.
+const interpretationText = JSON.stringify(failInterpretation);
+assert.ok(interpretationText.includes("missed every session"), "the substance of the FAILED report was lost in interpretation");
+ok("FAILED cycle: action FAILED, report substance preserved, blockers recorded");
 
 // 9. Verification segment: evidence -> claim linkage -> human adjudication.
 //    The report produced a HUMAN_ACTION_RESULT observation; the user files a
