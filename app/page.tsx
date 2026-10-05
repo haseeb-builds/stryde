@@ -11,6 +11,8 @@ export default function HomePage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [title, setTitle] = useState("");
+  const [initialInput, setInitialInput] = useState("");
+  const [showIntake, setShowIntake] = useState(false);
   const [pursuits, setPursuits] = useState<Pursuit[]>([]);
   const [sessionReady, setSessionReady] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -83,11 +85,11 @@ export default function HomePage() {
     const response = await fetch("/api/v1/pursuits", {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ title: title.trim() }),
+      body: JSON.stringify({ title: title.trim(), ...(initialInput.trim() ? { initial_input: initialInput.trim() } : {}) }),
     });
     const body = (await response.json()) as { pursuit?: Pursuit; error?: string };
     if (!response.ok || !body.pursuit) setError(body.error || "Unable to create pursuit.");
-    else { setTitle(""); setPursuits((current) => [body.pursuit!, ...current]); router.push(`/pursuits/${body.pursuit.id}`); }
+    else { setTitle(""); setInitialInput(""); setShowIntake(false); setPursuits((current) => [body.pursuit!, ...current]); router.push(`/pursuits/${body.pursuit.id}`); }
     setLoading(false);
   }
 
@@ -125,7 +127,12 @@ export default function HomePage() {
     <main className="min-h-screen bg-zinc-50 px-6 py-10 text-zinc-950">
       <div className="mx-auto max-w-3xl space-y-8">
         <header className="flex items-start justify-between gap-6"><div><p className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-400">Stryde</p><h1 className="mt-2 text-4xl font-semibold tracking-tight">What needs to move?</h1><p className="mt-2 text-zinc-500">Start with a real outcome. Stryde will help you work the situation.</p></div><button onClick={() => void signOut()} className="text-sm text-zinc-500">Sign out</button></header>
-        <form onSubmit={createPursuit} className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm space-y-4"><input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Land my first AI-native operations client" className="w-full rounded-xl border border-zinc-300 px-4 py-4 text-lg outline-none focus:border-zinc-950"/><button disabled={loading || !title.trim()} className="rounded-full bg-zinc-950 px-5 py-2.5 text-sm font-medium text-white disabled:opacity-40">Start pursuit</button>{error && <p className="text-sm text-red-600">{error}</p>}</form>
+        <form onSubmit={createPursuit} className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm space-y-4"><input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Land my first AI-native operations client" className="w-full rounded-xl border border-zinc-300 px-4 py-4 text-lg outline-none focus:border-zinc-950"/><button disabled={loading || !title.trim()} className="rounded-full bg-zinc-950 px-5 py-2.5 text-sm font-medium text-white disabled:opacity-40">Start pursuit</button>{error && <p className="text-sm text-red-600">{error}</p>}
+  <button type="button" onClick={() => setShowIntake((v) => !v)} className="text-xs text-zinc-500 underline underline-offset-2">{showIntake ? "Hide context" : "Add a roadmap or notes (optional)"}</button>
+  {showIntake && (
+    <textarea value={initialInput} onChange={(e) => setInitialInput(e.target.value)} rows={6} maxLength={120000} placeholder="Paste an existing roadmap from another AI, your own notes, or one big messy brain-dump. Stryde will read it, find what matters, and ask only what it needs to." className="w-full rounded-xl border border-zinc-300 px-4 py-3 text-sm outline-none focus:border-zinc-950" />
+  )}
+</form>
         <section className="space-y-3"><p className="text-sm font-medium text-zinc-500">Active pursuits</p>{pursuits.length === 0 ? <div className="rounded-2xl border border-dashed border-zinc-300 p-8 text-sm text-zinc-500">No pursuits yet. Start with something real.</div> : pursuits.map((pursuit) => <button key={pursuit.id} onClick={() => router.push(`/pursuits/${pursuit.id}`)} className="block w-full rounded-2xl border border-zinc-200 bg-white p-5 text-left shadow-sm hover:border-zinc-400"><p className="font-medium">{pursuit.title || "Untitled pursuit"}</p><p className="mt-1 text-xs text-zinc-500">{pursuit.status}</p></button>)}{pursuits.length >= 30 && <p className="text-xs text-zinc-400">Showing your 30 most recent pursuits.</p>}</section>
       </div>
     </main>

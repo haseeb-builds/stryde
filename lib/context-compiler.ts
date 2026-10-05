@@ -224,12 +224,20 @@ export function compileContext(
   for (const item of sourcesSelected) {
     const preview = truncate(item.record.title, 200);
     if (preview.compressed) truncated.push({ kind: "source", id: String(item.record.id ?? "?") });
+    // A bounded excerpt of the source's actual content: a pasted roadmap or a
+    // fetched page is often the most important context a new pursuit has. The
+    // full content stays in the canonical store; the packet carries enough for
+    // the model to reason about what the source IS.
+    const excerpt = truncate(item.record.content_text, 1_200);
+    if (excerpt.compressed) truncated.push({ kind: "source", id: String(item.record.id ?? "?") });
     sections.push({
       kind: "source", id: String(item.record.id ?? "?"), score: 1 + item.score,
-      reasons: item.reasons, compressed: preview.compressed,
+      reasons: item.reasons, compressed: preview.compressed || excerpt.compressed,
       record: {
         id: item.record.id, source_kind: item.record.source_kind, uri: item.record.uri,
         title: preview.text, fetch_status: item.record.fetch_status, created_at: item.record.created_at,
+        content_excerpt: excerpt.text,
+        content_total_chars: typeof item.record.content_text === "string" ? item.record.content_text.length : 0,
       },
     });
   }

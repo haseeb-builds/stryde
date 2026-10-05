@@ -65,7 +65,7 @@ export async function assembleAdaptiveSituation(
   const [sourcesResult, actionsResult, observationsResult, sessionsResult, workerGrantsResult, userMemoriesResult, pursuitMemoriesResult] = await Promise.all([
     supabase
       .from("pursuit_source")
-      .select("id, source_kind, uri, title, content_type, fetch_status, content_sha256, source_metadata, created_at, updated_at")
+      .select("id, source_kind, uri, title, content_type, fetch_status, content_sha256, source_metadata, content_text, created_at, updated_at")
       .eq("owner_user_id", ownerUserId)
       .eq("pursuit_id", pursuitId)
       .order("created_at", { ascending: false })

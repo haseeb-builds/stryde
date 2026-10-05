@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { ownerId, requireAuthenticatedSupabase } from "@/lib/supabase/server";
+import { ingestPastedSource } from "@/lib/source-ingestion";
+import { adaptAndStoreSource } from "@/lib/source-adaptation-store";
 
 export const runtime = "nodejs";
 
@@ -52,7 +54,7 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const { supabase } = await requireAuthenticatedSupabase(
+    const { supabase, user } = await requireAuthenticatedSupabase(
       request.headers.get("authorization"),
     );
 
@@ -68,9 +70,19 @@ export async function POST(request: Request) {
       "origin_thread_id" in body && typeof body.origin_thread_id === "string"
         ? body.origin_thread_id
         : null;
+    // A pursuit can start from a goal alone, an existing roadmap from another
+    // AI, or a huge messy dump. Whatever it is, Stryde ingests it as a source
+    // attached to the new pursuit — never as a wall of text inside a prompt.
+    const initialInput =
+      "initial_input" in body && typeof body.initial_input === "string"
+        ? body.initial_input.trim()
+        : "";
 
     if (title !== null && title.length > 500) {
       return errorResponse("title is too long", 400);
+    }
+    if (initialInput.length > 120_000) {
+      return errorResponse("initial_input is too long (120,000 character maximum)", 413);
     }
 
     const { data, error } = await supabase.rpc("stryde_create_pursuit", {
@@ -78,8 +90,52 @@ export async function POST(request: Request) {
       p_origin_thread_id: originThreadId,
     });
 
-    if (error) return errorResponse("Unable to create pursuit", 500);
-    return NextResponse.json({ pursuit: data }, { status: 201 });
+    if (error || !data) return errorResponse("Unable to create pursuit", 500);
+    const pursuit = data as { id: string };
+
+    let intake: { source_id: string; adapted: boolean; warning: string | null } | null = null;
+    if (initialInput) {
+      const ingested = await ingestPastedSource({ content: initialInput, title: title ?? "Pursuit intake" });
+      const { data: source, error: sourceError } = await supabase
+        .from("pursuit_source")
+        .insert({
+          owner_user_id: user.id,
+          pursuit_id: pursuit.id,
+          source_kind: ingested.sourceKind,
+          uri: ingested.uri,
+          title: ingested.title,
+          content_type: ingested.contentType,
+          fetch_status: ingested.fetchStatus,
+          content_text: ingested.contentText,
+          content_sha256: ingested.contentSha256,
+          source_metadata: { ...ingested.sourceMetadata, ingestion: "PURSUIT_INTAKE" },
+        })
+        .select("id, fetch_status, content_sha256")
+        .single();
+
+      if (sourceError || !source) {
+        intake = { source_id: "", adapted: false, warning: "The Pursuit was created, but Stryde could not store the initial input." };
+      } else if (ingested.fetchStatus === "FAILED" || ingested.fetchStatus === "UNSUPPORTED") {
+        intake = { source_id: source.id as string, adapted: false, warning: "The Pursuit was created, but the initial input could not be read." };
+      } else {
+        const stored = await adaptAndStoreSource({
+          supabase,
+          ownerUserId: user.id,
+          pursuitId: pursuit.id,
+          source: {
+            id: source.id as string,
+            uri: ingested.uri,
+            title: ingested.title,
+            contentText: ingested.contentText,
+            contentSha256: source.content_sha256 as string | null,
+            fetchStatus: ingested.fetchStatus,
+          },
+        });
+        intake = { source_id: source.id as string, adapted: Boolean(stored.adaptation_id), warning: stored.warning };
+      }
+    }
+
+    return NextResponse.json({ pursuit, intake }, { status: 201 });
   } catch (error) {
     if (error instanceof SyntaxError) {
       return errorResponse("Request body must be valid JSON", 400);
