@@ -23,7 +23,8 @@
     "e2e:memory-loop": "node --experimental-strip-types scripts/e2e-memory-loop.ts",
     "e2e:evidence-loop": "node --experimental-strip-types scripts/e2e-evidence-loop.ts",
     "worker:browser": "node --experimental-strip-types scripts/browser-worker.ts",
-    "e2e:browser-worker": "node --experimental-strip-types scripts/e2e-browser-worker.ts"
+    "e2e:browser-worker": "node --experimental-strip-types scripts/e2e-browser-worker.ts",
+    "e2e:skills-agent": "node --experimental-strip-types scripts/e2e-skills-agent.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.110.0",

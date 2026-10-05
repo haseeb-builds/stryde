@@ -3,6 +3,7 @@ import { assembleSituation, type Situation } from "@/lib/situation";
 import { rankMemories } from "@/lib/memory-core";
 import { WORKER_TYPES, type WorkerType } from "@/lib/actor";
 import { workerToolKey } from "@/lib/worker-contract";
+import { loadAgentSelection, resolvePreferredWorkers, type AgentSelection } from "@/lib/agent-selection";
 
 export type MemoryEpisode = {
   session_id: string;
@@ -44,6 +45,22 @@ export type MemoryItem = {
   updated_at: string;
 };
 
+export type AgentSelectionInfo = AgentSelection & {
+  allowed_workers: WorkerType[];
+  note: string | null;
+};
+
+export type SkillContextItem = {
+  id: string;
+  title: string;
+  description: string | null;
+  procedure: unknown;
+  version: number;
+  usage_count: number;
+  last_used_at: string | null;
+  updated_at: string;
+};
+
 export type AdaptiveSituation = Situation & {
   sources: unknown[];
   source_adaptations: unknown[];
@@ -52,6 +69,8 @@ export type AdaptiveSituation = Situation & {
   memories: MemoryItem[];
   worker_capabilities: WorkerCapability[];
   capabilities: SituationCapabilities;
+  agent_selection: AgentSelectionInfo;
+  skills: SkillContextItem[];
 };
 
 export async function assembleAdaptiveSituation(
@@ -62,7 +81,7 @@ export async function assembleAdaptiveSituation(
   const base = await assembleSituation(supabase, ownerUserId, pursuitId);
   if (base.error || !base.situation) return { situation: null, error: base.error ?? "Unable to assemble Situation" };
 
-  const [sourcesResult, actionsResult, observationsResult, sessionsResult, workerGrantsResult, userMemoriesResult, pursuitMemoriesResult] = await Promise.all([
+  const [sourcesResult, actionsResult, observationsResult, sessionsResult, workerGrantsResult, userMemoriesResult, pursuitMemoriesResult, skillsResult] = await Promise.all([
     supabase
       .from("pursuit_source")
       .select("id, source_kind, uri, title, content_type, fetch_status, content_sha256, source_metadata, content_text, created_at, updated_at")
@@ -112,7 +131,23 @@ export async function assembleAdaptiveSituation(
       .order("importance", { ascending: false })
       .order("updated_at", { ascending: false })
       .limit(30),
+    supabase
+      .from("skill")
+      .select("id, pursuit_id, title, description, procedure, version, usage_count, last_used_at, updated_at")
+      .eq("owner_user_id", ownerUserId)
+      .eq("status", "ACTIVE")
+      .or(`pursuit_id.is.null,pursuit_id.eq.${pursuitId}`)
+      .order("last_used_at", { ascending: false, nullsFirst: false })
+      .order("usage_count", { ascending: false })
+      .order("updated_at", { ascending: false })
+      .limit(6),
   ]);
+
+  // Skills and agent preferences are newer subsystems: where the runtime
+  // database does not yet carry their tables, they degrade to "none" instead
+  // of failing the whole Situation. A missing optional capability must never
+  // break the core conversation loop.
+  const skillsRows = skillsResult.error ? [] : (skillsResult.data ?? []);
 
   if (sourcesResult.error || actionsResult.error || observationsResult.error || sessionsResult.error || workerGrantsResult.error || userMemoriesResult.error || pursuitMemoriesResult.error) {
     return { situation: null, error: "Unable to assemble adaptive Situation" };
@@ -219,6 +254,26 @@ export async function assembleAdaptiveSituation(
     new Date(),
   );
 
+  // Agent selection (policy B): the user's preference (pursuit override,
+  // global preference, or Stryde's choice) resolved against what is actually
+  // connected, so the planner allocates workers within reality.
+  let agentSelection: AgentSelection;
+  try {
+    agentSelection = await loadAgentSelection(supabase, ownerUserId, pursuitId);
+  } catch {
+    agentSelection = { preferred: null, source: "STRYDE_AUTO" };
+  }
+  const resolved = resolvePreferredWorkers(
+    agentSelection,
+    worker_capabilities.map((capability) => capability.worker_type),
+  );
+  const agent_selection: AgentSelectionInfo = {
+    preferred: agentSelection.preferred,
+    source: agentSelection.source,
+    allowed_workers: resolved.allowed,
+    note: resolved.note,
+  };
+
   return {
     situation: {
       ...base.situation,
@@ -231,6 +286,8 @@ export async function assembleAdaptiveSituation(
       capabilities: {
         web_search: Boolean(process.env.EXA_API_KEY?.trim()),
       },
+      agent_selection,
+      skills: skillsRows as unknown as SkillContextItem[],
     },
     error: null,
   };

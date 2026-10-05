@@ -16,20 +16,22 @@ type Policy = {
 
 const DEFAULT_POLICY: Policy = {
   allow_worker_delegation: false,
-  allowed_worker_types: ["HERMES", "OPENCODE"],
+  allowed_worker_types: ["HERMES", "OPENCODE", "BROWSER"],
   auto_execute_research: true,
 };
 
-const WORKER_LABELS: Record<string, string> = { HERMES: "Hermes", OPENCODE: "OpenCode" };
+const WORKER_LABELS: Record<string, string> = { HERMES: "Hermes", OPENCODE: "OpenCode", BROWSER: "Browser" };
 
-export default function PursuitAutonomyRow(props: { sessionActive: boolean }) {
-  const { sessionActive } = props;
+export default function PursuitAutonomyRow(props: { sessionActive: boolean; pursuitId: string }) {
+  const { sessionActive, pursuitId } = props;
   const [open, setOpen] = useState(false);
   const [configured, setConfigured] = useState(false);
   const [policy, setPolicy] = useState<Policy>(DEFAULT_POLICY);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [saved, setSaved] = useState(false);
+  const [agent, setAgent] = useState<string>("");
+  const [agentSaved, setAgentSaved] = useState(false);
 
   const load = useCallback(async () => {
     if (!sessionActive) return;
@@ -43,10 +45,47 @@ export default function PursuitAutonomyRow(props: { sessionActive: boolean }) {
     setPolicy(body.policy);
   }, [sessionActive]);
 
+  const loadAgent = useCallback(async () => {
+    if (!sessionActive) return;
+    const { data } = await supabase.auth.getSession();
+    const token = data.session?.access_token;
+    if (!token) return;
+    const r = await fetch(`/api/v1/agent-preference?pursuit_id=${pursuitId}`, { headers: { Authorization: `Bearer ${token}` } });
+    if (!r.ok) return;
+    const body = (await r.json()) as { preferred_worker_type: string | null };
+    setAgent(body.preferred_worker_type ?? "");
+  }, [sessionActive, pursuitId]);
+
   useEffect(() => {
-    const t = window.setTimeout(() => { void load(); }, 0);
+    const t = window.setTimeout(() => { void load(); void loadAgent(); }, 0);
     return () => window.clearTimeout(t);
-  }, [load]);
+  }, [load, loadAgent]);
+
+  async function saveAgent(next: string) {
+    setBusy(true);
+    setError("");
+    setAgentSaved(false);
+    try {
+      const { data } = await supabase.auth.getSession();
+      const token = data.session?.access_token;
+      if (!token) return;
+      const r = await fetch("/api/v1/agent-preference", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ preferred_worker_type: next || null, pursuit_id: pursuitId }),
+      });
+      if (!r.ok) {
+        const body = (await r.json().catch(() => ({}))) as { error?: string };
+        setError(body.error ?? "Could not save the agent choice");
+        return;
+      }
+      setAgent(next);
+      setAgentSaved(true);
+      window.setTimeout(() => setAgentSaved(false), 2500);
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function save(next: Policy) {
     setBusy(true);
@@ -130,6 +169,23 @@ export default function PursuitAutonomyRow(props: { sessionActive: boolean }) {
               ))}
             </div>
           ) : null}
+          <div className="flex items-center justify-between gap-3 py-1.5">
+            <span className="text-sm text-zinc-700">Agent for delegated work on this pursuit</span>
+            <span className="flex items-center gap-2">
+              {agentSaved ? <span className="text-[13px] text-emerald-700">Saved.</span> : null}
+              <select
+                disabled={busy}
+                value={agent}
+                onChange={(event) => void saveAgent(event.target.value)}
+                className="rounded-lg border border-zinc-300 px-2 py-1 text-xs"
+              >
+                <option value="">Stryde chooses</option>
+                {Object.entries(WORKER_LABELS).map(([workerType, label]) => (
+                  <option key={workerType} value={workerType}>{label}</option>
+                ))}
+              </select>
+            </span>
+          </div>
           <label className="flex items-center justify-between gap-3 py-1.5">
             <span className="text-sm text-zinc-700">Let Stryde look things up on the web on its own when the situation needs it</span>
             <input

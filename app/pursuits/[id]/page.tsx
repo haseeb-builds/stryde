@@ -9,6 +9,7 @@ import PursuitWorkPanels from "./work-panels";
 import PursuitClaimsPanel from "./claims-panel";
 import PursuitMemoryPanel from "./memory-panel";
 import PursuitAutonomyRow from "./autonomy-row";
+import PursuitSkillsPanel from "./skills-panel";
 
 type Pursuit = { id: string; title: string | null; status: string };
 type Option = { label: string; value: string };
@@ -1054,7 +1055,8 @@ export default function PursuitPage() {
                 />
                 <PursuitClaimsPanel pursuitId={params.id} sessionActive={Boolean(session)} />
                 <PursuitMemoryPanel pursuitId={params.id} sessionActive={Boolean(session)} />
-                <PursuitAutonomyRow sessionActive={Boolean(session)} />
+                <PursuitSkillsPanel pursuitId={params.id} sessionActive={Boolean(session)} />
+                <PursuitAutonomyRow pursuitId={params.id} sessionActive={Boolean(session)} />
               </div>
             </div>
           </div>

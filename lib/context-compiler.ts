@@ -37,7 +37,7 @@ export type SelectionReason =
   | "ACTIVE_STATE";
 
 export type CompiledItem = {
-  kind: "memory" | "source" | "adaptation" | "observation" | "episode";
+  kind: "memory" | "source" | "adaptation" | "observation" | "episode" | "skill";
   id: string;
   reasons: SelectionReason[];
   score: number;
@@ -69,6 +69,8 @@ export type ContextPacket = {
   episodic_memory: Array<Record<string, unknown>>;
   worker_capabilities: AdaptiveSituation["worker_capabilities"];
   capabilities: AdaptiveSituation["capabilities"];
+  agent_selection: AdaptiveSituation["agent_selection"];
+  skills: Array<Record<string, unknown>>;
 };
 
 const STOPWORDS = new Set([  "the", "a", "an", "and", "or", "but", "of", "to", "in", "on", "for", "with", "is", "are", "was",
@@ -280,6 +282,27 @@ export function compileContext(
     });
   }
 
+  // --- Skills: ACTIVE procedures only; usage and recency break ties. A skill
+  // travels with its steps intact — a procedure truncated to noise is worse
+  // than no procedure — so the cap (6 in the situation, further budget drops)
+  // is the compression mechanism, not per-step truncation.
+  const MAX_SKILLS = 6;
+  for (const skill of (situation.skills ?? []).slice(0, MAX_SKILLS)) {
+    sections.push({
+      kind: "skill", id: skill.id,
+      score: 2 + Math.min(1, skill.usage_count / 20) + recencyScore(skill.updated_at, now),
+      reasons: reasonsFor(`${skill.title} ${skill.description ?? ""}`, skill.updated_at, 0.5),
+      compressed: false,
+      record: {
+        id: skill.id, title: skill.title, description: skill.description,
+        procedure: skill.procedure, version: skill.version, usage_count: skill.usage_count,
+      } as Record<string, unknown>,
+    });
+  }
+  for (const skill of (situation.skills ?? []).slice(MAX_SKILLS)) {
+    dropped.push({ kind: "skill", id: skill.id, why: "beyond the skill cap for this packet" });
+  }
+
   const packetShell = (): ContextPacket => ({
     pursuit: {
       title: (situation.pursuit as { title?: string | null } | undefined)?.title ?? null,
@@ -297,6 +320,8 @@ export function compileContext(
     episodic_memory: [],
     worker_capabilities: situation.worker_capabilities,
     capabilities: situation.capabilities,
+    agent_selection: situation.agent_selection,
+    skills: [],
   });
 
   const packet = packetShell();
@@ -306,6 +331,7 @@ export function compileContext(
     packet.source_adaptations = sections.filter((s) => s.kind === "adaptation").map((s) => s.record);
     packet.observations = sections.filter((s) => s.kind === "observation").map((s) => s.record);
     packet.episodic_memory = sections.filter((s) => s.kind === "episode").map((s) => s.record);
+    packet.skills = sections.filter((s) => s.kind === "skill").map((s) => s.record);
   };
   fill();
 
@@ -314,7 +340,7 @@ export function compileContext(
   if (used > budgetChars) {
     // Drop lowest-scored, bulkiest sections until under budget. Observations
     // and episodes go first; memories last (highest value density).
-    const dropOrder: Record<Section["kind"], number> = { observation: 0, episode: 1, adaptation: 2, source: 3, memory: 4 };
+    const dropOrder: Record<Section["kind"], number> = { observation: 0, episode: 1, adaptation: 2, source: 3, skill: 4, memory: 5 };
     sections = [...sections].sort((a, b) =>
       dropOrder[a.kind] - dropOrder[b.kind] || a.score - b.score);
     while (used > budgetChars && sections.length > 0) {
