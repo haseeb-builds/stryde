@@ -115,17 +115,24 @@ ok("pursuit page exposes no internal ontology as primary UI");
 // The panels are sections with heading text and toggle buttons (not
 // <details>), so reachability is checked against the rendered section
 // headers on the pursuit surface.
-const contextualPanels = await cdp.evaluate(
-  "(() => {" +
-  "  const t = document.body.innerText;" +
-  "  return {" +
-  "    claims: /Evidence & claims/i.test(t)," +
-  "    memory: /What Stryde remembers/i.test(t)," +
-  "    sources: /Source material/i.test(t)," +
-  "    autonomy: /What Stryde may do on its own/i.test(t)" +
-  "  };" +
-  "})()"
-);
+// The panels mount after the client resolves its session; on a production
+// edge that takes longer than a fixed snapshot, so poll until they appear.
+let contextualPanels = null;
+for (let i = 0; i < 15; i++) {
+  contextualPanels = await cdp.evaluate(
+    "(() => {" +
+    "  const t = document.body.innerText;" +
+    "  return {" +
+    "    claims: /Evidence & claims/i.test(t)," +
+    "    memory: /What Stryde remembers/i.test(t)," +
+    "    sources: /Source material/i.test(t)," +
+    "    autonomy: /What Stryde may do on its own/i.test(t)" +
+    "  };" +
+    "})()"
+  );
+  if (contextualPanels.claims && contextualPanels.memory && contextualPanels.sources && contextualPanels.autonomy) break;
+  await new Promise((r) => setTimeout(r, 2000));
+}
 if (!contextualPanels.claims) fail("claims/evidence panel is not reachable in the browser");
 ok("claims/evidence panel reachable as contextual disclosure");
 if (!contextualPanels.memory) fail("memory panel is not reachable in the browser");
