@@ -213,7 +213,6 @@ const teardownDispatcher = () => {
 };
 process.on("exit", teardownDispatcher);
 let job: Json | undefined;
-let run: { output: string };
 try {
   for (let i = 0; i < 120 && !job; i++) {
     const { data } = await service.from("job").select("status, resolved_at, tool_id").eq("id", jobId).maybeSingle();
@@ -223,7 +222,6 @@ try {
     await new Promise((r) => setTimeout(r, 2000));
   }
   assert.ok(job, `job never reached a terminal state; dispatcher output: ${dispatcherOutput.slice(-2_000)}`);
-  run = { output: dispatcherOutput };
 } finally {
   teardownDispatcher();
   process.off("exit", teardownDispatcher);
