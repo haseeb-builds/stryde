@@ -69,7 +69,7 @@ function ok(name: string, detail: string) { passed += 1; console.log(`  ✔ ${na
 const turnStart = Date.now();
 const turn = await runConversationTurn({
   pursuitTitle: "Probe: conversation turn",
-  situation,
+  contextPacket: situation,
   conversation,
   userMessage: "Help me turn this into a concrete plan.",
 });
@@ -81,7 +81,7 @@ ok("runConversationTurn: real provider, schema-valid ConversationTurn", `${turn.
 const workStart = Date.now();
 const work = await runWorkController({
   pursuitTitle: "Probe: work controller",
-  situation,
+  contextPacket: situation,
   conversation: [...conversation, { role: "stryde" as const, content: turn.turn.message }],
   previousWorkingState: null,
 });

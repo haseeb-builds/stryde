@@ -220,16 +220,19 @@ export function validateConversationTurn(value: unknown): ConversationTurn {
 
 function buildConversationPrompt(input: {
   pursuitTitle: string;
-  situation: unknown;
+  contextPacket: unknown;
   conversation: ConversationMessage[];
   userMessage: string;
   workingState?: WorkingState | null;
 }): string {
   const userMessage = input.userMessage.trim();
   const history = sanitizeConversation([...input.conversation, { role: "user", content: userMessage }]);
+  // The model receives the compiled context packet — the task-specific
+  // projection the Context Compiler selected — never the full canonical
+  // situation. Deeper retrieval is deliberate, not a replay.
   const workingContext = JSON.stringify({
     pursuit_title: input.pursuitTitle,
-    canonical_situation: input.situation,
+    canonical_context: input.contextPacket,
     previous_working_state: input.workingState ?? null,
     conversation: history,
   });
@@ -269,7 +272,7 @@ function buildConversationPrompt(input: {
 export async function streamConversationTurn(
   input: {
     pursuitTitle: string;
-    situation: unknown;
+    contextPacket: unknown;
     conversation: ConversationMessage[];
     userMessage: string;
     workingState?: WorkingState | null;
@@ -293,7 +296,7 @@ export async function streamConversationTurn(
 
 export async function runConversationTurn(input: {
   pursuitTitle: string;
-  situation: unknown;
+  contextPacket: unknown;
   conversation: ConversationMessage[];
   userMessage: string;
   workingState?: WorkingState | null;
@@ -316,13 +319,13 @@ export async function runConversationTurn(input: {
 
 export async function runWorkController(input: {
   pursuitTitle: string;
-  situation: unknown;
+  contextPacket: unknown;
   conversation: ConversationMessage[];
   previousWorkingState: WorkingState | null;
 }): Promise<{ workingState: WorkingState; provider: string; model: string }> {
   const prompt = buildWorkControllerPrompt({
     pursuitTitle: input.pursuitTitle,
-    situation: input.situation,
+    situation: input.contextPacket,
     conversation: input.conversation,
     previousWorkingState: input.previousWorkingState,
   });

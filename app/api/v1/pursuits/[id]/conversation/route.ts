@@ -6,6 +6,7 @@ import { requireAuthenticatedSupabase } from "@/lib/supabase/server";
 import { createConversationCommitter } from "@/lib/conversation-commit";
 import { recordMemory } from "@/lib/memory";
 import { processUniversalInput } from "@/lib/universal-input";
+import { compileContext } from "@/lib/context-compiler";
 
 export const runtime = "nodejs";
 export const maxDuration = 55;
@@ -106,6 +107,16 @@ export async function POST(request: Request, context: RouteContext) {
       return errorResponse(situationResult.error ?? "Unable to assemble adaptive Situation", 500);
     }
 
+    // The Context Compiler turns the canonical Situation into a task-specific
+    // packet for THIS turn. The model never sees the full situation replay;
+    // the selection report is persisted so retrieval stays inspectable.
+    const pursuitRow = situationResult.situation.pursuit as { title?: string | null; objective_claim_id?: string | null } | undefined;
+    const objectiveClaim = (situationResult.situation.claims as Array<{ id?: unknown; content?: unknown }>).find(
+      (claim) => claim && typeof claim === "object" && claim.id === pursuitRow?.objective_claim_id,
+    );
+    const objective = typeof objectiveClaim?.content === "string" ? objectiveClaim.content : null;
+    const compiled = compileContext(situationResult.situation, { userMessage: message, focus: null, objective });
+
     const conversationWithUser: ConversationMessage[] = [
       ...conversation,
       { role: "user", content: message },
@@ -122,7 +133,7 @@ export async function POST(request: Request, context: RouteContext) {
         try {
           const result = await streamConversationTurn({
             pursuitTitle: pursuit.title ?? "Untitled pursuit",
-            situation: situationResult.situation,
+            contextPacket: compiled.packet,
             conversation,
             userMessage: message,
             workingState: (session.working_state ?? null) as Parameters<typeof streamConversationTurn>[0]["workingState"],
@@ -138,9 +149,13 @@ export async function POST(request: Request, context: RouteContext) {
                 throw new Error(adaptiveSituationResult.error ?? "Unable to assemble adaptive Situation");
               }
 
+              // Recompile against the fresh situation: the adaptive
+              // reassessment happens after the universal-input effects above
+              // landed, so its packet may legitimately differ from the turn's.
+              const adaptiveCompiled = compileContext(adaptiveSituationResult.situation, { userMessage: message, focus: null, objective });
               const adaptive = await runAdaptiveWorkController({
                 pursuitTitle: pursuit.title ?? "Untitled pursuit",
-                situation: adaptiveSituationResult.situation,
+                contextPacket: adaptiveCompiled.packet,
                 conversation: conversationWithUser,
                 previousWorkingState: session.working_state as Parameters<typeof runAdaptiveWorkController>[0]["previousWorkingState"],
               });
@@ -226,6 +241,13 @@ export async function POST(request: Request, context: RouteContext) {
                   work: committedWork,
                   memory_candidates: result.turn.memory_candidates,
                   universal_input: universalInput,
+                  context_selection: {
+                    used_chars: compiled.report.used_chars,
+                    budget_chars: compiled.report.budget_chars,
+                    included: compiled.report.included,
+                    dropped: compiled.report.dropped.slice(0, 50),
+                    truncated: compiled.report.truncated.slice(0, 50),
+                  },
                 },
                 p_working_state: committedWork,
               });

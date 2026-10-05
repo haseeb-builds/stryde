@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { runAdaptiveWorkController } from "@/lib/adaptive-model";
 import { assembleAdaptiveSituation } from "@/lib/adaptive-situation";
+import { compileForSituation } from "@/lib/context-compiler";
 import { requireAuthenticatedSupabase } from "@/lib/supabase/server";
 import { getSupabaseServiceClient } from "@/lib/supabase/service";
 import { executeWebResearch } from "@/lib/research-execution";
@@ -85,7 +86,7 @@ export async function POST(request: Request, context: RouteContext) {
 
     let result = await runAdaptiveWorkController({
       pursuitTitle: pursuit.title ?? "Untitled pursuit",
-      situation: situationResult.situation,
+      contextPacket: compileForSituation(situationResult.situation, { userMessage: conversation[conversation.length - 1]?.content ?? "" }).packet,
       conversation,
       previousWorkingState: (session.working_state ?? null) as Parameters<typeof runAdaptiveWorkController>[0]["previousWorkingState"],
     });
@@ -118,7 +119,7 @@ export async function POST(request: Request, context: RouteContext) {
         if (!refreshedSituation.error && refreshedSituation.situation) {
           result = await runAdaptiveWorkController({
             pursuitTitle: pursuit.title ?? "Untitled pursuit",
-            situation: refreshedSituation.situation,
+            contextPacket: compileForSituation(refreshedSituation.situation, { userMessage: conversation[conversation.length - 1]?.content ?? "" }).packet,
             conversation,
             previousWorkingState: result.workingState,
           });
@@ -222,7 +223,7 @@ export async function POST(request: Request, context: RouteContext) {
         if (!refreshedSituation.error && refreshedSituation.situation) {
           result = await runAdaptiveWorkController({
             pursuitTitle: pursuit.title ?? "Untitled pursuit",
-            situation: refreshedSituation.situation,
+            contextPacket: compileForSituation(refreshedSituation.situation, { userMessage: conversation[conversation.length - 1]?.content ?? "" }).packet,
             conversation,
             previousWorkingState: result.workingState,
           });

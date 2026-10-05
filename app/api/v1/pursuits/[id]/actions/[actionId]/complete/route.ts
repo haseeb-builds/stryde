@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { runAdaptiveWorkController } from "@/lib/adaptive-model";
 import { fallbackHumanObservation, interpretHumanActionReport } from "@/lib/human-observation";
 import { assembleAdaptiveSituation } from "@/lib/adaptive-situation";
+import { compileForSituation } from "@/lib/context-compiler";
 import { requireAuthenticatedSupabase } from "@/lib/supabase/server";
 import { recordMemory } from "@/lib/memory";
 
@@ -313,7 +314,7 @@ export async function POST(request: Request, context: RouteContext) {
     try {
       const resultState = await runAdaptiveWorkController({
         pursuitTitle: pursuit.title ?? "Untitled pursuit",
-        situation: situationResult.situation,
+        contextPacket: compileForSituation(situationResult.situation, { userMessage: report }).packet,
         conversation,
         previousWorkingState: nextWorkingState,
       });

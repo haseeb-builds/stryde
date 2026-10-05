@@ -294,16 +294,21 @@ export async function runSourceAdaptation(input: {
 
 export async function runAdaptiveWorkController(input: {
   pursuitTitle: string;
-  situation: unknown;
+  contextPacket: unknown;
   conversation: Array<{ role: "user" | "stryde"; content: string }>;
   previousWorkingState: WorkingState | null;
 }): Promise<{ workingState: WorkingState; provider: string; model: string }> {
-  const prompt = buildAdaptiveWorkControllerPrompt(input);
+  const prompt = buildAdaptiveWorkControllerPrompt({
+    pursuitTitle: input.pursuitTitle,
+    situation: input.contextPacket,
+    conversation: input.conversation,
+    previousWorkingState: input.previousWorkingState,
+  });
   const result = await callStructuredModel("stryde_adaptive_work_controller", ADAPTIVE_WORKING_STATE_SCHEMA, prompt, 2_600);
   const workingState = validateAdaptiveWorkingState(result.parsed);
   const rawWorkers: unknown =
-    input.situation && typeof input.situation === "object" && "worker_capabilities" in input.situation
-      ? (input.situation as { worker_capabilities?: unknown }).worker_capabilities
+    input.contextPacket && typeof input.contextPacket === "object" && "worker_capabilities" in input.contextPacket
+      ? (input.contextPacket as { worker_capabilities?: unknown }).worker_capabilities
       : [];
   const workerTypes = Array.isArray(rawWorkers)
     ? rawWorkers
