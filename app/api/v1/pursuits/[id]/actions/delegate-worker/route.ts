@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import type { WorkingState } from "@/lib/work-controller";
 import { requireAuthenticatedSupabase } from "@/lib/supabase/server";
 import { checkWorkerDelegation, loadAutonomyPolicy } from "@/lib/autonomy-policy";
+import { workerToolKey } from "@/lib/worker-contract";
 
 export const runtime = "nodejs";
 type RouteContext = { params: Promise<{ id: string }> };
@@ -68,7 +69,9 @@ export async function POST(request: Request, context: RouteContext) {
       return errorResponse("Delegated work is already in flight for this Pursuit", 409);
     }
 
-    const toolKey = move.worker_type === "HERMES" ? "worker.hermes" : "worker.opencode";
+    // Derived from the worker type so a newly declared worker type is
+    // delegatable with no edit here.
+    const toolKey = workerToolKey(move.worker_type);
     const { data: tool, error: toolError } = await supabase
       .from("tool").select("id,tool_key,tool_version").eq("tool_key", toolKey).eq("tool_version", "v1").maybeSingle();
     if (toolError) return errorResponse("Unable to load worker capability", 500);

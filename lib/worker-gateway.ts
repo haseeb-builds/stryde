@@ -1,5 +1,10 @@
-export const WORKER_TYPES = ["HERMES", "OPENCODE"] as const;
-export type WorkerType = (typeof WORKER_TYPES)[number];
+// WORKER_TYPES lives in lib/actor.ts and actor.ts imports nothing, so this
+// re-export cannot cycle. One declaration prevents the type list from drifting
+// between the gateway, the contract validation, and the actor normalization.
+import { WORKER_TYPES, type WorkerType } from "./actor.ts";
+
+export { WORKER_TYPES };
+export type { WorkerType };
 
 export type WorkerWork = {
   pursuitId: string;

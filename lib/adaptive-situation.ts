@@ -1,6 +1,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { assembleSituation, type Situation } from "@/lib/situation";
 import { rankMemories } from "@/lib/memory-core";
+import { WORKER_TYPES, type WorkerType } from "@/lib/actor";
+import { workerToolKey } from "@/lib/worker-contract";
 
 export type MemoryEpisode = {
   session_id: string;
@@ -12,7 +14,7 @@ export type MemoryEpisode = {
 };
 
 export type WorkerCapability = {
-  worker_type: "HERMES" | "OPENCODE";
+  worker_type: WorkerType;
   tool_id: string;
   tool_version: string;
 };
@@ -157,12 +159,11 @@ export async function assembleAdaptiveSituation(
     const tool = Array.isArray(grant.tool) ? grant.tool[0] : grant.tool;
     const toolKey = tool && typeof tool === "object" ? tool.tool_key : null;
     const toolVersion = tool && typeof tool === "object" ? tool.tool_version : null;
-    if (toolKey === "worker.hermes" && typeof grant.tool_id === "string" && toolVersion === "v1") {
-      worker_capabilities.push({ worker_type: "HERMES", tool_id: grant.tool_id, tool_version: toolVersion });
-    }
-    if (toolKey === "worker.opencode" && typeof grant.tool_id === "string" && toolVersion === "v1") {
-      worker_capabilities.push({ worker_type: "OPENCODE", tool_id: grant.tool_id, tool_version: toolVersion });
-    }
+    if (typeof grant.tool_id !== "string" || toolVersion !== "v1") continue;
+    // A grant addresses a declared worker type iff its tool key is the derived
+    // key for that type — no per-worker branches here.
+    const matched = WORKER_TYPES.find((type) => toolKey === workerToolKey(type));
+    if (matched) worker_capabilities.push({ worker_type: matched, tool_id: grant.tool_id, tool_version: toolVersion });
   }
 
   const sessionIds = (sessionsResult.data ?? []).map((session) => session.id as string);

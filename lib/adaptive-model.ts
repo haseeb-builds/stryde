@@ -5,6 +5,7 @@ import {
 } from "@/lib/adaptive-work-controller";
 import type { WorkingState } from "@/lib/work-controller";
 import { getModelRouter } from "@/lib/model-provider";
+import { WORKER_TYPES } from "@/lib/actor";
 
 
 export const SOURCE_ADAPTATION_SCHEMA = {
@@ -308,7 +309,8 @@ export async function runAdaptiveWorkController(input: {
     ? rawWorkers
         .filter((item): item is { worker_type?: unknown } => typeof item === "object" && item !== null)
         .map((item) => item.worker_type)
-        .filter((item): item is "HERMES" | "OPENCODE" => item === "HERMES" || item === "OPENCODE")
+        .filter((item): item is (typeof WORKER_TYPES)[number] =>
+          typeof item === "string" && (WORKER_TYPES as readonly string[]).includes(item))
     : [];
   const availableWorkers = new Set(workerTypes);
 

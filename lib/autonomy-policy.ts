@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { WORKER_TYPES } from "./actor.ts";
 
 // Autonomy policy semantics (docs/DECISIONS.md D9): the direction — bounded,
 // user-configurable authority — is locked; this is the smallest sound grammar.
@@ -13,7 +14,11 @@ export type AutonomyPolicy = {
 
 export type AutonomyDecision = { allowed: boolean; reason: string | null };
 
-export const REGISTERED_WORKER_TYPES = ["HERMES", "OPENCODE"] as const;
+// Derived from WORKER_TYPES so a newly declared worker type is automatically
+// policy-addressable; REGISTERED is the set a user may enable, which is every
+// declared worker type. A capability that must NOT be user-enableable would be
+// subtracted here explicitly — never tracked by hand in a second list.
+export const REGISTERED_WORKER_TYPES = WORKER_TYPES;
 
 export async function loadAutonomyPolicy(
   supabase: SupabaseClient,

@@ -21,11 +21,14 @@
     "e2e:ui": "node scripts/e2e-ui-flow.mjs",
     "e2e:verify-web": "node --experimental-strip-types scripts/e2e-verify-web.ts",
     "e2e:memory-loop": "node --experimental-strip-types scripts/e2e-memory-loop.ts",
-    "e2e:evidence-loop": "node --experimental-strip-types scripts/e2e-evidence-loop.ts"
+    "e2e:evidence-loop": "node --experimental-strip-types scripts/e2e-evidence-loop.ts",
+    "worker:browser": "node --experimental-strip-types scripts/browser-worker.ts",
+    "e2e:browser-worker": "node --experimental-strip-types scripts/e2e-browser-worker.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.110.0",
     "next": "16.2.9",
+    "puppeteer-core": "^24.43.1",
     "react": "19.2.4",
     "react-dom": "19.2.4"
   },
