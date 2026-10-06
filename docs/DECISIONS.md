@@ -168,3 +168,28 @@ Stryde should selectively adopt patterns from ChatGPT, Claude, Gemini, Manus, Co
 LOCKED.
 
 Build internal capability packaging, security, discovery, permissions, and composition before building a public plugin/skill marketplace.
+
+### D29 — Plans shape capacity, never epistemics (Phase 3)
+
+LOCKED 2026-10-06. Free/Pro/Max are resource envelopes in `plan_envelope`
+(configurable data, never vendor call counts in code). Nothing in the
+entitlement or reservation layer can change the truth status of evidence.
+Expired/unknown paid states resolve to Free; non-Free rows require an
+auditable source (FOUNDING_ACCESS / BILLING_WEBHOOK / ADMIN_GRANT).
+
+### D30 — Resource control is a trusted-plane reservation lifecycle
+
+LOCKED 2026-10-06. Every metered operation reserves expected units before
+execution (advisory-lock-guarded against budget races), reconciles with
+actual usage after, releases on failure, and expires stale reservations via
+the continuity cron. Exhaustion is an honest 429/degradation, never a
+silent overspend; metering-plane failure refuses service (fail closed)
+rather than serving unmetered.
+
+### D31 — Discovery is not authority; trust is data
+
+LOCKED 2026-10-06. The capability registry and discovery resolver carry
+metadata and eligibility only. World-changing capabilities always require
+EXPLICIT_USER_APPROVAL. Package/MCP trust states (TRUSTED/REVIEWED/
+UNVERIFIED/BLOCKED) are recorded data, never inferred from content;
+unverified trust ceilings never rise through hints.
