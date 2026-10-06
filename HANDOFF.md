@@ -92,8 +92,13 @@ CONFIRMED unless labeled otherwise.
    prove delegation and browser observation from the deployed product.
 6. Verify honest degradation on production: provider unavailable, worker
    unavailable, browser unavailable, research unavailable.
-7. Optional keys (human-owned): Stripe (founding access), EXA/FIRECRAWL
-   (research legs).
+7. Implement subscription entitlements + resource budgeting as a first-class
+   server-side boundary before broadening paid research/execution.
+8. Replace provider-specific billing assumptions with the provider-neutral
+   BillingProvider interface; select the actual payment provider only after
+   current geography/commercial eligibility is verified.
+9. Add EXA/FIRECRAWL and transcript credentials only after the entitlement and
+   usage-accounting path can meter them safely.
 
 ## Non-negotiables
 
