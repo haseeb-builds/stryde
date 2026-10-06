@@ -1,3 +1,52 @@
+## 2026-10-06 — post-GLM execution checkpoint (current)
+
+This entry supersedes stale parts of the earlier 2026-10-06 reconciliation below. It reflects the repository and connected runtime evidence verified after the latest GLM execution pass.
+
+### Repository
+
+CONFIRMED:
+- `main` is at `1e3b7d7dd886d2f8e7a0e70b0e84e06e6b06bfec` ("Update handoff with commercial strategy").
+- GLM's production streaming failover repair `a67e36d23e1d7528af71277d8e627be5732216e7` is an ancestor of current `main`; it was not lost or stranded. The 18 commits from that repair to current main are documentation/architecture commits layered on top.
+- Current main GitHub Actions `verify` check is SUCCESS (completed 2026-10-06T17:31Z). Vercel deployment status is also SUCCESS.
+
+### Production
+
+CONFIRMED:
+- Current production deployment: `dpl_2w7iPjCcKAWZmQ8VdaJ8CeLb5XcP`, READY, built from current main commit `1e3b7d7`.
+- Current project plan is Vercel Hobby.
+- Live `/api/health/model` returns OpenRouter preferred, OmniRoute disabled, and the production OpenRouter model `nvidia/nemotron-3-super-120b-a12b:free`; Gemini fallback is `gemini-flash-latest`. This is configuration evidence, not proof of a successful conversation turn.
+- Vercel environment inventory no longer contains `RESEND_API_KEY`; the stale key was removed by the GLM run.
+- Current runtime error aggregation still contains a 55-second conversation timeout group whose latest recorded occurrence is 2026-10-06T15:59:52Z. Its latest associated deployment is not current main. Treat this as an unresolved reliability signal until a fresh production conversation passes on current main.
+- No runtime logs were returned for the most recent 30-minute window; this is not evidence of zero traffic or zero errors.
+
+### Database
+
+CONFIRMED:
+- Supabase project `pvijrnwdnolvnoibarrj` is now at **37/37 migrations applied**.
+- `user_agent_preference`, `skill`, `skill_version`, and `funnel_event` now exist live with RLS enabled.
+- Live counts at the latest inspection: pursuit 158, conversation_session 154, conversation_message 246, observation 121, claim 62, action 122, decision 123, tool 4, capability_grant 6, job 57, attempt 55, event 946, memory_item 37, pursuit_source 23, pursuit_source_adaptation 6, pursuit_source_citation 25, funnel_event 10.
+
+### What the GLM run actually accomplished
+
+CONFIRMED from Git history and connected deployment/database evidence:
+- documentation truth reconciliation was performed;
+- Linux/Node CI failure was fixed and current main is green;
+- five live Supabase migrations were reconciled/applied without re-running the already-existing worker registration rows;
+- stale `RESEND_API_KEY` was removed from Vercel;
+- a production model-contract failure was found instead of being hidden;
+- the production model was moved from the unstable `openrouter/free` router to a contract-proven free Nemotron model;
+- streaming malformed JSON is now treated as a retryable provider failure inside the provider router, with regression coverage in `tests/conversation-stream.test.ts`.
+
+### What is NOT yet proven
+
+UNKNOWN / NOT ESTABLISHED:
+- the full production conversation journey after the streaming failover repair is not present in the completed transcript and should be re-run on current main;
+- sustained production model reliability is not established;
+- production worker runtime is still not established;
+- live Exa / Firecrawl research remains blocked without credentials;
+- Free/Pro/Max entitlement and resource metering are architectural targets, not runtime-complete;
+- the capability-composition layer in Issue #7 has not yet been implemented.
+
 # Stryde Current State
 
 ## 2026-10-06 — final truth reconciliation (current snapshot)
