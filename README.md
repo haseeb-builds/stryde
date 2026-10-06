@@ -17,6 +17,7 @@ Read these before changing behavior:
 7. docs/VERIFICATION_MATRIX.md
 8. docs/OPERATING_MODEL.md
 9. HANDOFF.md
+10. docs/RESEARCH_REALITY_ENGINE.md
 
 Historical STEP documents preserve implementation history and should not override the current-state documents.
 
