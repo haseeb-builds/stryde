@@ -18,6 +18,9 @@ Read these before changing behavior:
 8. docs/OPERATING_MODEL.md
 9. HANDOFF.md
 10. docs/RESEARCH_REALITY_ENGINE.md
+11. docs/SUBSCRIPTION_AND_RESOURCE_MODEL.md
+12. docs/RESEARCH_COST_CONTROL.md
+13. docs/BILLING_PROVIDER_ARCHITECTURE.md
 
 Historical STEP documents preserve implementation history and should not override the current-state documents.
 
