@@ -1,4 +1,5 @@
 import { validateModelProposal, type ModelProposal } from "./orchestration.ts";
+import { modelOverrideForTask } from "./model-routing.ts";
 import { WORKING_STATE_SCHEMA, buildWorkControllerPrompt, validateWorkingState, type WorkingState } from "./work-controller.ts";
 import { getModelRouter } from "./model-provider.ts";
 
@@ -147,7 +148,7 @@ async function callStructuredModel(
   input: string,
   maxOutputTokens = 1_000,
 ): Promise<{ parsed: unknown; provider: string; model: string }> {
-  const result = await getModelRouter().generateStructured({ schemaName, schema, prompt: input, maxOutputTokens });
+  const result = await getModelRouter().generateStructured({ schemaName, schema, prompt: input, maxOutputTokens, modelOverride: modelOverrideForTask(schemaName, process.env) });
   return result;
 }
 

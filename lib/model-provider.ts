@@ -16,7 +16,7 @@ export class ModelProviderError extends Error {
   }
 }
 
-export type StructuredInput = { schemaName: string; schema: object; prompt: string; maxOutputTokens?: number; signal?: AbortSignal };
+export type StructuredInput = { schemaName: string; schema: object; prompt: string; maxOutputTokens?: number; signal?: AbortSignal; modelOverride?: string };
 export type ModelProvider = {
   name: ModelProviderName; model: string;
   generateStructured(input: StructuredInput): Promise<unknown>;
@@ -172,12 +172,15 @@ function body(config: ModelProviderConfig, input: StructuredInput, stream: boole
   const max = input.maxOutputTokens ?? 1000;
   if (config.provider === "gemini") return { contents: [{ parts: [{ text: input.prompt }] }], generationConfig: { temperature: 0, maxOutputTokens: max, thinkingConfig: { thinkingBudget: geminiThinkingBudget() }, responseMimeType: "application/json", responseSchema: geminiSchema(input.schema) } };
   const openrouterRouting = config.provider === "openrouter" ? { provider: { require_parameters: true, allow_fallbacks: true }, plugins: [{ id: "response-healing" }] } : {};
-  return { model: config.model, messages: [{ role: "user", content: `${input.prompt}\n\nReturn one JSON object only matching this schema:\n${JSON.stringify(input.schema)}` }], response_format: { type: "json_object" }, temperature: 0, max_tokens: max, stream, ...openrouterRouting };
+  return { model: input.modelOverride ?? config.model, messages: [{ role: "user", content: `${input.prompt}\n\nReturn one JSON object only matching this schema:\n${JSON.stringify(input.schema)}` }], response_format: { type: "json_object" }, temperature: 0, max_tokens: max, stream, ...openrouterRouting };
 }
 
 export function createModelProvider(config: ModelProviderConfig, fetchImpl: typeof fetch = fetch): ModelProvider {
   const request = async (input: StructuredInput, stream: boolean, onText?: (text: string) => void) => {
-    const url = config.provider === "gemini" ? `${config.baseUrl}/models/${encodeURIComponent(config.model)}:${stream ? "streamGenerateContent?alt=sse" : "generateContent"}` : `${config.baseUrl}/chat/completions`;
+    // Task-aware routing (Phase 12): a per-call override selects WHICH model
+    // the leg serves; the leg itself never changes.
+    const model = input.modelOverride ?? config.model;
+    const url = config.provider === "gemini" ? `${config.baseUrl}/models/${encodeURIComponent(model)}:${stream ? "streamGenerateContent?alt=sse" : "generateContent"}` : `${config.baseUrl}/chat/completions`;
     const timeoutMs = modelTimeoutMs();
     const timeoutController = new AbortController();
     const timeoutHandle = setTimeout(() => {

@@ -6,6 +6,7 @@ import {
 import type { WorkingState } from "@/lib/work-controller";
 import { getModelRouter } from "@/lib/model-provider";
 import { WORKER_TYPES } from "@/lib/actor";
+import { modelOverrideForTask } from "@/lib/model-routing";
 
 
 export const SOURCE_ADAPTATION_SCHEMA = {
@@ -151,7 +152,7 @@ async function callStructuredModel(
 ): Promise<{ parsed: unknown; provider: string; model: string }> {
   // Route through the full provider chain (fallback + disabled-provider rules
   // live inside the model boundary), never a single configured leg.
-  const result = await getModelRouter().generateStructured({ schemaName: name, schema, prompt, maxOutputTokens });
+  const result = await getModelRouter().generateStructured({ schemaName: name, schema, prompt, maxOutputTokens, modelOverride: modelOverrideForTask(name, process.env) });
   return { parsed: result.parsed, provider: result.provider, model: result.model };
 }
 
