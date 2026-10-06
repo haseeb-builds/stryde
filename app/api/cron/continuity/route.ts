@@ -13,6 +13,8 @@ import {
 import { reconcileExpiredJob } from "@/lib/execution-control";
 import { getSupabaseServiceClient } from "@/lib/supabase/service";
 import { resolveCatalogAvailability, syncCapabilityCatalog } from "@/lib/capability-registry";
+import { evaluateTriggers } from "@/lib/trigger-engine";
+import { deliverPendingNotifications } from "@/lib/notifications";
 
 export const runtime = "nodejs";
 
@@ -218,6 +220,14 @@ export async function GET(request: Request) {
     // the semantic capability catalog stays synced with the deployed code.
     const { data: expired } = await supabase.rpc("stryde_expire_reservations");
     const catalog = await syncCapabilityCatalog(supabase, resolveCatalogAvailability(process.env));
+    // Trigger evaluation (Phase 9) and notification delivery (Phase 11):
+    // due triggers win their condition window here (idempotent); winning a
+    // window only records the firing — actual job execution remains behind
+    // the dispatcher and the authorization path. Notifications are delivered
+    // through configured channels; unconfigured channels stay honestly
+    // PENDING.
+    const triggers = await evaluateTriggers(supabase, now);
+    const delivery = await deliverPendingNotifications(supabase, process.env);
     return NextResponse.json({
       nudged: nudged.count,
       pursuits: nudged.pursuitIds,
@@ -225,6 +235,10 @@ export async function GET(request: Request) {
       reservationsExpired: typeof expired === "number" ? expired : null,
       capabilitiesSynced: catalog.synced,
       capabilitySyncErrors: catalog.errors,
+      triggersEvaluated: triggers.evaluated,
+      triggersFired: triggers.fired.length,
+      notificationsDelivered: delivery.delivered,
+      notificationsPending: delivery.pending,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Continuity run failed";
