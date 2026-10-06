@@ -73,3 +73,31 @@ If that passes, proceed directly into Issue #7 / `docs/GLM_MASTER_IMPLEMENTATION
 - Keep Free genuinely useful but economically bounded.
 - Do not add heavyweight agent frameworks without a demonstrated need.
 - Record implemented/tested/deployed/production-proven status separately.
+
+## 2026-10-06 (latest) — capability platform shipped; next engineer starts here
+
+The Issue #8 capability-composition platform pass is IMPLEMENTED, TESTED
+(251/251 unit), and DEPLOYED. Registry/discovery/entitlements, resource
+reservation, Skills V2, plugin manifest, MCP normalization, research
+planner + evidence-graph novelty, triggers, artifacts, notifications,
+task-aware routing, sub-agent spec, policy hooks, and draft API contracts
+are all in. Migration parity 40/40. Production cron runs the platform
+maintenance surface (verified live). Four real streamed conversation turns
+proven on production after the 55s-timeout repair.
+
+### Remaining work, in priority order
+
+1. Re-run the complete production journey (`.prod-journey.mjs` from the
+   workspace root, with STRYDE_JOURNEY_EMAIL/PASSWORD of a confirmed user)
+   once OpenRouter free-models-per-day quota resets — the last unobserved
+   boundary is convergence-to-action on the deployed build. Then observe
+   whether the adaptive controller's convergence/answer rules hold.
+2. Funded provider credential (OpenRouter credits or billed Gemini) —
+   structural; free tiers are non-viable for a public product.
+3. EXA / FIRECRAWL keys to move research from honest degradation to live;
+   the planner, novelty classification, and reservation wiring are ready.
+4. Trigger → dispatcher job enqueueing E2E (the firing window and cron
+   evaluation are proven; the enqueue leg needs a scheduled-run harness).
+5. Artifacts UI surface (API + RPC + migration are done).
+6. Substrate decisions for sandboxed code, connectors (OAuth), transcripts —
+   registered BLOCKED/UNAVAILABLE in the live capability catalog.

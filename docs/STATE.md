@@ -1,3 +1,59 @@
+## 2026-10-06 (later) — capability-composition platform (Issue #8) checkpoint (current)
+
+This entry supersedes the checkpoint below where they disagree. Executed per
+docs/GLM_WORLD_CLASS_SINGLE_SESSION_BUILD_MANDATE.md and GitHub Issue #8.
+
+### Repository
+
+CONFIRMED:
+- This pass advanced main from 3640180 through the capability-platform
+  commits (timeout repair 2c14416; registry/entitlement 0be7110; convergence
+  + answer-rule prompt repairs; planner/evidence graph; triggers/artifacts/
+  notifications 2170e8a; routing; Skills V2/plugin/MCP 0eac9d5; sub-agents/
+  hooks; docs). npm test 251/251; tsc, lint, production build clean.
+- Migration parity 40/40 (added 20261006200000 capability platform,
+  20261006210000 triggers/artifacts/notifications, 20261006220000 skills V2;
+  all applied live via `supabase db push`).
+
+### Production
+
+CONFIRMED:
+- Vercel deployments SUCCESS for every pushed commit (GitHub status API).
+- Production defect fixed this pass: the 55-second conversation wall turned
+  slower turns into FUNCTION_INVOCATION_TIMEOUT. After the fix, four real
+  streamed turns were proven on production; the route now carries its own
+  honest deadline (STRYDE_TURN_DEADLINE_MS, default 240s) and degrades to a
+  retryable SSE error instead of being killed.
+- Production cron (continuity) now reports the platform maintenance surface:
+  capabilitiesSynced=10, capabilitySyncErrors=[], trigger evaluation,
+  notification delivery, reservation expiry — all observed live.
+
+BLOCKED (external, unchanged in kind):
+- A complete fresh production conversation journey is currently blocked by
+  provider account quota: OpenRouter free-models-per-day exhausted
+  (429 account-wide; measured directly) and Gemini free tier 20/day. The
+  streaming, persistence, adaptive-planning, and honest-degradation paths
+  were each proven before the quota hit; the remaining unobserved boundary
+  is convergence-to-action on the deployed build (prompt repairs shipped;
+  local verification only). Quota resets daily — re-run .prod-journey.mjs.
+
+### Capability platform status
+
+Implemented, tested, and deployed (details in VERIFICATION_MATRIX.md):
+capability registry + discovery (Phases 1-2), Free/Pro/Max entitlement +
+reservation/reconciliation resource control (Phase 3), Skills V2 packaging
+(Phase 4), plugin manifest contract (Phase 5), MCP capability normalization
+(Phase 6), research planner + evidence-graph novelty (Phases 7-8), triggers
+(Phase 9), artifacts (Phase 10), notifications (Phase 11), task-aware model
+routing (Phase 12), sub-agent spec (Phase 13), policy hooks (Phase 17),
+draft API contracts (Phase 18, docs/API_CONTRACTS.md).
+
+Deliberately registered as UNAVAILABLE/BLOCKED (honest absence, not silent
+gaps): sandboxed code execution, OAuth connectors, transcript acquisition —
+each waits on an external substrate/credentials.
+
+Memory maturity (Phase 16) was already satisfied by the 2026-10-02/04
+lifecycle; no changes were made.
 ## 2026-10-06 — post-GLM execution checkpoint (current)
 
 This entry supersedes stale parts of the earlier 2026-10-06 reconciliation below. It reflects the repository and connected runtime evidence verified after the latest GLM execution pass.
