@@ -127,3 +127,44 @@ Payment infrastructure is a subordinate commercial integration. Stable internal 
 LOCKED.
 
 Do not choose Free/Pro/Max numerical quotas from intuition. Measure real model, provider, browser, worker, storage, retry, and concurrency costs first, then calibrate pricing and resource limits against the desired gross margin and usage distribution.
+
+
+### D23 — Capability composition is the next platform layer
+
+LOCKED as an implementation direction.
+
+Stryde should unify its existing research, skills, workers, MCP, memory, authority, and execution primitives behind a discoverable capability layer. The user should not have to manually operate the underlying tools.
+
+### D24 — Skills, connectors, and plugins are distinct
+
+LOCKED.
+
+- Skill = reusable procedure.
+- Connector = authenticated access to an external service/data source.
+- Plugin = distributable bundle that may contain skills, agents, connectors, hooks, and resources.
+
+None of these becomes canonical semantic state or grants authority by itself.
+
+### D25 — Scheduled work is a first-class capability
+
+LOCKED as a direction.
+
+Stryde should support one-time, recurring, event-driven, state-driven, and monitoring triggers through the existing job/execution model rather than creating a second orchestration engine.
+
+### D26 — Durable outputs are artifacts
+
+LOCKED as a direction.
+
+When work produces a reusable deliverable, Stryde should persist it as a versioned artifact linked to the pursuit/run rather than treating the final output as chat text only.
+
+### D27 — Modern feature parity is not the product goal
+
+LOCKED.
+
+Stryde should selectively adopt patterns from ChatGPT, Claude, Gemini, Manus, Copilot, Cursor, and the broader MCP ecosystem only when they strengthen pursuit understanding, action, verification, learning, or economic viability.
+
+### D28 — Capability ecosystem is staged
+
+LOCKED.
+
+Build internal capability packaging, security, discovery, permissions, and composition before building a public plugin/skill marketplace.
