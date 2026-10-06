@@ -21,6 +21,8 @@ Read these before changing behavior:
 11. docs/SUBSCRIPTION_AND_RESOURCE_MODEL.md
 12. docs/RESEARCH_COST_CONTROL.md
 13. docs/BILLING_PROVIDER_ARCHITECTURE.md
+14. docs/AI_CAPABILITY_LANDSCAPE_AND_GAPS.md
+15. docs/GLM_MASTER_IMPLEMENTATION_BRIEF.md
 
 Historical STEP documents preserve implementation history and should not override the current-state documents.
 
