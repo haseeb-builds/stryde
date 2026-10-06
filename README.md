@@ -24,6 +24,7 @@ Read these before changing behavior:
 14. docs/AI_CAPABILITY_LANDSCAPE_AND_GAPS.md
 15. docs/GLM_MASTER_IMPLEMENTATION_BRIEF.md
 16. docs/COMMERCIAL_OPEN_SOURCE_AND_LAUNCH_STRATEGY.md
+17. docs/GLM_RESUME_MANDATE.md
 
 Historical STEP documents preserve implementation history and should not override the current-state documents.
 
