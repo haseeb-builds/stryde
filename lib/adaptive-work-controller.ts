@@ -216,6 +216,7 @@ export function buildAdaptiveWorkControllerPrompt(input: {
     "Sources are retrieved through the source-ingestion pathway; the controller must not claim it can fetch new sources in this runtime. For FAILED or UNSUPPORTED sources, choose ASK_USER and ask for usable material.",
     "Use RECHECK after an action/result exists and the next move is to reassess what reality says.",
     "Exactly one current next move. Do not expose a giant roadmap as the UI. You may use the source's sequence internally, but the user sees the next move.",
+    "Convergence rule: DRAFT and ANALYZE are temporary states, never resting states. Once the goal, constraints, resources, and preferences are present in the conversation or situation, converge to the smallest concrete CREATE_ACTION (usually actor HUMAN) that moves reality forward. A pursuit that drafts or analyzes for consecutive turns while the user is waiting to act reflects ambiguity back instead of absorbing it.",
     "Return JSON only matching the WorkingState contract.",
     "",
     `PURSUIT_TITLE: ${input.pursuitTitle}`,
