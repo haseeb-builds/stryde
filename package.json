@@ -26,7 +26,8 @@
     "e2e:browser-worker": "node --experimental-strip-types scripts/e2e-browser-worker.ts",
     "e2e:skills-agent": "node --experimental-strip-types scripts/e2e-skills-agent.ts",
     "worker:mcp": "node --experimental-strip-types scripts/mcp-worker.ts",
-    "e2e:mcp-worker": "node --experimental-strip-types scripts/e2e-mcp-worker.ts"
+    "e2e:mcp-worker": "node --experimental-strip-types scripts/e2e-mcp-worker.ts",
+    "e2e:entitlement": "node --experimental-strip-types scripts/e2e-entitlement.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.110.0",

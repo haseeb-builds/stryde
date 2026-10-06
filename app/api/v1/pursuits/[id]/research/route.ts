@@ -5,6 +5,8 @@ import { ingestUrlSource } from "@/lib/source-ingestion";
 import { buildSourceCitation } from "@/lib/source-citation";
 import { runSourceAdaptation, type SourceAdaptation } from "@/lib/adaptive-model";
 import { assembleAdaptiveSituation } from "@/lib/adaptive-situation";
+import { getSupabaseServiceClient } from "@/lib/supabase/service";
+import { reserveResources, ResourceExhaustedError, type ReservationGroup } from "@/lib/resource-control";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -65,23 +67,55 @@ export async function POST(request: Request, context: RouteContext) {
       return NextResponse.json({ source, adaptation, materialized: true, warning }, { status: 201 });
     }
     const query = scope ? `${question}\nScope: ${scope}` : question;
+    // Resource control (server-side, mandatory): reserve the round plus the
+    // discovery budget before any provider call; reconcile with the actual
+    // result count, or release when no provider served. Exhaustion is an
+    // honest 429, not a silent overspend.
+    const service = getSupabaseServiceClient();
+    let reservation: ReservationGroup | null = null;
+    try {
+      reservation = await reserveResources(service, {
+        ownerUserId: user.id,
+        pursuitId: id,
+        operationKey: "research.search",
+        capabilityKey: "research.web_search",
+        requests: [
+          { resource: "research_rounds", expected: 1 },
+          { resource: "source_discovery", expected: maxResults },
+        ],
+      });
+    } catch (reserveError) {
+      if (reserveError instanceof ResourceExhaustedError) {
+        return NextResponse.json({ error: `Daily plan limit reached: ${reserveError.resource}` }, { status: 429 });
+      }
+      return NextResponse.json({ error: "Resource control is unavailable; research is refused rather than unmetered" }, { status: 503 });
+    }
     // Walk the configured provider chain in preferred order (D11: appropriate
     // evidence) — first successful call serves the request; the last failure
     // surfaces only when every configured leg failed.
     let lastSearchError: unknown = null;
     let search: { results: Array<{ url?: string } & Record<string, unknown>>; providerMetadata: Record<string, unknown> } | null = null;
-    for (const provider of getSearchProviderChain()) {
-      try {
-        search = await provider.search({ query, maxResults, freshnessDays: freshnessDays ?? undefined, signal: request.signal });
-        break;
-      } catch (searchError) {
-        lastSearchError = searchError;
+    try {
+      for (const provider of getSearchProviderChain()) {
+        try {
+          search = await provider.search({ query, maxResults, freshnessDays: freshnessDays ?? undefined, signal: request.signal });
+          break;
+        } catch (searchError) {
+          lastSearchError = searchError;
+        }
       }
+      if (!search) {
+        throw lastSearchError ?? new Error("Missing research configuration: no search provider is configured");
+      }
+      await reservation.reconcile([
+        { resource: "research_rounds", expected: 1 },
+        { resource: "source_discovery", expected: search.results.length },
+      ]);
+      return NextResponse.json({ research: { question, scope: scope || null, freshness_days: freshnessDays ?? null, results: search.results, provider: search.providerMetadata } });
+    } catch (searchError) {
+      await reservation.release().catch(() => {});
+      throw searchError;
     }
-    if (!search) {
-      throw lastSearchError ?? new Error("Missing research configuration: no search provider is configured");
-    }
-    return NextResponse.json({ research: { question, scope: scope || null, freshness_days: freshnessDays ?? null, results: search.results, provider: search.providerMetadata } });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Research search failed";
     return NextResponse.json({ error: message }, { status: message.includes("token") ? 401 : 502 });

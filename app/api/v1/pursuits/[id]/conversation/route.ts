@@ -9,6 +9,8 @@ import { processUniversalInput } from "@/lib/universal-input";
 import { compileForSituation } from "@/lib/context-compiler";
 import { recordSkillUsage } from "@/lib/skills";
 import { recordFunnelEvent } from "@/lib/instrumentation";
+import { getSupabaseServiceClient } from "@/lib/supabase/service";
+import { recordResourceUsage } from "@/lib/resource-control";
 
 export const runtime = "nodejs";
 // A full turn is TWO real model generations (the streamed ConversationTurn plus
@@ -153,6 +155,15 @@ export async function POST(request: Request, context: RouteContext) {
       { role: "user", content: message },
     ];
 
+    // Plan metering (server-side, mandatory): a turn costs one model_turn.
+    // Exhaustion is an honest 429 before any generation runs; the metering
+    // plane itself being down refuses the turn rather than serving unmetered.
+    const trustedPlane = getSupabaseServiceClient();
+    const { data: turnsAvailable, error: turnsError } = await trustedPlane
+      .rpc("stryde_resource_available", { p_owner: user.id, p_resource: "model_turns" });
+    if (turnsError) return errorResponse("Resource control is unavailable; turns are refused rather than unmetered", 503);
+    if (turnsAvailable === 0) return errorResponse("Daily plan limit reached for model turns. Your plan resets tomorrow.", 429);
+
     const encoder = new TextEncoder();
     const readable = new ReadableStream<Uint8Array>({
       async start(controller) {
@@ -287,6 +298,17 @@ export async function POST(request: Request, context: RouteContext) {
             },
           });
           await commit(result.turn, work);
+
+          // Post-hoc metering of the turn. The turn is already committed and
+          // its cost happened, so a metering failure must not fail the user;
+          // exhaustion here just means this turn tipped the envelope.
+          void recordResourceUsage(trustedPlane, {
+            ownerUserId: user.id,
+            pursuitId: id,
+            resource: "model_turns",
+            amount: 1,
+            capabilityKey: "conversation.turn",
+          }).catch(() => {});
 
           controller.enqueue(encoder.encode(streamEvent({
             type: "complete",

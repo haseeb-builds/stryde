@@ -12,6 +12,7 @@ import {
 } from "@/lib/continuity";
 import { reconcileExpiredJob } from "@/lib/execution-control";
 import { getSupabaseServiceClient } from "@/lib/supabase/service";
+import { resolveCatalogAvailability, syncCapabilityCatalog } from "@/lib/capability-registry";
 
 export const runtime = "nodejs";
 
@@ -211,7 +212,20 @@ export async function GET(request: Request) {
     const now = new Date();
     const reconciled = await reconcileExpiredJobs(supabase);
     const nudged = await nudgePursuits(supabase, now);
-    return NextResponse.json({ nudged: nudged.count, pursuits: nudged.pursuitIds, reconciled });
+    // Resource-control maintenance: reservations left RESERVED by crashed
+    // operations expire back into the available balance (economic hardening:
+    // leaked reservations must not silently consume a user's envelope), and
+    // the semantic capability catalog stays synced with the deployed code.
+    const { data: expired } = await supabase.rpc("stryde_expire_reservations");
+    const catalog = await syncCapabilityCatalog(supabase, resolveCatalogAvailability(process.env));
+    return NextResponse.json({
+      nudged: nudged.count,
+      pursuits: nudged.pursuitIds,
+      reconciled,
+      reservationsExpired: typeof expired === "number" ? expired : null,
+      capabilitiesSynced: catalog.synced,
+      capabilitySyncErrors: catalog.errors,
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Continuity run failed";
     console.error("[cron/continuity]", error);
