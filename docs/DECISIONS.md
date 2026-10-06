@@ -81,7 +81,7 @@ No claim of production readiness without deployed authenticated E2E evidence app
   confirmation, model-proposed supersession, ranked retrieval, user
   control; semantic/embedding retrieval deliberately deferred while Postgres
   remains the system of record);
-- browser provider (no browser-observation capability exists yet);
+- browser provider and production worker runtime beyond the current local/browser implementation;
 - document/media stack beyond the 2026-10-03 text/PDF ingestion (image and
   audio ingestion still deferred);
 - capability-routing implementation beyond the 2026-10-03 VERIFY_WEB and
@@ -89,7 +89,7 @@ No claim of production readiness without deployed authenticated E2E evidence app
 - proactive continuity beyond the 2026-10-03 daily check-in cron
   (deterministic, no model calls; model-driven re-engagement deferred);
 - future social/network design;
-- long-term commercial model.
+- exact public pricing and numerical Free/Pro/Max resource limits; payment provider selection remains subject to current geography/commercial eligibility verification.
 
 
 ### D17 — Subscription capacity is explicit
