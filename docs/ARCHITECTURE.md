@@ -155,3 +155,45 @@ Third-party infrastructure must have:
 Do not add a large agent framework, memory system, model router, workflow engine, or capability platform merely because it exists.
 
 First identify the demonstrated problem. Reuse the smallest mature primitive that solves the non-differentiating portion. Keep Stryde's semantic control plane explicit.
+
+
+## Subscription and resource control
+
+Stryde's commercial layer must control variable resource consumption without becoming part of the semantic pursuit model.
+
+The intended boundary is:
+
+`Billing provider
+→ subscription state
+→ entitlement resolver
+→ resource policy
+→ research / execution planner
+→ provider capability`
+
+Plan identity is stable and provider-neutral:
+
+- `free`
+- `pro`
+- `max`
+
+Plans determine resource capacity and capability eligibility. They do not determine evidence truth, authority, or semantic state.
+
+Every variable-cost operation should be attributable to:
+
+- account;
+- pursuit;
+- operation;
+- capability;
+- provider;
+- estimated usage;
+- reserved usage;
+- actual usage;
+- outcome/status.
+
+The runtime must enforce budgets server-side. The client is never authoritative for plan or quota.
+
+The planner should prefer the cheapest sufficient operation rather than the cheapest operation in isolation. Cost is balanced against information value, reliability, freshness, stakes, latency, and reversibility.
+
+Free must be a real Stryde experience with bounded capacity. Pro and Max increase research depth, execution capacity, model-routing options, persistence, and concurrency. Exact numerical limits remain a unit-economics decision and must be calibrated from observed usage rather than guessed.
+
+Billing provider choice remains replaceable. Stryde owns the semantic control plane, entitlement resolution, resource policy, research planning, authority, evidence, observation, verification, and continuation.
