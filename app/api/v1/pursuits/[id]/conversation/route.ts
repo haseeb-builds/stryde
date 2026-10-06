@@ -11,7 +11,19 @@ import { recordSkillUsage } from "@/lib/skills";
 import { recordFunnelEvent } from "@/lib/instrumentation";
 
 export const runtime = "nodejs";
-export const maxDuration = 55;
+// A full turn is TWO real model generations (the streamed ConversationTurn plus
+// the adaptive work controller) and a slow free-tier provider can spend 45s on
+// ONE provider attempt. 55s turned turn-3-class turns into hard
+// FUNCTION_INVOCATION_TIMEOUT kills on Vercel. The platform clamps this to the
+// plan maximum, so the larger value is safe everywhere.
+export const maxDuration = 300;
+// The route's own honest wall clock, below maxDuration so the turn degrades to
+// an SSE error the client can show and retry instead of being killed mid-stream.
+const TURN_DEADLINE_MS = envDeadlineMs();
+function envDeadlineMs(): number {
+  const raw = Number(process.env.STRYDE_TURN_DEADLINE_MS);
+  return Number.isFinite(raw) && raw > 0 ? raw : 240_000;
+}
 type RouteContext = { params: Promise<{ id: string }> };
 
 type RequestBody = {
@@ -150,13 +162,14 @@ export async function POST(request: Request, context: RouteContext) {
         };
 
         try {
+          const turnSignal = AbortSignal.any([request.signal, AbortSignal.timeout(TURN_DEADLINE_MS)]);
           const result = await streamConversationTurn({
             pursuitTitle: pursuit.title ?? "Untitled pursuit",
             contextPacket: compiled.packet,
             conversation,
             userMessage: message,
             workingState: (session.working_state ?? null) as Parameters<typeof streamConversationTurn>[0]["workingState"],
-          }, emit, request.signal);
+          }, emit, turnSignal);
 
           let work = result.turn.work;
           let workModel = { provider: result.provider, model: result.model };
@@ -283,7 +296,10 @@ export async function POST(request: Request, context: RouteContext) {
           controller.close();
         } catch (error) {
           if (!request.signal.aborted) {
-            const message = error instanceof Error ? error.message : "Conversation failed";
+            const raw = error instanceof Error ? error.message : "Conversation failed";
+            const message = raw === "Aborted"
+              ? "This turn exceeded its time budget before the model finished. Your message is saved — send it again to retry."
+              : raw;
             controller.enqueue(encoder.encode(streamEvent({ type: "error", message })));
           }
           controller.close();

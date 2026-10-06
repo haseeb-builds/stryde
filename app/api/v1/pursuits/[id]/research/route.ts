@@ -7,7 +7,7 @@ import { runSourceAdaptation, type SourceAdaptation } from "@/lib/adaptive-model
 import { assembleAdaptiveSituation } from "@/lib/adaptive-situation";
 
 export const runtime = "nodejs";
-export const maxDuration = 30;
+export const maxDuration = 120;
 type RouteContext = { params: Promise<{ id: string }> };
 
 export async function POST(request: Request, context: RouteContext) {

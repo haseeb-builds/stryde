@@ -7,7 +7,7 @@ import { requireAuthenticatedSupabase } from "@/lib/supabase/server";
 import { recordMemory } from "@/lib/memory";
 
 export const runtime = "nodejs";
-export const maxDuration = 55;
+export const maxDuration = 300;
 
 type RouteContext = { params: Promise<{ id: string; actionId: string }> };
 

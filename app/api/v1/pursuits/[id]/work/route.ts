@@ -9,7 +9,7 @@ import { executeMechanicalVerification } from "@/lib/verification-execution";
 import type { WorkingState } from "@/lib/work-controller";
 
 export const runtime = "nodejs";
-export const maxDuration = 55;
+export const maxDuration = 300;
 
 type RouteContext = { params: Promise<{ id: string }> };
 
