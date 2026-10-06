@@ -7,6 +7,7 @@ import { runSourceAdaptation, type SourceAdaptation } from "@/lib/adaptive-model
 import { assembleAdaptiveSituation } from "@/lib/adaptive-situation";
 import { getSupabaseServiceClient } from "@/lib/supabase/service";
 import { reserveResources, ResourceExhaustedError, type ReservationGroup } from "@/lib/resource-control";
+import { classifyResults } from "@/lib/research-planner";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -40,7 +41,12 @@ export async function POST(request: Request, context: RouteContext) {
       if (existing) return NextResponse.json({ source: existing, materialized: false });
       const ingested = await ingestUrlSource(url);
       if (!ingested.contentText || (ingested.fetchStatus !== "FETCHED" && ingested.fetchStatus !== "PARTIAL")) return NextResponse.json({ error: "Selected result could not be extracted into usable source content", status: ingested.fetchStatus }, { status: 502 });
-      const sourceMetadata = { ...ingested.sourceMetadata, research_materialization: { search_provider: "exa", result_url: url, result_title: title, result_rank: rank, result_highlights: highlights } };
+      // Syndication record: identical content under a different URI is a
+      // shared primary source, not independent corroboration (Phase 8).
+      const { data: shaTwin } = ingested.contentSha256
+        ? await supabase.from("pursuit_source").select("id, uri").eq("pursuit_id", id).eq("owner_user_id", user.id).eq("content_sha256", ingested.contentSha256).limit(1).maybeSingle()
+        : { data: null };
+      const sourceMetadata = { ...ingested.sourceMetadata, research_materialization: { search_provider: "exa", result_url: url, result_title: title, result_rank: rank, result_highlights: highlights }, ...(shaTwin ? { syndication: { canonical_source_id: shaTwin.id, canonical_uri: shaTwin.uri } } : {}) };
       const { data: source, error: sourceError } = await supabase.from("pursuit_source").insert({ owner_user_id: user.id, pursuit_id: id, source_kind: "URL", uri: ingested.uri, title: ingested.title ?? title, content_type: ingested.contentType, fetch_status: ingested.fetchStatus, content_text: ingested.contentText, content_sha256: ingested.contentSha256, source_metadata: sourceMetadata }).select("id, source_kind, uri, title, content_type, fetch_status, content_sha256, source_metadata, created_at, updated_at").single();
       if (sourceError || !source) {
         if (sourceError?.code === "23505") {
@@ -111,7 +117,26 @@ export async function POST(request: Request, context: RouteContext) {
         { resource: "research_rounds", expected: 1 },
         { resource: "source_discovery", expected: search.results.length },
       ]);
-      return NextResponse.json({ research: { question, scope: scope || null, freshness_days: freshnessDays ?? null, results: search.results, provider: search.providerMetadata } });
+      // Evidence-graph classification (Phases 7-8): the same content behind
+      // two URIs is one piece of evidence. Annotate each result with its
+      // novelty against the pursuit's existing sources so neither the model
+      // nor the user mistakes syndication for independent corroboration.
+      const { data: knownSources } = await supabase
+        .from("pursuit_source")
+        .select("uri, content_sha256")
+        .eq("pursuit_id", id)
+        .eq("owner_user_id", user.id);
+      const classified = classifyResults(
+        search.results.map((r) => ({ url: r.url, content_sha256: (r as { content_sha256?: string | null }).content_sha256 ?? null })),
+        (knownSources ?? []) as Array<{ uri: string; content_sha256: string | null }>,
+      );
+      const noveltyByUrl = new Map(classified.map((c) => [c.url, c]));
+      const annotated = search.results.map((r) => ({
+        ...r,
+        novelty: noveltyByUrl.get(String(r.url ?? ""))?.novelty ?? "NOVEL",
+        canonical_uri: noveltyByUrl.get(String(r.url ?? ""))?.canonicalUri ?? null,
+      }));
+      return NextResponse.json({ research: { question, scope: scope || null, freshness_days: freshnessDays ?? null, results: annotated, provider: search.providerMetadata, novelty: { novel: annotated.filter((r) => r.novelty === "NOVEL").length, duplicate: annotated.filter((r) => r.novelty === "DUPLICATE").length, syndicated: annotated.filter((r) => r.novelty === "SYNDICATED").length } } });
     } catch (searchError) {
       await reservation.release().catch(() => {});
       throw searchError;
