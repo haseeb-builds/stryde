@@ -2,6 +2,7 @@
 
 Status: canonical product document
 Reconciliation date: 2026-10-02
+Re-affirmed: 2026-10-06 (final truth reconciliation pass; content unchanged)
 
 The canonical product philosophy is defined in docs/PRODUCT_CONSTITUTION.md. This document summarizes the product contract for implementation.
 

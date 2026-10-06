@@ -1,9 +1,103 @@
 # Stryde Runtime Truth
 
 Status: canonical runtime document
-Reconciliation date: 2026-09-28
+Reconciliation date: 2026-10-06
 
-## Repository checkpoint
+## Runtime reconciliation — 2026-10-06
+
+This section is current truth. The 2026-09-28 reconciliation below is
+preserved as historical evidence; its "UNKNOWN" deployment findings were
+resolved by the 2026-10-03 access restoration and the sections that follow it
+in docs/STATE.md.
+
+### Repository checkpoint
+
+CONFIRMED (2026-10-06):
+- Baseline: main at bc8e92e87f36aa539da301c8ab896caa4e80f6eb, working tree
+  clean, pushed, deployed to production.
+- CI ("Stryde CI", runs npm test → typecheck → lint → build): RED on
+  bc8e92e and on every Issue #6-pass commit since e393140, failing at the
+  Unit tests step for a Windows-only path computation in
+  tests/mcp-client.test.ts (Linux CI cannot find the MCP echo server).
+  The suite passes 210/210 on Windows. Typecheck/lint/build were skipped in
+  CI, not failed; the Vercel production build itself succeeded.
+
+### Deployment
+
+CONFIRMED:
+- Production: https://stryde-topaz.vercel.app — alias to deployment
+  stryde-dt58xyg2s (Ready, 2026-10-05, commit bc8e92e). Landing 200;
+  /api/v1/pursuits 401 without a token (auth boundary live).
+- /api/health/model: preferred openrouter, chain
+  [gemini, openrouter, omniroute], disabled [omniroute], ready=true —
+  configuration evidence; generation proof is the 2026-10-05 production
+  conversation (Issue #6 report).
+- Production runtime errors include the funnel_event missing-table error
+  (fail-open instrumentation writing to a table that does not exist live;
+  see Database below).
+
+### Live Supabase
+
+Project: pvijrnwdnolvnoibarrj (ap-southeast-1, ACTIVE_HEALTHY).
+
+CONFIRMED 2026-10-06:
+- Migration parity: 32 of 37 applied live; pending:
+  20261005000000 (register worker.browser tool), 20261005010000
+  (user_agent_preference), 20261005020000 (stryde skills), 20261005030000
+  (register worker.mcp tool), 20261005040000 (funnel events).
+- Missing tables (REST 404): user_agent_preference, skill, skill_version,
+  funnel_event.
+- Live tool registry: worker.hermes v1, worker.opencode v1,
+  worker.browser v1 (runtime-provisioned 2026-10-05T07:24Z),
+  worker.mcp v1 (runtime-provisioned 2026-10-05T09:59Z). Because the
+  browser/MCP rows already exist, their registration migrations must be
+  reconciled (verify row parity, then mark applied), not re-run.
+- The Supabase CLI in the working environment is linked and authenticated;
+  the earlier "no DDL credential in this environment by design" constraint
+  no longer applies.
+
+### Live data snapshot (2026-10-06)
+
+Counts include E2E harness data written into the live project during
+verification passes:
+- pursuit 153; conversation_session 149; conversation_message 234;
+  tool 4; capability_grant 6; job 57; attempt 55; observation 121;
+  claim 62; action 122; decision 123; run 16; event 941; memory_item 31;
+  user_autonomy_policy 0.
+
+### Model evidence
+
+CONFIRMED:
+- Production configuration: OpenRouter preferred (serving; the funded-credit
+  blocker from 2026-10-03/04 is resolved), Gemini fallback (free tier,
+  20 req/day), OmniRoute disabled in production (tailnet-only).
+- /api/health/model ready=true is configuration evidence, not generation
+  proof; see the distinction in docs/STATE.md (2026-10-06 section).
+
+### Worker evidence
+
+CONFIRMED:
+- Live plane: 4 worker tool rows registered; capability grants (6), jobs
+  (57), attempts (55) and observations (121) exist from the verification
+  passes — the CONTROLLED plane has real live usage records.
+- Production worker RUNTIME: NOT ESTABLISHED. Vercel serverless cannot host
+  long-lived workers or browsers and no publicly reachable worker endpoint
+  is configured. All real-agent executions to date (Hermes, OpenCode,
+  browser, MCP) are local-plane proofs documented 2026-10-03 through
+  2026-10-05.
+
+### Security posture (re-affirmed 2026-10-06)
+
+Unchanged from the 2026-10-03/04 empirical findings recorded below and in
+docs/STATE.md: no unauthenticated mutation path, tenant isolation holds, the
+authority boundary holds. Remaining advisory items: legacy public.loops
+deny-all table (retained), leaked-password protection still a dashboard
+toggle for the product owner, performance-advisor findings recorded as
+observations.
+
+---
+
+## Historical reconciliation — 2026-09-28 (superseded, preserved as evidence)
 
 The local working tree was not available in the current execution environment. Repository truth was inspected from GitHub main.
 

@@ -1,5 +1,139 @@
 # Stryde Current State
 
+## 2026-10-06 — final truth reconciliation (current snapshot)
+
+This section is the current verified reality. Everything below it is
+historical evidence and is preserved as written; where an older section
+contradicts this one, this one wins. Labels: CONFIRMED (directly verified on
+2026-10-06), INFERRED (evidence-backed conclusion), UNKNOWN, BLOCKED
+(externally gated).
+
+### Repository
+
+CONFIRMED:
+- `main` at bc8e92e87f36aa539da301c8ab896caa4e80f6eb; working tree clean;
+  pushed; this commit is what production serves.
+- 37 migration files under `supabase/migrations/`.
+
+CONFIRMED (open defect):
+- GitHub Actions CI ("Stryde CI") is RED on every commit of the Issue #6
+  pass: runs 210, 211, 212 (commits 3475417, 646db26, bc8e92e) all fail at
+  the "Unit tests" step. Last green run: e393140 (2026-10-04). Vercel does
+  not execute the test suite, so production was deployed from a commit with
+  red CI — deployment success is not test evidence.
+- Root cause (CONFIRMED by code analysis; the raw CI log was not retrievable
+  without an admin token): `tests/mcp-client.test.ts` derives the repo root
+  from `new URL(import.meta.url).pathname.replace(/^\//, "")`, which is
+  correct only on Windows. On Linux it resolves to `<cwd>/app`, the echo
+  server file does not exist there, and both MCP transport tests fail. The
+  suite passes 210/210 locally on Windows (re-run 2026-10-06, 2.3s). The fix
+  is a one-line `fileURLToPath` repair plus the explicit-`.ts` convention the
+  repo already uses; it is engineering work and is deliberately NOT part of
+  this documentation-only commit.
+
+### Production (Vercel)
+
+CONFIRMED:
+- https://stryde-topaz.vercel.app serves this application (landing 200); the
+  production alias resolves to deployment stryde-dt58xyg2s (Ready,
+  2026-10-05), commit bc8e92e.
+- `/api/health/model` (2026-10-06): `preferred_provider=openrouter`,
+  `canonical_chain=[gemini,openrouter,omniroute]`, `disabled=[omniroute]`,
+  `providers=[openrouter/free, gemini-flash-latest]`, `ready=true`.
+  This is CONFIGURATION evidence: it proves the chain is resolvable, not
+  that generation succeeds. The latest generation proof on production remains
+  the 2026-10-05 live conversation recorded in the Issue #6 report.
+- RESEND_API_KEY is still present on the Vercel project (Production+Preview,
+  created ~2026-08-10). Zero code references remain (the `resend` dependency
+  was removed 2026-10-04; verified by repo-wide grep 2026-10-06). It is stale
+  configuration; removal is scheduled for the Phase 2 production-closure
+  commit.
+- No EXA / FIRECRAWL / Stripe keys are configured on the project. BLOCKED on
+  human-owned credentials (unchanged).
+
+CONFIRMED (open defect, self-resolving once the migration is applied):
+- Production runtime errors include "Could not find the table
+  'public.funnel_event' in the schema cache". Cause: the first-party funnel
+  instrumentation is fail-open and its table does not exist live (below).
+
+### Database (live Supabase pvijrnwdnolvnoibarrj)
+
+CONFIRMED (2026-10-06, via `supabase migration list` and REST introspection):
+- 32 of 37 migrations applied live. Missing versions:
+  20261005000000 (register worker.browser tool),
+  20261005010000 (user_agent_preference),
+  20261005020000 (stryde skills),
+  20261005030000 (register worker.mcp tool),
+  20261005040000 (funnel events).
+- Tables `user_agent_preference`, `skill`, `skill_version`, `funnel_event`
+  do NOT exist live (REST 404). Product code fails open without them.
+- The live `tool` registry has 4 rows: worker.hermes v1 and worker.opencode
+  v1 (2026-09-26), worker.browser v1 (created 2026-10-05T07:24Z) and
+  worker.mcp v1 (created 2026-10-05T09:59Z). The browser and MCP rows were
+  created by runtime provisioning during the 2026-10-05 live-plane E2E runs;
+  their migration files are plain INSERTs with no ON CONFLICT clause, so the
+  correct reconciliation for 20261005000000 / 20261005030000 is "verify row
+  parity against the migration contract, then mark the migrations applied" —
+  NOT a blind re-run, which would collide with the existing rows.
+
+INFERRED:
+- Migration parity can be restored to 37/37 with no data changes: apply the
+  three table migrations normally; mark the two registration migrations
+  applied after the row-parity check.
+
+Live row counts (2026-10-06 snapshot; these include E2E harness data written
+into the live project during verification passes):
+- pursuit 153; conversation_session 149; conversation_message 234;
+  tool 4; capability_grant 6; job 57; attempt 55; observation 121;
+  claim 62; action 122; decision 123; run 16; event 941; memory_item 31;
+  user_autonomy_policy 0.
+
+### Supabase CLI access
+
+CONFIRMED:
+- The Supabase CLI in the current working environment IS linked and
+  authenticated (`supabase migration list` succeeds against the live
+  project). The 2026-10-05 note that "this environment holds no DDL
+  credential by design" no longer describes reality; the operator step it
+  deferred can now be performed directly.
+
+### Issue #6
+
+CONFIRMED:
+- Issue #6 is OPEN. Its body carries the product mandate and locked
+  decisions; two comments exist: the locked product decisions
+  (2026-10-05T06:59Z) and the execution report for main e393140..bc8e92e
+  (2026-10-05T11:02Z).
+- The execution report listed as remaining: apply migrations
+  20261005010000 / 20261005020000 / 20261005040000 and the optional
+  Stripe / EXA / FIRECRAWL keys. Current reality adds three items the report
+  could not have known: the two registration migrations are also unapplied
+  (with their effects already provisioned live), CI is red on the whole
+  pass, and the missing funnel_event table is producing production runtime
+  errors.
+
+### Handoff documents
+
+CONFIRMED:
+- The handoff document is `/HANDOFF.md` at the repository root. It has NEVER
+  existed at `docs/HANDOFF.md` (no such path in history). Its 2026-10-02
+  content (branch-lineage warnings, provider state, zero-jobs database
+  snapshot) was stale; it has been rewritten to current truth in this
+  reconciliation pass. Historical references to "HANDOFF items 2-5" in the
+  2026-10-03 section below refer to that root document as it stood then.
+
+### Not established (unchanged, honestly)
+
+- Production model generation under sustained load; the production worker
+  runtime (no publicly reachable worker endpoint exists — every real-agent
+  proof to date ran on the local worker plane); browser runtime hosting
+  (serverless cannot host one); research legs without keys (every path
+  degrades honestly); billing (honest 503 until keys). Distinguish:
+  implemented / tested / deployed / production-proven per
+  docs/VERIFICATION_MATRIX.md.
+
+---
+
 ## 2026-09-30 phase update — two-provider architecture
 
 Provider decision (product authority): the active model chain is now
@@ -39,7 +173,8 @@ e2e:human 14/14, e2e:model 11 boundaries with a real provider. No behavior or co
 The 2026-09-30 (morning) update and 2026-09-28 reconciliation follow.
 
 Status: canonical current-state document
-Reconciliation date: 2026-09-28
+Reconciliation date: 2026-10-06 (current snapshot at the top of this file;
+the dated sections below are preserved historical evidence)
 
 This file describes current verified reality only. It does not describe desired future functionality. Historical implementation notes belong in the STEP documents and earlier commits.
 

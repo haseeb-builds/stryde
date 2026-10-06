@@ -1,31 +1,41 @@
 # Stryde Integration Truth
 
 Status: canonical integration document
-Reconciliation date: 2026-10-02
+Reconciliation date: 2026-10-06
 
 ## Active product path
 
-Model:
-- Gemini DIRECT PRIMARY
-- OmniRoute FALLBACK
-- OpenRouter inactive for this phase
+Model (CONFIRMED against production configuration and /api/health/model,
+2026-10-06):
+- OpenRouter PREFERRED PRIMARY (funded; serving production)
+- Gemini FALLBACK (free tier, 20 req/day, gemini-flash-latest)
+- OmniRoute DISABLED in production (tailnet-only, unreachable from Vercel);
+  its local real proof of 2026-09-30 is historical evidence
 - Groq excluded from the intended product path
 
-Current branch source still contains compatibility for older providers. This is a source-level compatibility surface, not a product requirement.
+The router chain is `[preferred if resolvable] + remaining canonical
+providers in Gemini → OpenRouter → OmniRoute order` (lib/model-provider.ts).
+`/api/health/model ready=true` is configuration evidence, not generation
+proof; the latest production generation proof is the 2026-10-05 live
+conversation (Issue #6 report).
 
 ## Current live integrations
 
 | Integration | State | Evidence |
 |---|---|---|
-| Supabase | LIVE | ACTIVE_HEALTHY; schema/data inspected 2026-10-02 |
-| Vercel | LIVE | 2026-10-03: owner access restored; production surface verified as this application (stryde-topaz.vercel.app); env contract set (SUPABASE_SECRET_KEY, CRON_SECRET, provider chain); production promotion of the verified tree is the remaining step |
-| Gemini | IMPLEMENTED | live local schema validation; full-turn path rate-limited on free key |
-| OmniRoute | IMPLEMENTED + REAL LOCAL PROOF | direct provider probe passed 2026-09-30 |
-| Exa | ADAPTER + CHAIN | search-provider chain added 2026-10-04 (Exa preferred when configured; Firecrawl search second); observation recording on the trusted plane; no Exa key in the build environment, so the live request remains unverified |
-| Firecrawl | ADAPTER + RENDER FALLBACK | 2026-10-04: search provider and JS-rendering scrape fallback for page observation and URL ingestion (direct fetch first; scrape when the direct body is a thin JS shell); mock-proven only — no key in the build environment |
-| Hermes | IMPLEMENTED + REAL PROOF | real agent executed a real unit of work through the full CONTROLLED plane 2026-10-03 (e2e:real-worker 11/11, artifact-judged); failure cycle honestly reported the same day |
-| OpenCode | IMPLEMENTED + REAL PROOF | real agent executed a real unit of work through the full CONTROLLED plane 2026-10-04 (e2e:opencode-worker 12/12, artifact-judged); sandboxed per-job directories; timeout-UNKNOWN and empty-artifact-FAILED epistemics identical to Hermes |
-| Voice | UI | browser SpeechRecognition path exists; production unverified |
+| Supabase | LIVE | pvijrnwdnolvnoibarrj; 32/37 migrations applied (5 pending, see docs/STATE.md 2026-10-06); introspected 2026-10-06 |
+| Vercel | LIVE | production = bc8e92e on stryde-topaz.vercel.app (Ready 2026-10-05); env contract set; RESEND_API_KEY present but stale (zero code references; removal scheduled) |
+| OpenRouter | LIVE | preferred provider; key configured on Vercel; one real production conversation turn 2026-10-05 (Issue #6 report) |
+| Gemini | CONFIGURED | fallback leg on Vercel (gemini-flash-latest); free tier 20 req/day; not yet observed serving a production turn |
+| OmniRoute | DISABLED IN PRODUCTION | tailnet-only; local probe proof 2026-09-30 is historical |
+| Exa | ADAPTER, NO KEY (BLOCKED) | search-provider chain added 2026-10-04; no EXA_API_KEY on Vercel, so the live request remains unverified |
+| Firecrawl | ADAPTER + RENDER FALLBACK, NO KEY (BLOCKED) | search + JS-render fallback added 2026-10-04; mock-proven only |
+| Hermes | IMPLEMENTED + REAL LOCAL PROOF | real agent through the CONTROLLED plane 2026-10-03; local plane only |
+| OpenCode | IMPLEMENTED + REAL LOCAL PROOF | real agent, artifact-judged, 2026-10-04; local plane only |
+| Browser worker | IMPLEMENTED + REAL LOCAL PROOF; tool row LIVE | e2e:browser-worker 14/14; worker.browser registered on the live project (runtime-provisioned 2026-10-05); production worker runtime not established |
+| MCP transport | IMPLEMENTED; tool row LIVE | first-party JSON-RPC 2.0 stdio client; e2e:mcp-worker 10/10; worker.mcp registered on the live project (2026-10-05) |
+| Stripe (founding access) | IMPLEMENTED, UNCONFIGURED | honest 503 until keys; runbook docs/PAID_ACCESS.md; PAID_CTA_CLICK funnel wired |
+| Voice | UI | browser SpeechRecognition path; production browser pass 2026-10-05 |
 
 ## Capability strategy
 

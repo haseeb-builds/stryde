@@ -2,6 +2,7 @@
 
 Status: canonical architecture document
 Reconciliation date: 2026-10-02
+Re-affirmed: 2026-10-06 (final truth reconciliation pass; content unchanged)
 
 ## Authority order
 

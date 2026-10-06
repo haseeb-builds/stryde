@@ -1,13 +1,33 @@
 # Stryde Verification Matrix
 
 Status: canonical verification matrix
-Reconciliation date: 2026-10-05
+Reconciliation date: 2026-10-05; reconciliation note added 2026-10-06
 
 IMPLEMENTED = machinery exists.
 TESTED = relevant execution evidence exists.
 DEPLOYED = deployment evidence exists.
 PRODUCTION VERIFIED = demonstrated on the deployed system.
 END-TO-END VERIFIED = the complete intended loop was demonstrated.
+
+## Reconciliation note (2026-10-06)
+
+- GitHub Actions CI is RED on bc8e92e and every Issue #6-pass commit since
+  e393140: the Unit tests step fails on Linux/Node 22 because
+  tests/mcp-client.test.ts computes the repo root with a Windows-only path
+  expression (210/210 pass on Windows; root-cause analysis in docs/STATE.md).
+  Vercel does not execute the test suite, so DEPLOYED below is not
+  CI-backed for those commits. Fixing CI is scheduled engineering work.
+- Five migrations are pending live: 20261005000000, 20261005010000,
+  20261005020000, 20261005030000, 20261005040000. The browser/MCP
+  registration rows already exist on the live project (runtime-provisioned
+  2026-10-05), so those two migrations are to be mark-applied after a row
+  parity check, not re-run (docs/STATE.md 2026-10-06).
+- Production `/api/health/model ready=true` is configuration evidence. The
+  production generation proof remains the 2026-10-05 live conversation.
+- Live funnel_event/user_agent_preference/skill/skill_version tables do not
+  exist yet; every PRODUCTION column entry that depends on them stays NO,
+  and production runtime errors currently include the funnel_event
+  missing-table message.
 
 | Capability | Implemented | Tested | Deployed | Production Verified | E2E Verified |
 |---|---|---|---|---|---|

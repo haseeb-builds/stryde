@@ -2,6 +2,8 @@
 
 Status: canonical product constitution
 Reconciliation date: 2026-10-02
+Re-affirmed: 2026-10-06 (final truth reconciliation pass; content unchanged —
+current verified reality lives in docs/STATE.md and docs/VERIFICATION_MATRIX.md)
 
 ## Why Stryde exists
 
