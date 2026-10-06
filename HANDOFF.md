@@ -49,10 +49,11 @@ The run stopped before completing the final post-fix production conversation jou
 12. docs/AI_CAPABILITY_LANDSCAPE_AND_GAPS.md
 13. docs/GLM_MASTER_IMPLEMENTATION_BRIEF.md
 14. docs/GLM_RESUME_MANDATE.md
+15. docs/GLM_WORLD_CLASS_SINGLE_SESSION_BUILD_MANDATE.md
 
 ## Next action
 
-Do not restart the old documentation-reconciliation/migration work.
+Use `docs/GLM_WORLD_CLASS_SINGLE_SESSION_BUILD_MANDATE.md` for the new GLM session. Do not restart the old documentation-reconciliation/migration work.
 
 First run the fresh production conversation proof described in `docs/GLM_RESUME_MANDATE.md`.
 
