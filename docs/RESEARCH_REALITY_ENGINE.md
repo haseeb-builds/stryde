@@ -1643,3 +1643,1194 @@ The following are the principles this document records as the intended direction
 ## 46. One-sentence definition
 
 > **Stryde is a persistent personal pursuit system that investigates reality before acting, reasons over evidence rather than model priors alone, executes through bounded capabilities, observes what happens, and keeps adapting until the user's situation moves.**
+
+
+---
+
+# 47. How Stryde actually gets the world's information
+
+The research-first architecture is only useful if Stryde has real acquisition mechanisms.
+
+The implementation should therefore treat **information acquisition as a provider-neutral capability layer**, not as a single "search API".
+
+Stryde should have several distinct acquisition contracts:
+
+`DISCOVER
+→ ACQUIRE
+→ EXTRACT
+→ NORMALIZE
+→ ATTRIBUTE
+→ FILTER
+→ SYNTHESIZE
+→ STORE
+→ COMPILE`
+
+The distinction matters because a search engine finding a URL is not the same thing as successfully reading the source, and reading a source is not the same thing as extracting trustworthy evidence from it.
+
+---
+
+## 48. Recommended initial research capability stack
+
+The current recommendation is **not** to integrate ten research vendors immediately.
+
+Start with a small, replaceable stack that covers the major source classes.
+
+### Tier 1: core
+
+| Capability | Initial provider | Why |
+|---|---|---|
+| Semantic web discovery | Exa | Strong fit for finding relevant pages from natural-language research objectives |
+| Web search / extraction / crawl | Firecrawl cloud API | Search, scrape, crawl and interaction in one web-data layer |
+| YouTube/video discovery + transcript | Transcriptor capability | Existing connected capability can search videos, retrieve metadata, subtitles and transcripts |
+| Browser observation | Stryde browser worker | Required for pages that need rendering, interaction, or observation |
+| Academic research | Consensus / Scite | Specialized scholarly retrieval and evidence/citation context |
+| Direct user-provided sources | Existing source adapters + browser/extraction path | Lets Haseeb hand Stryde a source without changing the research architecture |
+
+This gives Stryde:
+
+`WEB SEARCH
++
+WEB CONTENT
++
+DEEP WEB / JS PAGES
++
+YOUTUBE
++
+ACADEMIC RESEARCH
++
+USER SOURCES
+`
+
+without coupling the product to one provider.
+
+---
+
+## 49. Exa: discovery layer
+
+Exa is particularly useful as a **discovery/search provider**.
+
+Its current API supports web search and fetching page content, and its platform also exposes people, company and scholarly indexes. Its current pricing page advertises a free monthly allowance and pay-as-you-go usage. The important architectural point is that Stryde should use Exa for discovery, not treat Exa's returned text as canonical truth.
+
+Recommended contract:
+
+`research_query
+→ Exa search
+→ candidate sources
+→ rank / deduplicate
+→ select sources
+→ extraction provider
+→ evidence pipeline`
+
+Use Exa when the research planner needs:
+
+- semantic discovery;
+- conceptually similar sources;
+- current web results;
+- company / people discovery where appropriate;
+- scholarly discovery when its index is useful.
+
+Do not make Exa the permanent Stryde memory or evidence database.
+
+Reference: https://exa.ai/
+
+---
+
+## 50. Firecrawl: web acquisition layer
+
+Firecrawl is valuable because it covers more than simple search.
+
+Its current product supports:
+
+- search;
+- scrape;
+- crawl;
+- mapping;
+- interaction;
+- LLM-ready structured content.
+
+That makes it a strong web acquisition provider for Stryde.
+
+Use it for:
+
+- extracting selected pages;
+- crawling documentation or a site;
+- collecting multiple related pages;
+- handling dynamic pages;
+- structured extraction;
+- interactive web acquisition where appropriate.
+
+The current Firecrawl cloud API is particularly attractive because Stryde already has a provider-neutral HTTP adapter rather than needing to embed a crawler framework.
+
+### Important licensing boundary
+
+The Firecrawl open-source server is AGPL-3.0, while its SDKs are MIT licensed. Stryde should therefore **prefer the hosted API / provider adapter for the initial product** and should not embed or self-host the AGPL server inside Stryde without a deliberate license review.
+
+Reference: https://www.firecrawl.dev/
+
+---
+
+## 51. Tavily: strong optional second web provider
+
+Tavily overlaps with Firecrawl and Exa, so it should not automatically become another mandatory dependency.
+
+It is nevertheless strategically valuable because it provides:
+
+- search;
+- extraction;
+- crawl;
+- map;
+- research;
+- reranked web context.
+
+Tavily currently offers a free monthly allowance and pay-as-you-go pricing.
+
+Its strongest role in Stryde would be:
+
+- fallback search;
+- second-source discovery;
+- research-heavy queries;
+- site mapping;
+- independent retrieval when another provider has weak coverage.
+
+A key principle:
+
+> **Do not call multiple providers just to make the architecture look sophisticated.**
+
+Use a second provider when:
+
+- the first provider has poor coverage;
+- the query is high-stakes;
+- independent discovery is useful;
+- sources disagree;
+- the planner explicitly wants search diversity.
+
+Reference: https://www.tavily.com/
+
+---
+
+## 52. YouTube: discovery and transcript are separate capabilities
+
+YouTube requires more careful architecture than simply "call the YouTube API".
+
+There are two different jobs:
+
+### Discovery
+
+Find relevant videos.
+
+### Acquisition
+
+Obtain the transcript/captions and metadata.
+
+The official YouTube Data API supports video search, but the API has quota constraints. Google currently documents a default quota allocation and specific quota costs for search/caption operations. More importantly, the official caption download endpoint requires authorization appropriate to editing the video, so it is **not a general public transcript API for arbitrary videos**.
+
+Therefore Stryde should not assume:
+
+`YouTube Data API = arbitrary public transcript access`
+
+That assumption would break the research system.
+
+### Recommended Stryde path
+
+Use:
+
+`YouTube discovery
+→ video URL
+→ transcript capability
+→ transcript
+→ provenance
+→ extraction
+`
+
+The existing Transcriptor capability already supports:
+
+- YouTube search;
+- video metadata;
+- available subtitles;
+- official or auto-generated transcript retrieval;
+- raw subtitles;
+- chapter metadata;
+- pagination;
+- multiple supported video platforms.
+
+That is a much better immediate fit for Stryde than building an entire YouTube transcript subsystem from scratch.
+
+For a future standalone production implementation, keep the transcript provider behind a `TranscriptProvider` interface so it can be replaced with services such as Supadata or an approved equivalent when needed.
+
+Supadata currently documents a dedicated YouTube transcript API with timestamps, language support and an AI fallback when a transcript is unavailable. Its current pricing documentation lists a free tier and paid credit plans.
+
+Reference:
+- https://developers.google.com/youtube/v3/docs
+- https://supadata.ai/
+- existing Stryde Transcriptor capability
+
+---
+
+## 53. YouTube should preserve source metadata
+
+For a video, Stryde should store more than the transcript.
+
+Useful metadata includes:
+
+- video URL;
+- video ID;
+- title;
+- channel;
+- channel URL;
+- uploader;
+- publication date;
+- duration;
+- language;
+- subtitle type;
+- transcript provider;
+- retrieval timestamp;
+- chapters;
+- view count where available;
+- description;
+- transcript hash.
+
+This makes it possible to distinguish:
+
+> "A random 20-view auto-captioned video"
+
+from:
+
+> "A two-hour interview from a known operator published three months ago."
+
+Metadata is not proof of truth, but it is useful for source assessment and provenance.
+
+---
+
+## 54. Academic evidence should have its own lane
+
+For questions where academic evidence is genuinely relevant, Stryde should not treat ordinary web search as equivalent to scholarly retrieval.
+
+Useful capabilities include:
+
+### Consensus
+
+Useful for question-driven academic discovery and structured paper retrieval.
+
+### Scite
+
+Useful when Stryde needs citation context, including whether citing work supports, contrasts with, or merely mentions a claim.
+
+This is especially valuable for Stryde's epistemic architecture because:
+
+`paper exists
+≠
+paper supports the claim`
+
+Citation context can help identify disagreement instead of simply counting citations.
+
+The existing connected Consensus and Scite capabilities are therefore valuable research workers.
+
+They should be invoked selectively.
+
+Do not run academic search for ordinary commercial questions unless it can materially improve the decision.
+
+---
+
+## 55. Browser is not redundant
+
+Even with Exa, Firecrawl and other APIs, Stryde still needs browser capability.
+
+Some information is:
+
+- dynamically rendered;
+- behind interaction;
+- visible only after a click;
+- dependent on filters;
+- behind a login the user authorized;
+- represented visually;
+- exposed through a web application rather than a static page.
+
+Therefore:
+
+`API / search / extraction
+≠
+browser observation`
+
+The existing browser worker should be the escalation path when static acquisition fails or when the research objective specifically requires interaction.
+
+However, browser access must preserve the same provenance and authority rules as every other source.
+
+---
+
+# 56. The source acquisition router
+
+Stryde should eventually have a provider-neutral router.
+
+Conceptually:
+
+`ResearchRequest
+{
+  question,
+  objective,
+  source_classes,
+  freshness,
+  depth,
+  stakes,
+  budget,
+  authority
+}
+`
+
+↓
+
+`ResearchRouter`
+
+↓
+
+`Discovery Provider(s)
+Extraction Provider(s)
+Browser
+Transcript Provider
+Academic Provider(s)
+Specialized Provider(s)`
+
+The router should choose providers according to:
+
+- capability;
+- relevance;
+- freshness;
+- reliability;
+- historical success;
+- cost;
+- latency;
+- availability;
+- source coverage;
+- user plan;
+- current research budget.
+
+The LLM should help interpret the research need, but the router should not rely on free-form model output alone to bypass provider policy or authority boundaries.
+
+---
+
+# 57. Search diversity should be deliberate
+
+One of the biggest risks is **search monoculture**.
+
+If Stryde asks one provider:
+
+> "What are the best ways to get your first client?"
+
+and receives ten similar pages, it may falsely believe the internet agrees.
+
+Instead, for important questions Stryde can deliberately diversify queries:
+
+### Strategy query
+
+"What methods do operators report using?"
+
+### Demand query
+
+"What are buyers currently asking for?"
+
+### Counter-evidence query
+
+"What commonly fails?"
+
+### Market query
+
+"What vendors are already selling this?"
+
+### Pricing query
+
+"What are customers paying?"
+
+### Community query
+
+"What are people complaining about?"
+
+### Evidence query
+
+"What independent evidence supports or contradicts this?"
+
+This is much more useful than simply increasing search result count.
+
+---
+
+# 58. Research should use a source graph, not just a list
+
+Stryde should eventually understand relationships between sources.
+
+For example:
+
+`Source A
+claims X
+↓
+Source B cites A
+↓
+Source C independently reports X
+↓
+Source D reports the opposite
+`
+
+The system should recognize:
+
+- duplicate reporting;
+- syndicated content;
+- common primary source;
+- independent corroboration;
+- contradiction;
+- source hierarchy;
+- recency;
+- condition mismatch.
+
+This prevents:
+
+> "I found 17 sources saying X"
+
+when the reality is:
+
+> "17 pages copied the same original article."
+
+---
+
+# 59. The research pipeline should be staged
+
+Do not send every result directly to an expensive model.
+
+Recommended pipeline:
+
+`1. QUERY
+↓
+2. DISCOVER
+↓
+3. DEDUPLICATE
+↓
+4. SCORE
+↓
+5. SELECT
+↓
+6. ACQUIRE
+↓
+7. EXTRACT
+↓
+8. NORMALIZE
+↓
+9. CLASSIFY
+↓
+10. COMPARE
+↓
+11. COMPILE
+↓
+12. REASON
+`
+
+Cheap models can handle many routine steps.
+
+Stronger models should be reserved for difficult synthesis or conflict.
+
+This directly supports the cheap-model strategy.
+
+---
+
+# 60. Cheap-model routing becomes even more powerful here
+
+The system should not ask the expensive model to read everything.
+
+For example:
+
+### Cheap model
+
+- classify source;
+- extract claims;
+- detect obvious duplicates;
+- identify entities;
+- summarize sections;
+- tag conditions;
+- normalize metadata;
+- rank routine relevance.
+
+### Strong model
+
+- resolve contradictory evidence;
+- assess nuanced applicability;
+- construct competing hypotheses;
+- perform difficult strategic synthesis;
+- reason under substantial ambiguity.
+
+### Human
+
+- authority;
+- consequential judgment;
+- personal facts that cannot be inferred;
+- real-world experiment participation;
+- final judgment where required.
+
+This creates a hierarchy:
+
+`MANY CHEAP OPERATIONS
++
+FEWER EXPENSIVE REASONING OPERATIONS
++
+HUMAN AUTHORITY
+`
+
+That is much more economically attractive than sending every page to a frontier model.
+
+---
+
+# 61. Research budgets are required
+
+Every pursuit should eventually have a research budget.
+
+The budget can be expressed in:
+
+- provider credits;
+- model tokens;
+- latency;
+- number of sources;
+- maximum crawl depth;
+- maximum research rounds;
+- maximum browser actions.
+
+The research planner should decide:
+
+> "Is another $0.20 of information likely to change the next decision?"
+
+If not, stop.
+
+This is important for both product economics and user experience.
+
+---
+
+# 62. Research should be cached
+
+Stryde should not repeatedly pay to rediscover the same source.
+
+Sources should have:
+
+- canonical URL;
+- content hash;
+- retrieval timestamp;
+- freshness;
+- provider;
+- extraction version;
+- source metadata.
+
+If a later pursuit asks a similar question, Stryde can reuse the source and only refresh it when freshness matters.
+
+This makes the longitudinal system compound.
+
+---
+
+# 63. But caching must not create stale truth
+
+A cached page is not automatically current.
+
+Every source should therefore have a freshness policy.
+
+Examples:
+
+### Static historical paper
+
+Long refresh interval.
+
+### Company pricing
+
+Shorter refresh interval.
+
+### Current news
+
+Very short refresh interval.
+
+### Live market data
+
+Near-real-time or explicit current retrieval.
+
+### Personal observation
+
+Does not expire in the same way, but can be superseded or contradicted.
+
+The Context Compiler should know freshness requirements for the current decision.
+
+---
+
+# 64. The source store and evidence store are different
+
+Stryde should preserve both:
+
+### Source layer
+
+The acquired material and provenance.
+
+### Evidence layer
+
+What Stryde extracted from that material.
+
+For example:
+
+`Source
+YouTube video
+↓
+Source document
+↓
+Claim
+"47 prospects contacted"
+↓
+Claim provenance
+timestamp / transcript segment
+↓
+Applicability
+different market
+↓
+Status
+reported, not independently verified
+`
+
+This means Stryde can later re-evaluate an old claim without reacquiring the entire source.
+
+---
+
+# 65. Source excerpts should retain location
+
+Whenever practical, extracted claims should point back to the exact source location:
+
+- URL;
+- page;
+- section;
+- paragraph;
+- transcript timestamp;
+- PDF page;
+- document range;
+- API record ID.
+
+This is important because an LLM summary can introduce errors.
+
+Stryde should be able to answer:
+
+> "Where did this claim come from?"
+
+That should be a normal system operation.
+
+---
+
+# 66. Stryde should have a research receipt
+
+For important research rounds, the internal system should preserve a compact research receipt:
+
+`Research objective
+Queries
+Providers used
+Sources considered
+Sources selected
+Sources rejected
+Why selected
+Why rejected
+Key claims
+Contradictions
+Unknowns
+Research cost
+Freshness
+Resulting situation update
+`
+
+The user does not need to see this every time.
+
+But the system should be able to expose it when requested.
+
+This makes the system inspectable rather than magical.
+
+---
+
+# 67. Potentially valuable additional capability classes
+
+Beyond the initial stack, several capability classes could become valuable.
+
+### Structured company / people data
+
+Useful for pursuits involving:
+
+- prospecting;
+- hiring;
+- partnerships;
+- market mapping.
+
+Possible providers include Apollo, Clay, Exa company/people search, or other specialized databases.
+
+### News / current-events intelligence
+
+Useful for:
+
+- market shifts;
+- company changes;
+- regulatory changes;
+- current events.
+
+A dedicated news provider or structured news dataset can be useful when general web search is insufficient.
+
+### Open web datasets
+
+Common Crawl or similar corpora can be useful for large-scale historical research, but should not be treated as the default live source.
+
+### Document parsing
+
+For PDFs, scanned documents and complex reports, a dedicated document parser can become valuable.
+
+### Structured extraction
+
+When Stryde needs fields rather than prose:
+
+`company
+→ pricing
+→ locations
+→ product
+→ customer type
+→ evidence`
+
+a structured extraction capability is more reliable than asking a model to infer everything from raw text.
+
+### Maps / local information
+
+For location-dependent pursuits, maps and local business data can become useful capabilities.
+
+### Finance / commerce data
+
+For commercial decisions, public financial data, pricing intelligence, transaction data, or marketplace data may be useful where legally and contractually available.
+
+### Job-market intelligence
+
+Job postings can be useful demand signals for:
+
+- skills;
+- technologies;
+- hiring trends;
+- operational pain.
+
+### Specialized databases
+
+Stryde should be able to add a specialized provider when the pursuit actually requires one rather than embedding every possible database.
+
+---
+
+# 68. What we should NOT build immediately
+
+The existence of a useful capability does not mean Stryde should implement it now.
+
+Do not immediately add:
+
+- ten web search providers;
+- a custom crawler;
+- a full vector database migration;
+- a giant knowledge graph;
+- a YouTube scraping platform;
+- every academic database;
+- every CRM;
+- every social platform;
+- every agent framework.
+
+The correct strategy is:
+
+`Provider-neutral contract
+→ one strong provider
+→ prove the behavior
+→ observe failures
+→ add a second provider only where it solves a demonstrated weakness`
+
+---
+
+# 69. Recommended provider architecture
+
+The first implementation should expose interfaces approximately like:
+
+`SearchProvider
+ExtractProvider
+CrawlProvider
+TranscriptProvider
+BrowserProvider
+AcademicProvider
+StructuredDataProvider
+NewsProvider
+`
+
+Each provider returns normalized Stryde objects.
+
+For example:
+
+`ResearchSource {
+  source_id
+  canonical_url
+  title
+  source_type
+  provider
+  retrieved_at
+  published_at
+  freshness
+  content_hash
+  raw_reference
+  content_location
+}`
+
+and:
+
+`EvidenceItem {
+  evidence_id
+  source_id
+  claim
+  evidence_type
+  excerpt
+  source_location
+  conditions
+  corroboration
+  contradictions
+  applicability
+  epistemic_status
+}`
+
+The rest of Stryde should not care whether the source came from Exa, Firecrawl, Tavily, Transcriptor, browser, or a future provider.
+
+---
+
+# 70. Provider failure must be explicit
+
+Every acquisition result should have a state such as:
+
+`SUCCESS
+PARTIAL
+EMPTY
+BLOCKED
+RATE_LIMITED
+AUTH_REQUIRED
+UNSUPPORTED
+STALE
+FAILED
+`
+
+Stryde must never turn:
+
+`FAILED`
+
+into:
+
+`NO EVIDENCE EXISTS`
+
+Those are completely different.
+
+Likewise:
+
+`NO RESULTS FROM PROVIDER`
+
+does not mean:
+
+`NO INFORMATION EXISTS IN THE WORLD`
+
+This is another major epistemic safeguard.
+
+---
+
+# 71. Research quality should be evaluated separately from model quality
+
+Stryde needs two distinct evaluations.
+
+### Reasoning evaluation
+
+Did the model reason correctly over the supplied evidence?
+
+### Research evaluation
+
+Did Stryde obtain the right evidence in the first place?
+
+A perfect reasoning model with terrible retrieval is still a bad research system.
+
+A mediocre model with excellent evidence may still be useful.
+
+This separation should exist in evaluation and telemetry.
+
+---
+
+# 72. Research-specific evaluation suite
+
+Stryde should eventually maintain benchmark pursuits where the expected behavior is known.
+
+Examples:
+
+### Retrieval
+
+Did Stryde find the relevant primary source?
+
+### Coverage
+
+Did it discover important alternative explanations?
+
+### Evidence extraction
+
+Did it correctly extract the reported result and conditions?
+
+### Provenance
+
+Can every important conclusion be traced back to a source?
+
+### Contradiction
+
+Did it detect meaningful disagreement?
+
+### Applicability
+
+Did it notice that a successful case occurred under different conditions?
+
+### Stopping
+
+Did it stop once sufficient evidence existed?
+
+### Action transition
+
+Did it move from research to experiment instead of continuing indefinitely?
+
+### Learning
+
+Did new observations change the recommendation?
+
+This should become part of Stryde's production-quality bar.
+
+---
+
+# 73. Recommended first production research flow
+
+For an initial real implementation, the simplest strong flow is:
+
+`USER GOAL
+↓
+Situation Compiler
+↓
+Research Planner
+↓
+Exa discovery
+↓
+Select candidate URLs
+↓
+Firecrawl extraction
+↓
+Transcriptor for relevant YouTube sources
+↓
+Browser escalation when static acquisition fails
+↓
+Normalize sources
+↓
+Cheap-model claim extraction
+↓
+Deduplicate + provenance
+↓
+Evidence comparison
+↓
+Context Compiler
+↓
+Reasoning model
+↓
+Recommendation
+↓
+Authority
+↓
+Action
+↓
+Observation
+↓
+Reassessment
+`
+
+Consensus / Scite become conditional branches when the research question genuinely benefits from academic evidence.
+
+Tavily becomes a conditional second web provider rather than mandatory overhead.
+
+---
+
+# 74. Why not simply use Firecrawl for everything?
+
+Because "web access" is not one problem.
+
+Firecrawl is excellent for web acquisition, but Stryde also needs:
+
+- semantic discovery;
+- video transcript acquisition;
+- scholarly retrieval;
+- structured business data;
+- browser interaction;
+- user-authorized systems.
+
+A single vendor creates:
+
+- coverage risk;
+- provider lock-in;
+- pricing risk;
+- outage risk;
+- source bias;
+- architectural coupling.
+
+Therefore:
+
+> **Use Firecrawl heavily where it is strong, but keep the contract provider-neutral.**
+
+---
+
+# 75. Why not simply use Exa for everything?
+
+Same answer.
+
+Exa is excellent for discovery and can fetch content, but Stryde should not make one search engine its entire world model.
+
+Exa is a source acquisition mechanism.
+
+Stryde is the system that determines:
+
+- what to search;
+- why to search;
+- what to trust;
+- what to retain;
+- what to compare;
+- what to verify;
+- what to do next.
+
+---
+
+# 76. Why not simply use a "deep research" API?
+
+A provider's deep-research product can be useful as a subordinate capability.
+
+It should not become Stryde's canonical reasoning layer.
+
+If Stryde simply asks another system:
+
+> "Research this for me"
+
+and accepts the final report, it loses control over:
+
+- source provenance;
+- source selection;
+- epistemic status;
+- contradiction handling;
+- research budget;
+- context compilation;
+- continuous pursuit state.
+
+Therefore a deep-research API can be one tool inside the research planner, not the research architecture itself.
+
+---
+
+# 77. The most important architectural principle for tools
+
+The tools should make Stryde **more capable**, not make Stryde **dependent on their worldview**.
+
+So:
+
+`Provider
+→ capability
+→ normalized evidence
+→ Stryde control plane
+`
+
+not:
+
+`Provider
+→ provider's agent
+→ provider's memory
+→ provider's workflow
+→ Stryde becomes wrapper`
+
+This distinction should remain locked.
+
+---
+
+# 78. Current recommendation
+
+### Build now
+
+1. Research Planner
+2. Provider-neutral source acquisition interfaces
+3. Exa discovery adapter
+4. Firecrawl extraction/crawl adapter
+5. Transcriptor adapter
+6. Browser escalation path
+7. Evidence normalization
+8. Claim provenance
+9. Research budgets
+10. Research receipts
+11. Source caching + freshness
+12. Context Compiler integration
+13. Research evaluation suite
+
+### Add conditionally
+
+14. Tavily fallback / independent web provider
+15. Consensus
+16. Scite
+17. structured company/people data
+18. news provider
+19. document parsing
+20. deeper crawling with Crawlee
+
+### Do not make core dependencies yet
+
+- LangGraph
+- Letta
+- CrewAI
+- AutoGen
+- Temporal
+- a giant vector database
+- Firecrawl self-hosted server
+- a multi-agent framework
+
+These can solve specific future problems, but none should become the semantic center of Stryde.
+
+---
+
+# 79. Final tool philosophy
+
+Stryde should eventually behave as if it has a toolbox.
+
+When the goal arrives, it asks:
+
+> **What do I need to know?**
+
+Then:
+
+> **Where is the best place to get that information?**
+
+Then:
+
+> **How do I acquire it reliably?**
+
+Then:
+
+> **What part is actually useful?**
+
+Then:
+
+> **What does this evidence mean under Haseeb's conditions?**
+
+Then:
+
+> **What is still unknown?**
+
+Then:
+
+> **What is the smallest useful action or experiment?**
+
+Then:
+
+> **What happened?**
+
+Then:
+
+> **What does that new reality change?**
+
+The tools are the hands.
+
+The providers are replaceable.
+
+The model is the reasoning engine.
+
+The Context Compiler is the working-memory boundary.
+
+The evidence layer is the epistemic substrate.
+
+The authority system controls side effects.
+
+And Stryde itself remains the control plane.
+
+---
+
+# 80. Updated one-sentence architecture
+
+> **Stryde is a persistent personal pursuit system whose control plane investigates reality through replaceable evidence-acquisition capabilities, compiles only the relevant evidence and personal state into model context, reasons over that bounded reality, acts within explicit authority, observes and verifies outcomes, and continuously updates the pursuit until reality moves.**
