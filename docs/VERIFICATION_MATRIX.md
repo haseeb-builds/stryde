@@ -256,3 +256,74 @@ HUMAN ACTION REQUIRED (recorded, not engineering):
   in this environment by design; product code fails open meanwhile;
 - optional: fund Stripe keys to open founding access (runbook exists);
 - optional: EXA/FIRECRAWL keys for live research legs (unchanged from 10-04).
+
+## 2026-10-06 capability-composition platform (Issue #8 pass)
+
+Each record is labeled per the verification standard (IMPLEMENTED / TESTED /
+INTEGRATION-TESTED / CONFIGURED / DEPLOYED / PRODUCTION-PROVEN).
+
+- Conversational turn time budgets (defect fix, commit 2c14416): IMPLEMENTED,
+  TESTED (239 unit tests), DEPLOYED, PRODUCTION-PROVEN — four real streamed
+  turns on production after the fix where the prior build died at 55s with
+  FUNCTION_INVOCATION_TIMEOUT; the honest SSE error path is code-proven.
+- Adaptive convergence (commits 49ab0f0-lineage, answer rule): IMPLEMENTED,
+  TESTED; production behavior improved (DRAFT → ASK_USER still observed once,
+  then quota blocked further observation) — PRODUCTION PROOF PARTIAL.
+- Capability registry + discovery (Phases 1-2): IMPLEMENTED, TESTED (11 unit
+  tests), INTEGRATION-TESTED live (e2e:entitlement), DEPLOYED,
+  PRODUCTION-PROVEN (continuity cron reports capabilitiesSynced=10,
+  capabilitySyncErrors=[] on https://stryde-topaz.vercel.app).
+- Entitlement + resource control (Phase 3): IMPLEMENTED, TESTED,
+  INTEGRATION-TESTED (e2e:entitlement 8/8 against live Supabase: reserve →
+  availability drop → reconcile with actual → exhaustion refusal → release
+  → post-hoc metering enforcement → expiry reclamation → cross-user
+  isolation), DEPLOYED, PRODUCTION-PROVEN (cron reservationsExpired path).
+  Enforcement is wired into research (reserve/reconcile) and conversation
+  (model_turns pre-check, honest 429).
+- Research planner + evidence-graph novelty (Phases 7-8): IMPLEMENTED,
+  TESTED (8 unit tests); production research legs remain BLOCKED without
+  EXA/FIRECRAWL credentials (unchanged); classifyResults is exercised in the
+  research response shape.
+- Triggers (Phase 9): IMPLEMENTED, TESTED (5 unit tests), DEPLOYED,
+  PRODUCTION-PROVEN evaluation path (cron triggersEvaluated); end-to-end job
+  enqueueing from a trigger is IMPLEMENTED (window-winner records the firing;
+  enqueue is dispatcher-side) but not yet exercised by a scheduled E2E —
+  marked PARTIAL honestly.
+- Artifacts (Phase 10): IMPLEMENTED, TESTED (migration + RPC + REST),
+  DEPLOYED; schema and revision RPC live. Browser UI surface not built —
+  API-level only.
+- Notifications (Phase 11): IMPLEMENTED, TESTED, DEPLOYED, PRODUCTION-PROVEN
+  delivery loop (cron notificationsDelivered/notificationsPending fields;
+  unconfigured channels stay honestly PENDING). EMAIL stays PENDING until a
+  RESEND_API_KEY exists.
+- Task-aware routing (Phase 12): IMPLEMENTED, TESTED (3 unit tests),
+  DEPLOYED; zero-config default (no overrides) is the production behavior.
+- Skills V2 / plugin manifest / MCP normalization (Phases 4-6): IMPLEMENTED,
+  TESTED (7 unit tests), DEPLOYED; Skills V2 migration applied live (40/40
+  migration parity). Plugin trust stays REVIEWED ceiling; marketplace
+  deliberately not built (D28).
+- Sub-agent spec + policy hooks (Phases 13, 17): IMPLEMENTED, TESTED
+  (6 unit tests); hooks wired as an emit-on-boundary library, exercised in
+  unit scope — route-level emission is PARTIAL.
+- Multimodal / computer / connector / sandboxed-code (Phases 14-15):
+  registered deliberately as UNAVAILABLE/BLOCKED capabilities in the live
+  catalog with the correct metadata — honest absence, not silent gaps.
+  PRODUCTION PROOF: NOT ESTABLISHED (external substrate absent).
+- Memory maturity (Phase 16): already satisfied by the 2026-10-02/04 memory
+  lifecycle (types, statuses, provenance-aware retrieval, contradiction
+  flip); regression-verified this session by 251-test suite; no changes.
+- Public extensibility (Phase 18): draft contracts documented in
+  docs/API_CONTRACTS.md; NO stable API promise made.
+
+Verification runs this pass (2026-10-06):
+- npm test 251/251 (three consecutive clean runs); tsc clean; lint clean;
+  production build clean;
+- e2e:entitlement 8/8 (NEW, live Supabase);
+- e2e:controlled 19/19 and e2e:verify-web 6/6 re-run green after all
+  platform changes (regression proof);
+- production cron exercised live: capabilitiesSynced=10, trigger and
+  notification surfaces responding;
+- production conversation: four real streamed turns proven post-fix; a
+  complete fresh journey is currently BLOCKED by account-level provider
+  quota (OpenRouter free-models-per-day exhausted + Gemini 20/day), an
+  external billing constraint that resets daily.
