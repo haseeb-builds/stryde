@@ -1,3 +1,13 @@
+## Reconciliation update — 2026-10-06 post-GLM
+
+- **CI:** current main `1e3b7d7` has GitHub Actions `verify = SUCCESS`. The old Linux/Node path defect described in the earlier reconciliation was fixed in GLM's execution lineage, and current main includes that repair.
+- **Database:** live migration parity is now **37/37**. `user_agent_preference`, `skill`, `skill_version`, and `funnel_event` are live with RLS enabled. The earlier pending-migration statements below are historical.
+- **Production model:** current health configuration resolves OpenRouter to `nvidia/nemotron-3-super-120b-a12b:free`, Gemini fallback, OmniRoute disabled. This is configuration evidence only.
+- **Production reliability:** a fresh full conversation journey after the streaming malformed-output failover repair is still required. Do not promote this to PRODUCTION VERIFIED until the post-fix journey is observed on current main.
+- **Research:** Exa/Firecrawl live credentials remain absent; live research legs remain externally blocked.
+- **Billing/resource entitlements:** Free/Pro/Max budgeting and enforcement remain implementation targets, not production-proven capabilities.
+- **Issue #7:** capability-composition layer has not yet been implemented. The next engineering phase is governed by `docs/GLM_MASTER_IMPLEMENTATION_BRIEF.md`.
+
 # Stryde Verification Matrix
 
 Status: canonical verification matrix
