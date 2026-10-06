@@ -74,3 +74,15 @@ They must not become:
 - the user's workflow interface.
 
 Stryde owns the contract between reality, evidence, decision, action, observation, verification, and continuation.
+
+
+## 2026-10-06 post-GLM runtime checkpoint
+
+CONFIRMED:
+- Vercel project plan is Hobby.
+- Current production deployment is built from main commit 1e3b7d7 and is READY.
+- Current production model configuration resolves OpenRouter → nvidia/nemotron-3-super-120b-a12b:free, Gemini fallback → gemini-flash-latest, OmniRoute disabled.
+- Exa and Firecrawl remain adapter-level capabilities with no live runtime keys configured.
+- RESEND_API_KEY is no longer present in the project environment.
+- Supabase is now 37/37 migration-parity and the four previously missing tables are live.
+- The current production conversation path still needs a fresh post-fix end-to-end proof after the malformed-stream failover repair.
