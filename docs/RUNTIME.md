@@ -1,3 +1,26 @@
+## Runtime checkpoint — 2026-10-06 post-GLM (current)
+
+CONFIRMED:
+- Production is currently `dpl_2w7iPjCcKAWZmQ8VdaJ8CeLb5XcP`, READY, from main commit `1e3b7d7`.
+- Current GitHub Actions `verify` check on `1e3b7d7` is SUCCESS.
+- Vercel project plan is Hobby.
+- `/api/health/model` currently resolves to OpenRouter with model `nvidia/nemotron-3-super-120b-a12b:free`, Gemini fallback `gemini-flash-latest`, OmniRoute disabled.
+- Supabase migration parity is now 37/37; skills, agent preference, funnel instrumentation tables are live.
+- The current runtime error aggregation retains one 55-second conversation timeout signal last seen at 2026-10-06T15:59:52Z on an older deployment. Do not call this resolved until a fresh current-production conversation proves it.
+- No runtime logs were available in the most recent 30-minute window; this is simply an empty query result, not a production-health certificate.
+
+### Current production proof gap
+
+The important next verification is a fresh authenticated production conversation against current main after the streaming malformed-output failover repair. It must prove:
+
+`signup/login or confirmed existing user → pursuit → conversation turn → structured output → adaptive state update → subsequent turn`
+
+A health endpoint or deployment READY status is insufficient proof of generation reliability.
+
+### Engineering direction after proof
+
+Once the production conversation is re-proven, stop doing closure archaeology and move to Issue #7 / `docs/GLM_MASTER_IMPLEMENTATION_BRIEF.md`: unified capability registry, discovery/eligibility, entitlement/resource enforcement, Skills V2, dynamic MCP discovery, adaptive research planner, scheduler, artifacts, notifications, task-aware routing, and task-local delegation.
+
 # Stryde Runtime Truth
 
 Status: canonical runtime document
