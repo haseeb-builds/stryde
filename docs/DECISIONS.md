@@ -90,3 +90,40 @@ No claim of production readiness without deployed authenticated E2E evidence app
   (deterministic, no model calls; model-driven re-engagement deferred);
 - future social/network design;
 - long-term commercial model.
+
+
+### D17 — Subscription capacity is explicit
+
+LOCKED as a design direction.
+
+Stryde Free, Pro, and Max share the same core pursuit architecture. Plans primarily change economically available research, computation, execution, persistence, and premium-capability capacity.
+
+### D18 — Free must prove the product
+
+LOCKED.
+
+Free cannot be an intentionally useless chatbot. It must let a user experience a bounded but genuine Stryde pursuit loop while protecting Stryde from unlimited variable-cost subsidy.
+
+### D19 — Resource budgeting is first-class
+
+LOCKED as a design direction.
+
+Variable-cost operations must be budgeted, reserved, accounted, and reconciled. Monthly quotas alone are insufficient; Stryde also needs per-pursuit, per-operation, and concurrency controls.
+
+### D20 — Cost-aware research planning
+
+LOCKED.
+
+Research Planner decisions must consider expected decision impact, information value, provider quality/reliability, freshness, stakes, latency, and cost. The system should stop when additional research is unlikely to change the next decision.
+
+### D21 — Billing provider is replaceable
+
+LOCKED.
+
+Payment infrastructure is a subordinate commercial integration. Stable internal plan IDs and entitlement semantics must not be replaced by provider-specific product identifiers.
+
+### D22 — Exact plan limits are evidence-driven
+
+LOCKED.
+
+Do not choose Free/Pro/Max numerical quotas from intuition. Measure real model, provider, browser, worker, storage, retry, and concurrency costs first, then calibrate pricing and resource limits against the desired gross margin and usage distribution.
