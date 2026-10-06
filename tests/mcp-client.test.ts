@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { McpStdioClient, parseMcpServerConfig } from "../lib/mcp-client.ts";
 import { decideMcpOutcome } from "../scripts/mcp-worker.ts";
 
-const repoRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname.replace(/^\//, "")), "..");
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const ECHO_SERVER = path.join(repoRoot, "scripts", "mcp-echo-server.mjs");
 
 test("MCP client: initialize, tools/list, and a real tools/call over stdio", async () => {
