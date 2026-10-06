@@ -8,9 +8,10 @@ CONFIRMED unless labeled otherwise.
 ## Read first
 
 1. docs/PRODUCT_CONSTITUTION.md — the product is a pursuit system, not a chatbot or a framework.
-2. docs/STATE.md (2026-10-06 section) — current verified snapshot.
-3. docs/VERIFICATION_MATRIX.md — implemented / tested / deployed / production-proven, per capability.
-4. Issue #6 (open) — the active product mandate and the 2026-10-05 execution report.
+2. docs/RESEARCH_REALITY_ENGINE.md — the locked research-first, evidence-driven, model-independent execution direction.
+3. docs/STATE.md (2026-10-06 section) — current verified snapshot.
+4. docs/VERIFICATION_MATRIX.md — implemented / tested / deployed / production-proven, per capability.
+5. Issue #6 (open) — the active product mandate and the 2026-10-05 execution report.
 
 ## Current repository
 
