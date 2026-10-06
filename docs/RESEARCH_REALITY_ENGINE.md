@@ -2834,3 +2834,124 @@ And Stryde itself remains the control plane.
 # 80. Updated one-sentence architecture
 
 > **Stryde is a persistent personal pursuit system whose control plane investigates reality through replaceable evidence-acquisition capabilities, compiles only the relevant evidence and personal state into model context, reasons over that bounded reality, acts within explicit authority, observes and verifies outcomes, and continuously updates the pursuit until reality moves.**
+
+
+---
+
+# 81. Subscription-aware research
+
+Research capacity is plan-bounded.
+
+The research system must resolve:
+
+`effective entitlement
+→ remaining resource budget
+→ candidate acquisition operations
+→ cost / value
+→ provider selection
+`
+
+This does not create a separate research product for each plan.
+
+The evidence architecture remains identical.
+
+What changes is how much research Stryde can economically perform.
+
+Free receives bounded evidence acquisition.
+
+Pro receives deeper evidence acquisition.
+
+Max receives high-intensity evidence acquisition and premium resource access.
+
+The underlying epistemic states remain unchanged.
+
+---
+
+# 82. Research should spend the user's budget intelligently
+
+The planner should not interpret remaining budget as a reason to keep researching.
+
+For every marginal operation, ask:
+
+> Could this evidence materially change the next decision?
+
+When the answer is no, stop.
+
+When the answer is uncertain, prefer a low-cost operation.
+
+When the answer is yes and the decision stakes justify it, spend enough to resolve the uncertainty.
+
+When reality can answer the question more directly, consider an experiment instead.
+
+---
+
+# 83. Subscription resource boundary
+
+The complete Stryde loop now includes a commercial resource gate:
+
+`INTENTION
+→ REALITY
+→ SITUATION
+→ UNKNOWN / BOTTLENECK
+→ ENTITLEMENT
+→ RESOURCE BUDGET
+→ RESEARCH / EVIDENCE
+→ INTERPRETATION
+→ OPTIONS
+→ RECOMMENDATION
+→ AUTHORITY
+→ ACTION / DELEGATION
+→ OBSERVATION
+→ VERIFICATION
+→ OUTCOME
+→ LEARNING
+→ UPDATED STATE
+→ NEXT MOVE`
+
+The entitlement and budget steps control resource expenditure.
+
+They must not become a reason to lower epistemic honesty.
+
+---
+
+# 84. Research economics are part of system quality
+
+Stryde should evaluate research on two axes:
+
+### Epistemic quality
+
+Did Stryde acquire and interpret useful evidence correctly?
+
+### Economic quality
+
+Did Stryde spend an appropriate amount of resource to acquire that evidence?
+
+A research system that finds good evidence but spends unnecessarily is inefficient.
+
+A cheap system that acquires bad evidence is not efficient.
+
+The target is:
+
+> **Useful evidence and real-world progress per unit of resource.**
+
+---
+
+# 85. Cost control belongs above providers
+
+Exa, Firecrawl, Transcriptor, Tavily, academic providers, browser workers, model providers, and future services remain subordinate capabilities.
+
+The commercial/resource layer should not embed provider identity into plan semantics.
+
+The architecture remains:
+
+`plan
+→ resource envelope
+→ cost-aware planner
+→ provider selection
+→ operation
+→ usage accounting
+→ evidence
+→ context compilation
+`
+
+This preserves replaceability while making Stryde economically viable.
