@@ -25,6 +25,7 @@ Read these before changing behavior:
 15. docs/GLM_MASTER_IMPLEMENTATION_BRIEF.md
 16. docs/COMMERCIAL_OPEN_SOURCE_AND_LAUNCH_STRATEGY.md
 17. docs/GLM_RESUME_MANDATE.md
+18. docs/GLM_WORLD_CLASS_SINGLE_SESSION_BUILD_MANDATE.md
 
 Historical STEP documents preserve implementation history and should not override the current-state documents.
 
