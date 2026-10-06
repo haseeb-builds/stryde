@@ -140,14 +140,6 @@ const CONVERSATION_TURN_SCHEMA = {
   },
 } as const;
 
-function parseJsonText(text: string): unknown {
-  try {
-    return JSON.parse(text);
-  } catch {
-    throw new Error("Model returned non-JSON structured output");
-  }
-}
-
 
 async function callStructuredModel(
   schemaName: string,
@@ -286,9 +278,12 @@ export async function streamConversationTurn(
   if (userMessage.length > MAX_MESSAGE_CHARS) throw new Error("userMessage is too long");
 
   const router = getModelRouter();
-  let streamedText = "";
-  const result = await router.streamStructured({ schemaName: "stryde_conversation_turn", schema: CONVERSATION_TURN_SCHEMA, prompt: buildConversationPrompt(input), maxOutputTokens: MAX_CONVERSATION_TURN_OUTPUT_TOKENS, signal, onText: (text) => { streamedText = text; }});
-  const streamedTurn = validateConversationTurn(parseJsonText(streamedText));
+  // The router parses each leg's streamed text inside the retry/failover
+  // boundary, so a leg that emits unparseable JSON is retried in place and
+  // then fails over instead of ending the user's turn (same semantics as the
+  // non-streaming path).
+  const result = await router.streamStructured({ schemaName: "stryde_conversation_turn", schema: CONVERSATION_TURN_SCHEMA, prompt: buildConversationPrompt(input), maxOutputTokens: MAX_CONVERSATION_TURN_OUTPUT_TOKENS, signal, onText: () => {} });
+  const streamedTurn = validateConversationTurn(result.parsed);
   emit({ type: "message_delta", content: streamedTurn.message });
   emit({ type: "complete", turn: streamedTurn, provider: result.provider, model: result.model });
   return { turn: streamedTurn, provider: result.provider, model: result.model };

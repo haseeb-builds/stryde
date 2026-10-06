@@ -385,3 +385,34 @@ test("Gemini thinking budget is configurable and defaults to 1024", async () => 
   await def.generateStructured({ schemaName: "x", schema: {}, prompt: "x" });
   assert.deepEqual(seen, [0, 1024]);
 });
+
+test("A streaming leg that emits unparseable JSON is retried in place and then fails over", async () => {
+  const sse = (value: unknown) => `data: ${JSON.stringify(value)}\n\n`;
+  const calls: string[] = [];
+  const router = createModelRouter([
+    { provider: "gemini", apiKey: "g", baseUrl: "https://g", model: "g" },
+    { provider: "openrouter", apiKey: "o", baseUrl: "https://o", model: "o" },
+  ], async (url) => {
+    calls.push(String(url).startsWith("https://g") ? "gemini" : "openrouter");
+    if (String(url).startsWith("https://g")) {
+      return new Response(new ReadableStream({ start(controller) { controller.enqueue(new TextEncoder().encode(sse({ candidates: [{ content: { parts: [{ text: "prose, not json" }] } }] }))); controller.close(); } }), { status: 200 });
+    }
+    return new Response(new ReadableStream({ start(controller) { controller.enqueue(new TextEncoder().encode(sse({ choices: [{ delta: { content: '{"ok":true}' } }] }))); controller.close(); } }), { status: 200 });
+  });
+  const result = await router.streamStructured({ schemaName: "x", schema: {}, prompt: "x", onText: () => {} });
+  assert.equal(result.provider, "openrouter");
+  assert.deepEqual(result.parsed, { ok: true });
+  // The malformed leg was exhausted in place (3 attempts) before failover.
+  assert.equal(calls.filter((c) => c === "gemini").length, 3);
+  assert.equal(calls.filter((c) => c === "openrouter").length, 1);
+});
+
+test("A streaming leg that emits no text fails honestly as malformed output", async () => {
+  const router = createModelRouter([
+    { provider: "openrouter", apiKey: "o", baseUrl: "https://o", model: "o" },
+  ], async () => new Response(new ReadableStream({ start(controller) { controller.close(); } }), { status: 200 }));
+  await assert.rejects(
+    () => router.streamStructured({ schemaName: "x", schema: {}, prompt: "x", onText: () => {} }),
+    (e: unknown) => e instanceof ModelProviderError && e.kind === "malformed_output" && e.retryable,
+  );
+});
