@@ -97,8 +97,8 @@ CONFIRMED unless labeled otherwise.
 8. Replace provider-specific billing assumptions with the provider-neutral
    BillingProvider interface; select the actual payment provider only after
    current geography/commercial eligibility is verified.
-9. Add EXA/FIRECRAWL and transcript credentials only after the entitlement and
-   usage-accounting path can meter them safely.
+9. Treat docs/GLM_MASTER_IMPLEMENTATION_BRIEF.md as the implementation gate for
+   the next capability-platform pass; execute in phases and verify each phase.
 
 ## Non-negotiables
 
