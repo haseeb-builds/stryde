@@ -1,114 +1,74 @@
 # Stryde Handoff
 
-Current as of 2026-10-06 (final truth reconciliation pass). This document is
-the operator's entry point; history is preserved in docs/STATE.md (dated
-sections), docs/VERIFICATION_MATRIX.md, and git history. Every claim below is
-CONFIRMED unless labeled otherwise.
+Current as of 2026-10-06 post-GLM checkpoint.
+
+## Current truth
+
+- main = `1e3b7d7dd886d2f8e7a0e70b0e84e06e6b06bfec`.
+- GLM's streaming malformed-output failover fix = `a67e36d23e1d7528af71277d8e627be5732216e7`, and it is an ancestor of current main.
+- Current GitHub Actions `verify` check is SUCCESS on current main.
+- Current Vercel production deployment = `dpl_2w7iPjCcKAWZmQ8VdaJ8CeLb5XcP`, READY, serving `1e3b7d7`.
+- Current production model configuration: OpenRouter preferred with `nvidia/nemotron-3-super-120b-a12b:free`; Gemini fallback `gemini-flash-latest`; OmniRoute disabled.
+- Vercel project plan is Hobby.
+- Supabase migration parity is 37/37.
+- Live `user_agent_preference`, `skill`, `skill_version`, and `funnel_event` tables now exist with RLS enabled.
+- RESEND_API_KEY is no longer present in the Vercel environment.
+- Exa / Firecrawl credentials are still absent, so live research legs remain blocked.
+- Production worker runtime is still not established.
+- A historical 55-second conversation timeout error group remains in Vercel telemetry, last seen on 2026-10-06T15:59:52Z on an older deployment. Fresh current-main conversation proof is still required before calling the production conversation path stable.
+
+## What the interrupted GLM run accomplished
+
+It was useful and should not be discarded.
+
+It:
+- reconciled documentation;
+- fixed the CI/Linux path defect;
+- reconciled/applied the five live migrations;
+- removed stale RESEND_API_KEY;
+- discovered the production model problem;
+- contract-tested free OpenRouter model candidates;
+- selected `nvidia/nemotron-3-super-120b-a12b:free`;
+- fixed streaming malformed-output retry/failover in `a67e36d`.
+
+The run stopped before completing the final post-fix production conversation journey and before implementing Issue #7's capability-composition layer.
 
 ## Read first
 
-1. docs/PRODUCT_CONSTITUTION.md — the product is a pursuit system, not a chatbot or a framework.
-2. docs/RESEARCH_REALITY_ENGINE.md — the locked research-first, evidence-driven, model-independent execution direction.
-3. docs/STATE.md (2026-10-06 section) — current verified snapshot.
-4. docs/VERIFICATION_MATRIX.md — implemented / tested / deployed / production-proven, per capability.
-5. Issue #6 (open) — the active product mandate and the 2026-10-05 execution report.
+1. docs/PRODUCT_CONSTITUTION.md
+2. docs/ARCHITECTURE.md
+3. docs/STATE.md
+4. docs/RUNTIME.md
+5. docs/VERIFICATION_MATRIX.md
+6. docs/DECISIONS.md
+7. docs/INTEGRATIONS.md
+8. docs/RESEARCH_REALITY_ENGINE.md
+9. docs/SUBSCRIPTION_AND_RESOURCE_MODEL.md
+10. docs/RESEARCH_COST_CONTROL.md
+11. docs/BILLING_PROVIDER_ARCHITECTURE.md
+12. docs/AI_CAPABILITY_LANDSCAPE_AND_GAPS.md
+13. docs/GLM_MASTER_IMPLEMENTATION_BRIEF.md
+14. docs/GLM_RESUME_MANDATE.md
 
-## Current repository
+## Next action
 
-- main at bc8e92e, clean, pushed; production serves this commit.
-- 37 migration files; live Supabase has 32 applied (see below).
-- CI is RED on the whole Issue #6 pass (runs 210-212 fail at Unit tests;
-  last green e393140). Root cause: tests/mcp-client.test.ts derives the repo
-  root with a Windows-only `pathname.replace(/^\//, "")`; on Linux the MCP
-  echo server path resolves wrong and both transport tests fail. The suite
-  passes 210/210 on Windows. Fix = `fileURLToPath(import.meta.url)` (one
-  line) and keep the repo's explicit-`.ts` import convention. Vercel does
-  not run tests, so deployment success is not test evidence.
+Do not restart the old documentation-reconciliation/migration work.
 
-## Production
+First run the fresh production conversation proof described in `docs/GLM_RESUME_MANDATE.md`.
 
-- https://stryde-topaz.vercel.app — live; deployment stryde-dt58xyg2s
-  (Ready, 2026-10-05, commit bc8e92e).
-- /api/health/model: openrouter preferred, chain
-  [gemini, openrouter, omniroute], omniroute disabled, ready=true. This is
-  configuration evidence; the 2026-10-05 production conversation is the
-  generation proof.
-- Open production defect: runtime errors mention the missing
-  `public.funnel_event` table (fail-open funnel instrumentation).
-- RESEND_API_KEY is set on the Vercel project but unreferenced by code
-  (resend dependency removed 2026-10-04) — remove it.
-- No EXA / FIRECRAWL / Stripe keys (BLOCKED on human-owned credentials).
-
-## Live database (Supabase pvijrnwdnolvnoibarrj)
-
-- 32/37 migrations applied. Pending:
-  - 20261005000000 register browser worker tool — worker.browser row ALREADY
-    exists live (runtime-provisioned 2026-10-05); migration is a plain
-    INSERT → verify row parity, then `supabase migration repair --status
-    applied 20261005000000`. DO NOT re-run it.
-  - 20261005030000 register mcp worker tool — same situation as above.
-  - 20261005010000 user_agent_preference — apply normally (table missing).
-  - 20261005020000 stryde skills — apply normally (skill, skill_version
-    missing).
-  - 20261005040000 funnel events — apply normally (funnel_event missing;
-    applying it stops the production runtime error).
-- Missing live tables (REST 404, 2026-10-06): user_agent_preference, skill,
-  skill_version, funnel_event. Product code fails open without them.
-- Live tool registry: worker.hermes v1, worker.opencode v1,
-  worker.browser v1, worker.mcp v1.
-- Live counts (2026-10-06, include E2E harness data): pursuit 153,
-  conversation_session 149, conversation_message 234, tool 4,
-  capability_grant 6, job 57, attempt 55, observation 121, claim 62,
-  action 122, decision 123, run 16, event 941, memory_item 31,
-  user_autonomy_policy 0.
-- The Supabase CLI in the working environment is linked and authenticated;
-  the earlier "no DDL credential by design" note no longer applies.
-- Standing rule: never `db push --reset` or reset the live database.
-
-## Proven vs not proven (honesty labels)
-
-- PROVEN (local plane, real agents): Hermes, OpenCode, browser render, MCP
-  transport, human action loop, verification cycle, memory lifecycle,
-  context compiler, skills, agent selection.
-- PROVEN (production): sign-in boundary, pursuit surface, landing UX,
-  context compiler (live turns), voice input reachability, one real
-  conversation turn (2026-10-05), ui suite 12/12 against production.
-- NOT ESTABLISHED: production worker runtime (no publicly reachable worker
-  endpoint; serverless cannot host workers/browsers), production browser
-  runtime, sustained production model generation, live research legs (no
-  keys), billing (honest 503 until keys).
-
-## Operator steps queued (in execution order)
-
-1. Fix the CI path defect (one line) and get main green.
-2. Reconcile + apply the five migrations (commands above), verify the four
-   tables live, confirm the funnel_event error stops.
-3. Remove RESEND_API_KEY from Vercel (Production+Preview).
-4. Production loop proof: fresh signup → pursuit → real model turn →
-   adaptive planning → action → observation → next move (never cite
-   /api/health/model as model evidence).
-5. Establish a production-reachable worker/browser runtime (public endpoint
-   + bearer token; fail-closed auth already enforced server-side), then
-   prove delegation and browser observation from the deployed product.
-6. Verify honest degradation on production: provider unavailable, worker
-   unavailable, browser unavailable, research unavailable.
-7. Implement subscription entitlements + resource budgeting as a first-class
-   server-side boundary before broadening paid research/execution.
-8. Replace provider-specific billing assumptions with the provider-neutral
-   BillingProvider interface; select the actual payment provider only after
-   current geography/commercial eligibility is verified.
-9. Treat docs/GLM_MASTER_IMPLEMENTATION_BRIEF.md as the implementation gate for
-   the next capability-platform pass; execute in phases and verify each phase.
+If that passes, proceed directly into Issue #7 / `docs/GLM_MASTER_IMPLEMENTATION_BRIEF.md`, beginning with Phase 1: Unified Capability Registry.
 
 ## Non-negotiables
 
-- Do not turn Stryde into a generic AI workspace or an agent framework.
-- Do not expose internal ontology in normal UX.
-- Do not let third-party infrastructure redefine Stryde or own semantic state.
-- Do not add dependencies just because they are popular.
-- Do not use model output as authority or proof of outcome.
-- Do not make the user verify what Stryde can reliably verify itself.
-- Do not reset the live database to make migrations look clean.
-- Do not declare completion without matching evidence.
-- Distinguish implemented / tested / configured / deployed /
-  production-proven / customer-proven in every claim.
+- Do not reset the live Supabase database.
+- Do not revert `a67e36d` unless a verified regression requires it.
+- Do not treat `/api/health/model` as proof of generation quality.
+- Do not claim production stability without the current-main conversation proof.
+- Do not duplicate existing skills, memory, worker, MCP, research, or job primitives.
+- Capability discovery is not authority.
+- External content is untrusted.
+- Tool success is not outcome success.
+- Keep provider interfaces replaceable.
+- Keep Free genuinely useful but economically bounded.
+- Do not add heavyweight agent frameworks without a demonstrated need.
+- Record implemented/tested/deployed/production-proven status separately.
