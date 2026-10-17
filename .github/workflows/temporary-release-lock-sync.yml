@@ -1,0 +1,33 @@
+name: Temporary release lockfile sync
+on:
+  push:
+    branches:
+      - chore/release-baseline-security-2026-10-17
+permissions:
+  contents: write
+jobs:
+  sync-lockfile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: chore/release-baseline-security-2026-10-17
+          persist-credentials: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Match validated npm version
+        run: npm install --global npm@11.9.0
+      - name: Reconcile lockfile with pinned package versions
+        run: npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+      - name: Commit regenerated lockfile
+        run: |
+          if git diff --quiet -- package-lock.json; then
+            echo "Lockfile is already synchronized"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package-lock.json
+          git commit -m "chore(release): synchronize package lock"
+          git push origin HEAD:chore/release-baseline-security-2026-10-17
