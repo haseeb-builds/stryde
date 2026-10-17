@@ -1,3 +1,5 @@
+import { fileURLToPath } from "node:url";
+import { repoRootFromModuleUrl } from "./repo-root.mjs";
 // A real MCP worker endpoint for Stryde's CONTROLLED execution plane.
 //
 // Same HTTP contract as the other workers; the bounded v1 task is one MCP
@@ -15,7 +17,7 @@ import path from "node:path";
 import { isAuthorizedWorkerRequest } from "../lib/worker-server-auth.ts";
 import { parseMcpServerConfig } from "../lib/mcp-client.ts";
 
-const repoRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname.replace(/^\//, "")), "..");
+const repoRoot = repoRootFromModuleUrl(import.meta.url);
 const localEnvPath = path.join(repoRoot, ".env.local");
 if (existsSync(localEnvPath)) {
   const fileEnv = Object.fromEntries(
@@ -245,7 +247,7 @@ const server = createServer((req, res) => {
 });
 
 const entry = process.argv[1];
-const modulePath = path.resolve(decodeURIComponent(new URL(import.meta.url).pathname).replace(/^\/([A-Za-z]:)/, "$1"));
+const modulePath = fileURLToPath(import.meta.url);
 if (entry && path.resolve(entry) === modulePath) {
   const port = Number(process.env.STRYDE_MCP_WORKER_PORT ?? "8895");
   server.listen(port, "127.0.0.1", () => {
