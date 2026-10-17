@@ -10,7 +10,7 @@ export const runtime = "nodejs";
 // through the platform-native fetch — no SDK.
 export async function POST(request: Request) {
   try {
-    const { supabase, user } = await requireAuthenticatedSupabase(request.headers.get("authorization"));
+    const { user } = await requireAuthenticatedSupabase(request.headers.get("authorization"));
 
     const secretKey = process.env.STRIPE_SECRET_KEY?.trim();
     const priceId = process.env.STRIPE_PRICE_ID?.trim();
