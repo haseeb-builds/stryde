@@ -1,5 +1,16 @@
 # Stryde Integration Truth
 
+
+## Live integration reconciliation — 2026-10-17 (current)
+
+- **Vercel:** production deployment `dpl_HxMc5YPcdgndAT9KnvaEHYNQKm2G` is READY on main commit `1df79487da20bd4066e7ff492f6851c0960e6141`; alias `stryde-topaz.vercel.app`.
+- **Supabase:** project `pvijrnwdnolvnoibarrj` is ACTIVE_HEALTHY. The live ledger contains 41 migration entries. Security migration version `20261017185728` is applied and live effective privileges were queried afterward.
+- **Model provider:** live `/api/health/model` returned HTTP 200, OpenRouter preferred with `nvidia/nemotron-3-super-120b-a12b:free`, Gemini fallback `gemini-flash-latest`, OmniRoute disabled. Environment variable names are present for OpenRouter/Gemini, but secret values were not inspected. Model-health success is not a successful conversation-turn proof, and free-tier quota sustainability remains unestablished.
+- **Research:** `EXA_API_KEY` and `FIRECRAWL_API_KEY` are absent from the production environment inventory; live research remains blocked.
+- **Billing:** Stripe keys are absent. Billing/payment and the customer-facing paid subscription path are not production-proven.
+- **Worker runtime:** local/integration worker proofs do not establish a publicly reachable production worker runtime.
+- **Security:** authenticated execution was removed from eight resource/trigger RPCs designed for the trusted plane. Artifact revision now verifies the actual authenticated actor. Leaked-password protection remains disabled in Supabase Auth.
+
 Status: canonical integration document
 Reconciliation date: 2026-10-06
 
