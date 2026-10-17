@@ -1,5 +1,22 @@
 ## Reconciliation update — 2026-10-06 post-GLM
 
+
+## Reconciliation update — 2026-10-17 (current)
+
+| Area | Implemented | Tested | Deployed / Live | Remaining evidence |
+|---|---|---|---|---|
+| Trusted-plane RPC grants | YES | Regression tests passed in CI; live before/after privilege query run | YES — migration version `20261017185728` applied | Continue reviewing other user-callable SECURITY DEFINER functions |
+| Artifact revision actor binding | YES | SQL definition inspected; CI regression test passed | YES | Adversarial authenticated cross-user invocation not separately exercised |
+| Resource window search path | YES | CI regression test and live `proconfig` query | YES — `search_path=pg_catalog` | None known for this helper |
+| Model provider configuration | YES | Live health endpoint returned HTTP 200 | YES | This is not proof of successful text generation |
+| Complete authenticated production conversation | YES in code | Earlier partial stream/persistence evidence exists | PARTIAL | Re-run current deployment: first structured turn, adaptive state update, second turn and persistence |
+
+Live database evidence after the security migration: the eight internal entitlement/resource/trigger RPCs return `authenticated_can_execute=false` and `service_role_can_execute=true`. The authenticated artifact revision RPC remains executable by design and now verifies `p_actor = auth.uid()` and artifact ownership in its SECURITY DEFINER body.
+
+Security PR #10 merged as `1df7948`; its CI pipeline passed unit tests, typecheck, lint, and production build. The resulting production Vercel deployment is READY. Vercel's last-seven-day grouped runtime-error query returned no errors, but current production conversation reliability is still **NOT PROVEN**.
+
+The live migration ledger contains 41 entries including version `20261017185728`. Research provider credentials (Exa/Firecrawl), production worker runtime, trigger-to-dispatcher E2E, artifact UI, and leaked-password protection remain outstanding or unverified.
+
 - **CI:** current main `1e3b7d7` has GitHub Actions `verify = SUCCESS`. The old Linux/Node path defect described in the earlier reconciliation was fixed in GLM's execution lineage, and current main includes that repair.
 - **Database:** live migration parity is now **37/37**. `user_agent_preference`, `skill`, `skill_version`, and `funnel_event` are live with RLS enabled. The earlier pending-migration statements below are historical.
 - **Production model:** current health configuration resolves OpenRouter to `nvidia/nemotron-3-super-120b-a12b:free`, Gemini fallback, OmniRoute disabled. This is configuration evidence only.

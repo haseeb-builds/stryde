@@ -1,5 +1,34 @@
 ## 2026-10-06 (later) — capability-composition platform (Issue #8) checkpoint (current)
 
+
+## 2026-10-17 — production/security reconciliation (current)
+
+This checkpoint supersedes older deployment, migration-count, and RPC-permission statements below where they conflict. Historical checkpoints are retained as evidence.
+
+### Repository and release
+
+- Security PR #10 was merged as `1df79487da20bd4066e7ff492f6851c0960e6141`.
+- Its GitHub Actions CI run passed the unit-test, typecheck, lint, and production-build steps.
+- Vercel deployed that main commit as production deployment `dpl_HxMc5YPcdgndAT9KnvaEHYNQKm2G` (READY), with `stryde-topaz.vercel.app` assigned.
+- A new regression test covers the trusted-plane RPC grant contract and artifact-revision actor binding.
+
+### Live database security proof
+
+- Supabase project `pvijrnwdnolvnoibarrj` is `ACTIVE_HEALTHY`.
+- The live migration ledger now contains 41 entries, including the security migration recorded as version `20261017185728`. The repository migration file uses that version prefix so local and live migration tracking can reconcile.
+- Before the fix, a live privilege query confirmed that signed-in `authenticated` users could execute eight RPCs intended for the trusted/service-role plane.
+- After applying the migration, the same live query confirmed `authenticated` execution is FALSE and `service_role` execution is TRUE for: `stryde_effective_plan`, `stryde_resource_available`, `stryde_reserve_resources`, `stryde_reconcile_reservation`, `stryde_release_reservations`, `stryde_expire_reservations`, `stryde_record_resource_usage`, and `stryde_fire_trigger`.
+- `stryde_revise_artifact` remains callable by an authenticated user as intended, but its SECURITY DEFINER body now rejects a caller-supplied actor that differs from `auth.uid()` and selects only an artifact owned by `auth.uid()`.
+- `stryde_resource_window_start` now has a fixed `pg_catalog` search path.
+
+### Production evidence and remaining unknowns
+
+- The production `/api/health/model` endpoint returned HTTP 200 and reported OpenRouter / `nvidia/nemotron-3-super-120b-a12b:free`, Gemini fallback / `gemini-flash-latest`, and OmniRoute disabled. This proves configuration resolution only, not a successful AI turn.
+- Vercel’s aggregated runtime-error query returned no errors for the last seven days; a query for the latest 30 minutes returned no matching function logs. The Hobby plan's short log retention and absence of returned records are not proof of end-to-end reliability.
+- The fresh authenticated production journey remains UNVERIFIED: sign-in → pursuit → structured model turn → persisted adaptive state → second turn. Do not call Stryde launch-ready until this is demonstrated on the current production deployment.
+- Exa/Firecrawl credentials remain absent; live research is still blocked. Production worker runtime remains unestablished. Trigger-to-dispatcher E2E and the artifact UI remain outstanding.
+- Supabase Security Advisor still reports authenticated-callable SECURITY DEFINER functions for the user-facing pursuit/conversation paths and the guarded artifact revision RPC. Review the remaining function bodies and owner boundaries separately; do not interpret the generic advisor warning alone as proof of cross-user access. Leaked-password protection is also disabled and should be addressed before broad public launch.
+
 This entry supersedes the checkpoint below where they disagree. Executed per
 docs/GLM_WORLD_CLASS_SINGLE_SESSION_BUILD_MANDATE.md and GitHub Issue #8.
 
