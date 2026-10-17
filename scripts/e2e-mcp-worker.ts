@@ -1,3 +1,4 @@
+import { repoRootFromModuleUrl } from "./repo-root.mjs";
 // Proves that an MCP tool call executes for real through Stryde's CONTROLLED
 // plane: the dispatcher drives the real MCP worker, which starts the real
 // stub MCP server over stdio (initialize -> tools/list -> tools/call), and
@@ -11,7 +12,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 
-const repoRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname.replace(/^\//, "")), "..");
+const repoRoot = repoRootFromModuleUrl(import.meta.url);
 const env = Object.fromEntries(
   fs.readFileSync(path.join(repoRoot, ".env.local"), "utf8")
     .split(/\r?\n/).filter((l) => l.includes("=") && !l.trimStart().startsWith("#"))
