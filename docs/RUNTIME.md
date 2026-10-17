@@ -1,5 +1,16 @@
 ## Runtime checkpoint — 2026-10-06 post-GLM (current)
 
+
+## Runtime checkpoint — 2026-10-17 (current)
+
+- Current production deployment is `dpl_HxMc5YPcdgndAT9KnvaEHYNQKm2G`, READY, built from main commit `1df79487da20bd4066e7ff492f6851c0960e6141`, aliased to `stryde-topaz.vercel.app`.
+- Live `/api/health/model` returns HTTP 200 and resolves OpenRouter / `nvidia/nemotron-3-super-120b-a12b:free`, Gemini fallback / `gemini-flash-latest`, OmniRoute disabled. It is configuration evidence, not generation evidence.
+- Supabase now records 41 migrations. The 2026-10-17 access-hardening migration is applied as version `20261017185728`.
+- Post-migration privilege verification confirms authenticated clients cannot execute the eight trusted-plane resource/trigger RPCs; `service_role` can. Artifact revision remains authenticated but now binds its actor to `auth.uid()`. The resource-window helper's search path is fixed to `pg_catalog`.
+- Vercel’s aggregated error query returned no grouped runtime errors in the last seven days. A recent 30-minute error-log query returned no entries. Because this project is on Hobby and runtime-log retention is short, this is not proof of the absence of failures.
+- **Still unproven:** a fresh authenticated, two-turn production conversation with valid structured output and persisted adaptive state. A health check and READY deployment do not substitute for that journey.
+- **Other blockers:** Exa/Firecrawl production credentials absent; worker runtime not established; trigger-to-dispatcher end-to-end path needs proof; artifact UI remains to be surfaced; leaked-password protection is disabled.
+
 CONFIRMED:
 - Production is currently `dpl_2w7iPjCcKAWZmQ8VdaJ8CeLb5XcP`, READY, from main commit `1e3b7d7`.
 - Current GitHub Actions `verify` check on `1e3b7d7` is SUCCESS.
