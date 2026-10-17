@@ -1,5 +1,31 @@
 # Stryde Handoff
 
+
+## 2026-10-17 — current engineering handoff
+
+### What just changed
+
+- Live security audit discovered that eight RPCs documented as trusted-plane/service-role-only were executable by `authenticated` users due to default function grants. The fix is merged in `1df79487da20bd4066e7ff492f6851c0960e6141` and deployed in READY production deployment `dpl_HxMc5YPcdgndAT9KnvaEHYNQKm2G`.
+- GitHub Actions passed unit tests, typecheck, lint, and production build.
+- The live Supabase migration was applied and verified. The eight trusted-plane RPCs now reject authenticated execution and remain executable by `service_role`.
+- Artifact revision remains authenticated by design, but now validates the caller against `auth.uid()` and scopes the old artifact lookup to that identity.
+- The source migration filename is being aligned to live version `20261017185728` to avoid local/live migration version drift.
+
+### Next actions — priority order
+
+1. **Run a fresh full production conversation journey** on the current deployment: confirmed user → pursuit → structured first turn → adaptive working state → second turn → persisted transcript/state. Do not equate `/api/health/model` or deployment READY with model reliability. Prior notes say free provider quotas blocked this; current availability still needs to be measured by an actual turn.
+2. **Review remaining authenticated SECURITY DEFINER functions** flagged by Supabase Advisor. The current advisor lists the guarded artifact-revision function plus user-facing pursuit/conversation RPCs; inspect each owner check and add cross-user regression tests where needed. Enable leaked-password protection in Supabase Auth before broad launch.
+3. **Make model/research economics viable:** verify a real model turn with the production provider chain; Exa/Firecrawl keys are absent, and production research is not proven. Do not assume Google AI Pro subscription includes production API credits.
+4. Finish the **trigger → dispatcher job enqueueing E2E** and add the missing **artifacts UI** surface where it is in V1 scope.
+5. Establish actual production worker runtime and verify resource/entitlement accounting through a representative pursuit.
+6. Update this handoff and the verification matrix only when each result has actual evidence.
+
+### Explicit status
+
+- **PROVEN:** CI pipeline for the security fix; production deployment READY; security migration applied; live RPC privilege changes queried; production model configuration resolves.
+- **NOT PROVEN:** full current-production conversational journey, sustained provider reliability, live Exa/Firecrawl research, public worker runtime, customer-paid billing path, trigger-to-dispatcher complete loop.
+- **Do not begin marketing yet.** LinkedIn launch and user acquisition come after the critical production journey and security checks are done. That is launch work, not a substitute for verification.
+
 Current as of 2026-10-06 post-GLM checkpoint.
 
 ## Current truth
