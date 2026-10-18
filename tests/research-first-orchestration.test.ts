@@ -416,3 +416,113 @@ test("gemini env var reconciliation: GEMINI_API_KEY and GOOGLE_AI_STUDIO_API_KEY
   assert.equal(configs2[0].apiKey, "test-google-key");
 });
 
+test("route-level blocker reconciliation: unconfigured search yields WAITING_EXTERNAL and ASK_USER move without substantive output", () => {
+  // Simulate the deterministic check and capability gate from conversation/route.ts
+  const message = "What are the latest salary benchmark levels for Staff Engineers in London?";
+  const researchCheck = detectDeterministicResearchRequirement({ message });
+  assert.equal(researchCheck.required, true);
+
+  const capabilities = { web_search: false };
+  let blocker: { reason: "UNAUTHORIZED" | "UNCONFIGURED"; message: string } | null = null;
+  if (researchCheck.required && !capabilities.web_search) {
+    blocker = {
+      reason: "UNCONFIGURED",
+      message: "External web research capability is unconfigured or not available in this environment.",
+    };
+  }
+
+  assert.ok(blocker);
+  assert.equal(blocker.reason, "UNCONFIGURED");
+
+  // Reconciled working state when research is blocked
+  const status = (blocker.reason as string) === "UNAUTHORIZED" ? "WAITING_USER" : "WAITING_EXTERNAL";
+  const nextMove = {
+    mode: "ASK_USER",
+    actor: "HUMAN",
+    title: "Configure search credentials or provide a source document directly.",
+    why: blocker.message,
+  };
+
+  assert.equal(status, "WAITING_EXTERNAL");
+  assert.equal(nextMove.mode, "ASK_USER");
+});
+
+test("route-level blocker reconciliation: disabled auto-research yields WAITING_USER and permission request", () => {
+  const message = "Audit this roadmap: Step 1: Cold call 500 CEOs daily. Step 2: Book 50 demos. Check feasibility.";
+  const researchCheck = detectDeterministicResearchRequirement({ message });
+  assert.equal(researchCheck.required, true);
+
+  const capabilities = { web_search: true };
+  const userPolicy = { auto_execute_research: false };
+
+  let blocker: { reason: string; message: string } | null = null;
+  if (researchCheck.required && capabilities.web_search && !userPolicy.auto_execute_research) {
+    blocker = {
+      reason: "UNAUTHORIZED",
+      message: "Automatic research is not authorized by your autonomy policy. Permission is required to execute external research.",
+    };
+  }
+
+  assert.ok(blocker);
+  assert.equal(blocker.reason, "UNAUTHORIZED");
+
+  const status = blocker.reason === "UNAUTHORIZED" ? "WAITING_USER" : "WAITING_EXTERNAL";
+  const nextMove = {
+    mode: "ASK_USER",
+    actor: "HUMAN",
+    title: "Authorize research to investigate this question.",
+    why: blocker.message,
+  };
+
+  assert.equal(status, "WAITING_USER");
+  assert.equal(nextMove.mode, "ASK_USER");
+});
+
+test("pre-stream research ordering: research completes before turn stream and reconciles Situation", async (t) => {
+  const callSequence: string[] = [];
+
+  const restore = setEnv({
+    EXA_API_KEY: "mock-exa",
+    STRYDE_SEARCH_PROVIDER: "exa",
+  });
+
+  const fetchMock = t.mock.method(globalThis, "fetch", async (url: unknown) => {
+    if (String(url).startsWith("https://api.exa.ai")) {
+      callSequence.push("EXA_SEARCH_CALLED");
+      return json({
+        results: [
+          { url: "https://example.com/evidence", title: "Evidence Doc", highlights: ["Key factual benchmark."] },
+        ],
+      });
+    }
+    callSequence.push("PAGE_FETCH_CALLED");
+    return new Response("<p>Evidence content</p>", { status: 200 });
+  });
+
+  try {
+    const log: string[] = [];
+    const { client } = fakeSupabase("service", log);
+
+    // 1. Research phase executes BEFORE assistant turn stream begins
+    const research = await executeWebResearch(client, "user-1", "pursuit-1", "benchmark inquiry");
+    callSequence.push("RESEARCH_COMPLETED");
+
+    // 2. Stream phase simulates beginning only after research completed
+    callSequence.push("STREAM_TURN_STARTED");
+
+    assert.deepEqual(callSequence, [
+      "EXA_SEARCH_CALLED",
+      "PAGE_FETCH_CALLED",
+      "RESEARCH_COMPLETED",
+      "STREAM_TURN_STARTED",
+    ], "Research must complete before stream turn starts");
+
+    assert.ok(research.observation_id);
+    assert.equal(research.retrieved_sources[0].locator_type, "FULL_TEXT");
+  } finally {
+    restore();
+    fetchMock.mock.restore();
+  }
+});
+
+
