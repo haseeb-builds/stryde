@@ -13,6 +13,7 @@ import { getSupabaseServiceClient } from "@/lib/supabase/service";
 import { recordResourceUsage } from "@/lib/resource-control";
 import { executeWebResearch } from "@/lib/research-execution";
 import { checkAutoResearch } from "@/lib/autonomy-policy";
+import { detectDeterministicResearchRequirement } from "@/lib/research-orchestration";
 
 export const runtime = "nodejs";
 // A full turn is TWO real model generations (the streamed ConversationTurn plus
@@ -124,11 +125,60 @@ export async function POST(request: Request, context: RouteContext) {
     if (situationResult.error || !situationResult.situation) {
       return errorResponse(situationResult.error ?? "Unable to assemble adaptive Situation", 500);
     }
+    let currentSituation = situationResult.situation;
+
+    // Research-first deterministic policy: check if user intent or situation
+    // deterministically requires external factual verification or roadmap audit.
+    // If so, execute research pass on trusted plane BEFORE generating/streaming
+    // the turn so no substantive recommendation is streamed prior to evidence.
+    let autonomousResearch: { query: string; provider: string; results: unknown[]; observation_id: string | null } | null = null;
+    const researchCheck = detectDeterministicResearchRequirement({
+      message,
+      situation: currentSituation,
+      workingState: (session.working_state ?? null) as Parameters<typeof detectDeterministicResearchRequirement>[0]["workingState"],
+    });
+
+    const trustedPlane = getSupabaseServiceClient();
+
+    if (researchCheck.required && currentSituation.capabilities.web_search) {
+      const { data: userPolicy } = await supabase
+        .from("user_autonomy_policy")
+        .select("allow_worker_delegation, allowed_worker_types, auto_execute_research")
+        .eq("owner_user_id", user.id)
+        .maybeSingle();
+
+      if (checkAutoResearch(userPolicy)) {
+        try {
+          const execution = await executeWebResearch(
+            supabase,
+            user.id,
+            id,
+            researchCheck.query!,
+            trustedPlane,
+          );
+          autonomousResearch = execution;
+
+          // Re-assemble situation with the new observation so compiled context
+          // contains the real evidence.
+          const refreshed = await assembleAdaptiveSituation(supabase, user.id, id);
+          if (!refreshed.error && refreshed.situation) {
+            currentSituation = refreshed.situation;
+          }
+        } catch {
+          autonomousResearch = {
+            query: researchCheck.query!,
+            provider: "unavailable",
+            results: [],
+            observation_id: null,
+          };
+        }
+      }
+    }
 
     // The Context Compiler turns the canonical Situation into a task-specific
     // packet for THIS turn. The model never sees the full situation replay;
     // the selection report is persisted so retrieval stays inspectable.
-    const compiled = compileForSituation(situationResult.situation, { userMessage: message });
+    const compiled = compileForSituation(currentSituation, { userMessage: message });
     // Skills that reached this turn's packet count as used: usage tracking is
     // how procedural memory proves it earns its retrieval slot.
     void recordSkillUsage(
@@ -160,7 +210,6 @@ export async function POST(request: Request, context: RouteContext) {
     // Plan metering (server-side, mandatory): a turn costs one model_turn.
     // Exhaustion is an honest 429 before any generation runs; the metering
     // plane itself being down refuses the turn rather than serving unmetered.
-    const trustedPlane = getSupabaseServiceClient();
     const { data: turnsAvailable, error: turnsError } = await trustedPlane
       .rpc("stryde_resource_available", { p_owner: user.id, p_resource: "model_turns" });
     if (turnsError) return errorResponse("Resource control is unavailable; turns are refused rather than unmetered", 503);
@@ -215,12 +264,33 @@ export async function POST(request: Request, context: RouteContext) {
             }
           }
 
-          // Research-first execution: if the resulting next move is RESEARCH_WEB assigned
-          // to Stryde and search capabilities are active, execute the research pass immediately,
-          // record the observation on the trusted plane, and re-assess the situation so the
-          // committed turn and working state are informed by real evidence.
-          let autonomousResearch: { query: string; provider: string; results: unknown[]; observation_id: string | null } | null = null;
-          if (
+          if (autonomousResearch && autonomousResearch.provider === "unavailable") {
+            work = {
+              ...work,
+              status: "STALLED",
+              understanding: "Stryde identified a research bottleneck but could not complete the research pass.",
+              bottleneck: "The external research capability was temporarily unavailable.",
+              next_move: {
+                ...(work.next_move ?? {
+                  action_name: null,
+                  confidence: 0.5,
+                  phase: "INVESTIGATION",
+                  risk_level: "LOW",
+                  success_metric: "Resolved research blocker",
+                }),
+                mode: "ASK_USER",
+                actor: "HUMAN",
+                worker_type: null,
+                title: "Choose whether to provide a source or continue later.",
+                why: "The needed research capability was unavailable.",
+                expected_change: "Provide evidence manually or retry when research is available.",
+                stryde_can_do: "Retry the research when the capability is available.",
+                user_needs_to_do: "Provide a source only if you already have one; otherwise you can return later.",
+                completion_condition: "The research question is resolved or intentionally deferred.",
+              },
+            };
+          } else if (
+            !autonomousResearch &&
             work.next_move &&
             work.next_move.mode === "RESEARCH_WEB" &&
             work.next_move.actor === "STRYDE" &&

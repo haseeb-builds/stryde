@@ -17,7 +17,16 @@
    - Mounted `PursuitArtifactsPanel` in the pursuit workspace contextual disclosure section to view active artifacts, inspect content and provenance, create new artifacts, and record append-only revisions via `PUT /api/v1/artifacts/[id]`.
 5. **Audited & Tested Remaining `SECURITY DEFINER` RPCs (`tests/trusted-plane-rpc-grants.test.ts`):**
    - Verified that all user-callable `SECURITY DEFINER` RPCs (`stryde_create_pursuit`, `stryde_internal.commit_intervention`, `stryde_internal.set_objective_claim`, `stryde_internal.complete_human_action`, `stryde_record_conversation_user_input`, `stryde_commit_conversation_turn`, and `stryde_revise_artifact`) bind ownership to `auth.uid()` and pin an explicit `search_path`.
-   - Full local verification suite passes: **262/262 unit tests**, `tsc --noEmit`, `eslint`, and `next build`.
+6. **Implemented Deterministic Research-First Orchestration (`lib/research-orchestration.ts`, `app/api/v1/pursuits/[id]/conversation/route.ts`):**
+   - Evaluates incoming intent deterministically for roadmap audit requests, factual inquiries, and bottleneck claims.
+   - Executes research on the trusted plane before streaming the turn, refreshing the Situation and compiled context packet.
+   - Guarantees no substantive recommendation is streamed or shown before evidence is retrieved, and reconciles the streamed assistant message, options, working state, and next_move against the post-research situation.
+   - Added regression test suite `tests/research-first-orchestration.test.ts` (8/8 passing) covering model misclassification, provider failure, empty results, contradictory results, retry failover, and AbortSignal cancellation.
+7. **Completed Roadmap Audit & Universal Intake Lifecycle (`lib/universal-input.ts`, `lib/adaptive-model.ts`, `app/pursuits/[id]/work-panels.tsx`):**
+   - Ingests pasted roadmaps into `pursuit_source` as canonical `PASTED` sources with SHA-256 hash.
+   - `runSourceAdaptation` decomposes steps and assigns `audit_status` (`KEEP`, `CHANGE`, `REMOVE`, `MISSING`, `UNVERIFIED`, `NEEDS_EXPERIMENT`), persisted in `pursuit_source_adaptation` and cited in `pursuit_source_citation`.
+   - Renders distinct semantic badge styling in `work-panels.tsx`.
+   - Full local verification suite passes: **272/272 unit tests**, `tsc --noEmit`, clean `eslint` (0 errors, 0 warnings), and Next.js production `build` clean.
 
 ## 2026-10-17 — historical engineering handoff
 

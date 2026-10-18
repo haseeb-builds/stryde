@@ -24,9 +24,12 @@ export async function executeWebResearch(
   pursuitId: string,
   query: string,
   observationSupabase?: SupabaseClient,
+  signal?: AbortSignal,
 ): Promise<ResearchExecution> {
   const normalizedQuery = query.trim().slice(0, 1_000);
   if (!normalizedQuery) throw new Error("Research query is empty");
+
+  if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
 
   // Providers are tried in the configured order and the first successful CALL
   // serves the research. A leg failing at call time (429/402/5xx/network)
@@ -39,12 +42,14 @@ export async function executeWebResearch(
   let result: Awaited<ReturnType<SearchProvider["search"]>> | null = null;
   let lastError: unknown = null;
   for (const candidate of chain) {
+    if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
     try {
-      result = await candidate.search({ query: normalizedQuery, maxResults: 5 });
+      result = await candidate.search({ query: normalizedQuery, maxResults: 5, signal });
       provider = candidate;
       break;
     } catch (error) {
       lastError = error;
+      if (signal?.aborted) throw error;
     }
   }
   if (!provider || !result) {
