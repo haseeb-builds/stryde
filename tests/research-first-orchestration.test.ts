@@ -7,6 +7,7 @@ import {
 } from "../lib/research-orchestration.ts";
 import { executeWebResearch } from "../lib/research-execution.ts";
 import { assertSourceAdaptation } from "../lib/adaptive-model.ts";
+import { readModelProviderConfigs } from "../lib/model-provider.ts";
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status });
@@ -309,3 +310,109 @@ Onboard 5 paying pilot customers.
   const notDetected = detectPastedRoadmapFromText(nonRoadmap);
   assert.equal(notDetected.isRoadmap, false);
 });
+
+test("domain intent: fitness, career, technical, and business goals trigger research deterministically", () => {
+  const fitness = detectDeterministicResearchRequirement({
+    message: "What is the optimal hypertrophy volume and periodization protocol according to recent studies?",
+  });
+  assert.equal(fitness.required, true);
+  assert.equal(fitness.reason, "DOMAIN_PURSUIT");
+
+  const career = detectDeterministicResearchRequirement({
+    message: "What are the latest salary benchmark levels and compensation data for Staff Engineers in London?",
+  });
+  assert.equal(career.required, true);
+  assert.equal(career.reason, "DOMAIN_PURSUIT");
+
+  const tech = detectDeterministicResearchRequirement({
+    message: "What are the database tradeoffs and scalability comparison between CockroachDB and PostgreSQL for high write throughput?",
+  });
+  assert.equal(tech.required, true);
+  assert.equal(tech.reason, "DOMAIN_PURSUIT");
+
+  const business = detectDeterministicResearchRequirement({
+    message: "What are standard B2B SaaS CAC and LTV benchmarks and churn rate industry average for seed stage startups?",
+  });
+  assert.equal(business.required, true);
+  assert.equal(business.reason, "DOMAIN_PURSUIT");
+});
+
+test("casual chat: ordinary greetings and banter are excluded from deep research", () => {
+  const greetings = ["hi", "hello!", "good morning", "thanks", "ok cool", "sounds good", "who are you?"];
+  for (const msg of greetings) {
+    const check = detectDeterministicResearchRequirement({ message: msg });
+    assert.equal(check.required, false, `Message '${msg}' should not trigger research`);
+  }
+});
+
+test("safe page retrieval: executeWebResearch attaches retrieved sources with honest locators", async (t) => {
+  const restore = setEnv({
+    EXA_API_KEY: "mock-exa",
+    STRYDE_SEARCH_PROVIDER: "exa",
+  });
+
+  const fetchMock = t.mock.method(globalThis, "fetch", async (url: unknown) => {
+    if (String(url).startsWith("https://api.exa.ai")) {
+      return json({
+        results: [
+          {
+            url: "https://example.com/research-doc",
+            title: "Empirical Analysis of Hypertrophy",
+            highlights: ["Hypertrophy is maximized at 10-20 sets per muscle group per week."],
+          },
+          {
+            url: "https://youtube.com/watch?v=12345",
+            title: "Video Lecture on Periodization",
+            highlights: [],
+          },
+        ],
+      });
+    }
+    // Direct page fetch for example.com
+    return new Response("<html><body><h1>Empirical Analysis</h1><p>Full study text on hypertrophy training volume...</p></body></html>", {
+      status: 200,
+      headers: { "Content-Type": "text/html" },
+    });
+  });
+
+  try {
+    const log: string[] = [];
+    const { client } = fakeSupabase("service", log);
+
+    const execution = await executeWebResearch(
+      client,
+      "user-1",
+      "pursuit-1",
+      "hypertrophy volume studies",
+    );
+
+    assert.equal(execution.results.length, 2);
+    assert.equal(execution.retrieved_sources.length, 2);
+
+    const docSource = execution.retrieved_sources.find((s) => s.url === "https://example.com/research-doc");
+    assert.ok(docSource);
+    assert.equal(docSource.locator_type, "FULL_TEXT");
+    assert.ok(docSource.content_locator.includes("#sha256:"));
+
+    const videoSource = execution.retrieved_sources.find((s) => s.url.includes("youtube.com"));
+    assert.ok(videoSource);
+    assert.equal(videoSource.locator_type, "TRANSCRIPT_UNAVAILABLE");
+    assert.equal(videoSource.content_locator, "https://youtube.com/watch?v=12345#media");
+  } finally {
+    restore();
+    fetchMock.mock.restore();
+  }
+});
+
+test("gemini env var reconciliation: GEMINI_API_KEY and GOOGLE_AI_STUDIO_API_KEY configure Gemini leg", () => {
+  const envWithGemini = { GEMINI_API_KEY: "test-gemini-key" } as unknown as NodeJS.ProcessEnv;
+  const configs1 = readModelProviderConfigs(envWithGemini);
+  assert.equal(configs1[0].provider, "gemini");
+  assert.equal(configs1[0].apiKey, "test-gemini-key");
+
+  const envWithGoogle = { GOOGLE_AI_STUDIO_API_KEY: "test-google-key" } as unknown as NodeJS.ProcessEnv;
+  const configs2 = readModelProviderConfigs(envWithGoogle);
+  assert.equal(configs2[0].provider, "gemini");
+  assert.equal(configs2[0].apiKey, "test-google-key");
+});
+

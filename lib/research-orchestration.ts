@@ -9,7 +9,8 @@ export type ResearchRequirementReason =
   | "ROADMAP_AUDIT"
   | "FACTUAL_VERIFICATION"
   | "BOTTLENECK_INVESTIGATION"
-  | "EXPLICIT_RESEARCH";
+  | "EXPLICIT_RESEARCH"
+  | "DOMAIN_PURSUIT";
 
 export type ResearchRequirement = {
   required: boolean;
@@ -17,6 +18,9 @@ export type ResearchRequirement = {
   reason: ResearchRequirementReason | null;
   confidence: number;
 };
+
+const CASUAL_OR_ORDINARY_CHAT_REGEX =
+  /^(hi|hello|hey|greetings|good\s+(morning|afternoon|evening)|howdy|sup|thanks|thank you|ok|okay|cool|sounds good|got it|sure|nope|no|yes|bye|goodbye|see ya|who are you|what can you do)[\s!.?]*$/i;
 
 const ROADMAP_AUDIT_REGEX =
   /(\b(audit|critique|evaluate|review|inspect|check|improve|assess|rate)\b[^\n.?!]{0,60}\b(roadmap|plan|curriculum|syllabus|strategy|playbook|steps|milestones)\b)|(\b(roadmap|plan|curriculum|syllabus|strategy|playbook)\b[^\n.?!]{0,60}\b(audit|critique|review|flaws|gaps|improve|assess|evaluation|feedback)\b)/i;
@@ -26,6 +30,14 @@ const ROADMAP_STEP_MARKERS_REGEX =
 
 const FACTUAL_INQUIRY_REGEX =
   /(\b(research|find out|look up|search for|verify whether|check whether|investigate|fact-check)\b)|(\b(current price|latest docs|competitor analysis|market size|market data|pricing of|regulations for|legal requirements for|compliance requirements for)\b)|(\bis it true that\b)|(\bwhat are the (latest|current|official)\b)/i;
+
+// Domain-dependent pursuit goals requiring empirical evidence, benchmarks, or real standards:
+// Fitness/Health: programming protocols, nutritional timing, hypertrophy volume, injury rehab standards
+// Career: salary benchmarks, compensation bands, interview loops, job market requirements, certification value
+// Tech/Architecture: framework comparisons, library evaluation, API deprecations, scalability limits, database sizing
+// Business/Economics: unit economics, CAC/LTV benchmarks, conversion rate benchmarks, supplier terms, licensing
+const DOMAIN_PURSUIT_RESEARCH_REGEX =
+  /(\b(salary|compensation|pay\s+band|interview\s+process|hiring\s+bar|job\s+market)\b[^\n.?!]{0,50}\b(benchmark|standards|levels|expectations|range|data)\b)|(\b(hypertrophy|periodization|heart\s+rate\s+zone|training\s+split|VO2\s+max|caloric\s+deficit|deload)\b[^\n.?!]{0,50}\b(protocol|evidence|studies|optimal|volume|guidelines)\b)|(\b(architecture|database|framework|tech\s+stack|library|api|migration)\b[^\n.?!]{0,50}\b(tradeoffs|benchmarks|scalability|comparison|best\s+practices|performance)\b)|(\b(unit\s+economics|cac|ltv|churn\s+rate|pricing\s+model|gross\s+margin|market\s+rate)\b[^\n.?!]{0,50}\b(benchmarks|industry\s+average|standards|ratios)\b)/i;
 
 function cleanExtractedQuery(raw: string): string {
   return raw
@@ -37,6 +49,7 @@ function cleanExtractedQuery(raw: string): string {
 
 export function detectDeterministicResearchRequirement(input: {
   message: string;
+  pursuitTitle?: string | null;
   situation?: {
     working_state?: {
       bottleneck?: string | null;
@@ -51,6 +64,16 @@ export function detectDeterministicResearchRequirement(input: {
   } | null;
 }): ResearchRequirement {
   const text = input.message.trim();
+
+  // 0. Exclude ordinary conversational banter and greetings
+  if (CASUAL_OR_ORDINARY_CHAT_REGEX.test(text)) {
+    return {
+      required: false,
+      query: null,
+      reason: null,
+      confidence: 0,
+    };
+  }
 
   // 1. Explicit roadmap audit requests
   if (ROADMAP_AUDIT_REGEX.test(text)) {
@@ -76,7 +99,18 @@ export function detectDeterministicResearchRequirement(input: {
     };
   }
 
-  // 3. Factual verification / market / regulatory / technical inquiries
+  // 3. Domain goal-intent policy: fitness, careers, technical projects, business economics
+  if (DOMAIN_PURSUIT_RESEARCH_REGEX.test(text)) {
+    const query = cleanExtractedQuery(text) || text.slice(0, 200);
+    return {
+      required: true,
+      query,
+      reason: "DOMAIN_PURSUIT",
+      confidence: 0.9,
+    };
+  }
+
+  // 4. Factual verification / market / regulatory / technical inquiries
   if (FACTUAL_INQUIRY_REGEX.test(text)) {
     const query = cleanExtractedQuery(text) || text.slice(0, 200);
     return {
@@ -87,7 +121,7 @@ export function detectDeterministicResearchRequirement(input: {
     };
   }
 
-  // 4. Working state bottleneck explicitly requiring research
+  // 5. Working state bottleneck explicitly requiring research
   const nextMove = input.workingState?.next_move ?? input.situation?.working_state?.next_move;
   if (nextMove?.mode === "RESEARCH_WEB" && nextMove.title?.trim()) {
     return {

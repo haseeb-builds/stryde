@@ -76,7 +76,8 @@ function legacyGeminiAlias(provider: ModelProviderName, selected?: ModelProvider
 function configured(env: NodeJS.ProcessEnv, provider: ModelProviderName, selected?: ModelProviderName): ModelProviderConfig | null {
   const d = defaults[provider];
   const alias = legacyGeminiAlias(provider, selected);
-  const apiKey = (env[d.envKey] ?? (alias ? env.STRYDE_MODEL_API_KEY : undefined))?.trim();
+  const geminiKey = provider === "gemini" ? (env.GEMINI_API_KEY ?? env.GOOGLE_AI_STUDIO_API_KEY) : undefined;
+  const apiKey = (env[d.envKey] ?? geminiKey ?? (alias ? env.STRYDE_MODEL_API_KEY : undefined))?.trim();
   if (!apiKey) return null;
   const baseUrl = (env[`STRYDE_${provider.toUpperCase()}_BASE_URL`] ?? (alias ? env.STRYDE_MODEL_BASE_URL : undefined) ?? d.baseUrl).replace(/\/$/, "");
   const model = (env[`STRYDE_${provider.toUpperCase()}_MODEL`] ?? (alias ? env.STRYDE_MODEL_NAME : undefined) ?? d.model).trim();

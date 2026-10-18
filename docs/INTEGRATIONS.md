@@ -5,13 +5,13 @@
 
 - **Vercel:** production deployment `dpl_HxMc5YPcdgndAT9KnvaEHYNQKm2G` is READY on main commit `1df79487da20bd4066e7ff492f6851c0960e6141`; alias `stryde-topaz.vercel.app`.
 - **Supabase:** project `pvijrnwdnolvnoibarrj` is ACTIVE_HEALTHY. The live ledger contains 41 migration entries. Security migration version `20261017185728` is applied and live effective privileges were queried afterward.
-- **Model provider:** direct Google AI Studio Gemini API (`gemini-2.5-flash`) primary, OpenRouter fallback. Model-health success confirms configuration, while conversation turn streaming and structured extraction are proven in local test suites.
-- **Research:** Search provider chain configured (`Exa` primary, `Firecrawl` fallback); requires `EXA_API_KEY` or `FIRECRAWL_API_KEY` for live upstream execution. When keys are unconfigured, research degrades honestly to STALLED/ASK_USER without hallucinating citations.
+- **Model provider:** direct Google AI Studio Gemini API primary (configured via `GEMINI_API_KEY`, `STRYDE_GEMINI_API_KEY`, or `GOOGLE_AI_STUDIO_API_KEY`), OpenRouter fallback. Model-health success confirms configuration, while conversation turn streaming and structured extraction are proven in local test suites.
+- **Research:** Search provider chain configured (`Exa` primary, `Firecrawl` fallback); requires `EXA_API_KEY` or `FIRECRAWL_API_KEY` for live upstream execution. When keys are unconfigured, research degrades honestly to WAITING_EXTERNAL/ASK_USER without hallucinating citations.
 - **Source retrieval paths:**
-  - Public web pages: direct fetch with DNS SSRF assertion + Firecrawl JS-render fallback when configured.
-  - Pasted roadmaps & text: ingested directly with SHA-256 hash (up to 120k chars).
+  - Public web pages: direct fetch with DNS SSRF assertion + Firecrawl JS-render fallback when configured; top research hits are ingested as canonical `pursuit_source` items with `#sha256:` content locators.
+  - Pasted roadmaps & text: ingested directly with SHA-256 hash (up to 120k chars); methods default to `UNVERIFIED` until research is acquired.
   - Uploaded files: Text, Markdown, CSV, JSON, Log, and PDF supported.
-  - YouTube, audio & video transcripts: No dedicated transcript provider (e.g. Supadata or YouTube Data API) is currently configured in production environment. Stryde fails honestly (UNSUPPORTED / FAILED) rather than pretending access.
+  - YouTube, audio & video transcripts: No dedicated transcript provider (e.g. Supadata or YouTube Data API) is currently configured in production environment. Stryde fails honestly (`TRANSCRIPT_UNAVAILABLE` with `#media` locator) rather than pretending access.
 - **Billing:** Stripe keys are absent. Billing/payment and the customer-facing paid subscription path remain intentionally unconfigured.
 - **Security:** authenticated execution was removed from eight resource/trigger RPCs designed for the trusted plane. Artifact revision now verifies the actual authenticated actor. Leaked-password protection remains disabled in Supabase Auth.
 

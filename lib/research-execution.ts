@@ -3,6 +3,16 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 // node --experimental-strip-types by the tests, which cannot resolve tsconfig
 // path aliases.
 import { getSearchProviderChain, type SearchProvider } from "./search-provider.ts";
+import { ingestUrlSource } from "./source-ingestion.ts";
+
+export type RetrievedSourceInfo = {
+  url: string;
+  source_id: string | null;
+  locator_type: "FULL_TEXT" | "SNIPPET" | "INACCESSIBLE" | "TRANSCRIPT_UNAVAILABLE";
+  content_locator: string;
+  title: string | null;
+  retrieved_at: string;
+};
 
 export type ResearchExecution = {
   query: string;
@@ -15,6 +25,7 @@ export type ResearchExecution = {
     highlights: string[];
     providerMetadata: Record<string, unknown>;
   }>;
+  retrieved_sources: RetrievedSourceInfo[];
   observation_id: string | null;
 };
 
@@ -56,10 +67,86 @@ export async function executeWebResearch(
     throw lastError instanceof Error ? lastError : new Error("No configured search provider could serve the research");
   }
 
+  // Ingest top search results into pursuit_source safely using assertPublicHttpUrl/ingestUrlSource
+  const retrievedSources: RetrievedSourceInfo[] = [];
+  const topHits = (result.results ?? []).slice(0, 2);
+
+  for (const hit of topHits) {
+    if (!hit.url || signal?.aborted) continue;
+    const isVideoOrAudio = /\b(youtube\.com|youtu\.be|vimeo\.com|spotify\.com|podcasts\.apple\.com)\b/i.test(hit.url);
+
+    if (isVideoOrAudio) {
+      retrievedSources.push({
+        url: hit.url,
+        source_id: null,
+        locator_type: "TRANSCRIPT_UNAVAILABLE",
+        content_locator: `${hit.url}#media`,
+        title: hit.title ?? null,
+        retrieved_at: new Date().toISOString(),
+      });
+      continue;
+    }
+
+    try {
+      const ingested = await ingestUrlSource(hit.url);
+      if (ingested.fetchStatus === "FETCHED" || ingested.fetchStatus === "PARTIAL") {
+        const { data: savedSource } = await supabase
+          .from("pursuit_source")
+          .insert({
+            owner_user_id: ownerUserId,
+            pursuit_id: pursuitId,
+            source_kind: "URL",
+            uri: ingested.uri,
+            title: hit.title ?? ingested.title,
+            content_type: ingested.contentType,
+            fetch_status: ingested.fetchStatus,
+            content_text: ingested.contentText,
+            content_sha256: ingested.contentSha256,
+            source_metadata: {
+              ...ingested.sourceMetadata,
+              ingestion: "AUTONOMOUS_RESEARCH_RETRIEVAL",
+              query: normalizedQuery,
+              rank: hit.rank,
+            },
+          })
+          .select("id")
+          .single();
+
+        retrievedSources.push({
+          url: hit.url,
+          source_id: savedSource?.id ?? null,
+          locator_type: "FULL_TEXT",
+          content_locator: `${hit.url}#sha256:${ingested.contentSha256?.slice(0, 16) ?? "text"}`,
+          title: hit.title ?? ingested.title,
+          retrieved_at: new Date().toISOString(),
+        });
+      } else {
+        retrievedSources.push({
+          url: hit.url,
+          source_id: null,
+          locator_type: "INACCESSIBLE",
+          content_locator: hit.url,
+          title: hit.title ?? null,
+          retrieved_at: new Date().toISOString(),
+        });
+      }
+    } catch {
+      retrievedSources.push({
+        url: hit.url,
+        source_id: null,
+        locator_type: hit.highlights?.length ? "SNIPPET" : "INACCESSIBLE",
+        content_locator: hit.url,
+        title: hit.title ?? null,
+        retrieved_at: new Date().toISOString(),
+      });
+    }
+  }
+
   const observationPayload = {
     query: normalizedQuery,
     provider: provider.name,
     results: result.results,
+    retrieved_sources: retrievedSources,
     provider_metadata: result.providerMetadata,
   };
 
@@ -83,6 +170,7 @@ export async function executeWebResearch(
         query: normalizedQuery,
         provider: provider.name,
         result_count: result.results.length,
+        retrieved_count: retrievedSources.filter((s) => s.locator_type === "FULL_TEXT").length,
       },
     })
     .select("id")
@@ -95,6 +183,7 @@ export async function executeWebResearch(
     query: normalizedQuery,
     provider: provider.name,
     results: result.results,
+    retrieved_sources: retrievedSources,
     observation_id: observation.id,
   };
 }

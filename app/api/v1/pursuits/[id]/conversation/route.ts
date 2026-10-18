@@ -131,46 +131,85 @@ export async function POST(request: Request, context: RouteContext) {
     // deterministically requires external factual verification or roadmap audit.
     // If so, execute research pass on trusted plane BEFORE generating/streaming
     // the turn so no substantive recommendation is streamed prior to evidence.
+    const trustedPlane = getSupabaseServiceClient();
+
+    // Deterministic research policy: check if intent or situation requires external research.
     let autonomousResearch: { query: string; provider: string; results: unknown[]; observation_id: string | null } | null = null;
+    let researchBlocker: { reason: "UNCONFIGURED" | "UNAUTHORIZED" | "BUDGET_EXHAUSTED" | "UNAVAILABLE"; message: string } | null = null;
+
     const researchCheck = detectDeterministicResearchRequirement({
       message,
+      pursuitTitle: pursuit.title,
       situation: currentSituation,
       workingState: (session.working_state ?? null) as Parameters<typeof detectDeterministicResearchRequirement>[0]["workingState"],
     });
 
-    const trustedPlane = getSupabaseServiceClient();
+    if (researchCheck.required) {
+      if (!currentSituation.capabilities.web_search) {
+        researchBlocker = {
+          reason: "UNCONFIGURED",
+          message: "External web research capability is unconfigured or not available in this environment.",
+        };
+      } else {
+        const { data: userPolicy } = await supabase
+          .from("user_autonomy_policy")
+          .select("allow_worker_delegation, allowed_worker_types, auto_execute_research")
+          .eq("owner_user_id", user.id)
+          .maybeSingle();
 
-    if (researchCheck.required && currentSituation.capabilities.web_search) {
-      const { data: userPolicy } = await supabase
-        .from("user_autonomy_policy")
-        .select("allow_worker_delegation, allowed_worker_types, auto_execute_research")
-        .eq("owner_user_id", user.id)
-        .maybeSingle();
-
-      if (checkAutoResearch(userPolicy)) {
-        try {
-          const execution = await executeWebResearch(
-            supabase,
-            user.id,
-            id,
-            researchCheck.query!,
-            trustedPlane,
-          );
-          autonomousResearch = execution;
-
-          // Re-assemble situation with the new observation so compiled context
-          // contains the real evidence.
-          const refreshed = await assembleAdaptiveSituation(supabase, user.id, id);
-          if (!refreshed.error && refreshed.situation) {
-            currentSituation = refreshed.situation;
-          }
-        } catch {
-          autonomousResearch = {
-            query: researchCheck.query!,
-            provider: "unavailable",
-            results: [],
-            observation_id: null,
+        if (!checkAutoResearch(userPolicy)) {
+          researchBlocker = {
+            reason: "UNAUTHORIZED",
+            message: "Automatic research is not authorized by your autonomy policy. Permission is required to execute external research.",
           };
+        } else {
+          // Pre-flight check research_rounds resource availability
+          const { data: researchAvailable, error: researchCheckError } = await trustedPlane
+            .rpc("stryde_resource_available", { p_owner: user.id, p_resource: "research_rounds" });
+
+          if (!researchCheckError && researchAvailable === 0) {
+            researchBlocker = {
+              reason: "BUDGET_EXHAUSTED",
+              message: "Daily plan limit reached for research rounds. Your quota resets tomorrow.",
+            };
+          } else {
+            try {
+              const execution = await executeWebResearch(
+                supabase,
+                user.id,
+                id,
+                researchCheck.query!,
+                trustedPlane,
+              );
+              autonomousResearch = execution;
+
+              // Record research usage post-hoc on trusted plane
+              void recordResourceUsage(trustedPlane, {
+                ownerUserId: user.id,
+                pursuitId: id,
+                resource: "research_rounds",
+                amount: 1,
+                capabilityKey: "research.web",
+              }).catch(() => {});
+
+              // Re-assemble situation with the new observation and retrieved sources
+              const refreshed = await assembleAdaptiveSituation(supabase, user.id, id);
+              if (!refreshed.error && refreshed.situation) {
+                currentSituation = refreshed.situation;
+              }
+            } catch (researchError) {
+              autonomousResearch = {
+                query: researchCheck.query!,
+                provider: "unavailable",
+                results: [],
+                observation_id: null,
+              };
+              researchBlocker = {
+                reason: "UNAVAILABLE",
+                message: researchError instanceof Error ? researchError.message : "The external research provider failed or was unreachable.",
+              };
+            }
+          }
         }
       }
     }
@@ -264,7 +303,42 @@ export async function POST(request: Request, context: RouteContext) {
             }
           }
 
-          if (autonomousResearch && autonomousResearch.provider === "unavailable") {
+          if (researchBlocker) {
+            work = {
+              ...work,
+              status: researchBlocker.reason === "UNAUTHORIZED" ? "WAITING_USER" : "WAITING_EXTERNAL",
+              understanding: `Stryde identified that research is required before an evidence-backed recommendation can be made, but external research was not performed: ${researchBlocker.message}`,
+              bottleneck: researchBlocker.message,
+              next_move: {
+                ...(work.next_move ?? {
+                  action_name: null,
+                  confidence: 0.5,
+                  phase: "INVESTIGATION",
+                  risk_level: "LOW",
+                  success_metric: "Resolved research blocker",
+                }),
+                mode: "ASK_USER",
+                actor: "HUMAN",
+                worker_type: null,
+                title: researchBlocker.reason === "UNAUTHORIZED"
+                  ? "Authorize research to investigate this question."
+                  : researchBlocker.reason === "UNCONFIGURED"
+                  ? "Configure search credentials or provide a source document directly."
+                  : researchBlocker.reason === "BUDGET_EXHAUSTED"
+                  ? "Wait for research quota reset or provide evidence manually."
+                  : "Retry research or supply a source manually.",
+                why: researchBlocker.message,
+                expected_change: "Clear the research blocker or provide empirical evidence directly.",
+                stryde_can_do: researchBlocker.reason === "UNAUTHORIZED"
+                  ? "Perform the research pass once permission is granted in autonomy settings."
+                  : "Integrate provided source text or citations.",
+                user_needs_to_do: researchBlocker.reason === "UNAUTHORIZED"
+                  ? "Confirm whether Stryde is permitted to search the web for this inquiry."
+                  : "Provide a link or paste reference material to continue.",
+                completion_condition: "Evidence acquired or manual source supplied.",
+              },
+            };
+          } else if (autonomousResearch && autonomousResearch.provider === "unavailable") {
             work = {
               ...work,
               status: "STALLED",
@@ -431,6 +505,7 @@ export async function POST(request: Request, context: RouteContext) {
                   memory_candidates: result.turn.memory_candidates,
                   universal_input: universalInput,
                   ...(autonomousResearch ? { autonomous_research: autonomousResearch } : {}),
+                  ...(researchBlocker ? { research_blocker: researchBlocker } : {}),
                   context_selection: {
                     used_chars: compiled.report.used_chars,
                     budget_chars: compiled.report.budget_chars,
@@ -459,7 +534,12 @@ export async function POST(request: Request, context: RouteContext) {
 
           controller.enqueue(encoder.encode(streamEvent({
             type: "complete",
-            turn: { ...result.turn, work, ...(autonomousResearch ? { autonomous_research: autonomousResearch } : {}) },
+            turn: {
+              ...result.turn,
+              work,
+              ...(autonomousResearch ? { autonomous_research: autonomousResearch } : {}),
+              ...(researchBlocker ? { research_blocker: researchBlocker } : {}),
+            },
             model: workModel,
           })));
           controller.close();
