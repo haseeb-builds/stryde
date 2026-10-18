@@ -1,7 +1,10 @@
-## Runtime checkpoint — 2026-10-06 post-GLM (current)
+## Runtime checkpoint — 2026-10-18 (`fix/conversation-turn-reliability`)
 
+- Local branch `fix/conversation-turn-reliability` resolves the observed Turn 2 conversation failure (`CREATE_ACTION` work-mode rejection in `lib/work-controller.ts`, retry amplification on `ModelProviderError` in `lib/model-gateway.ts` and `lib/adaptive-model.ts`, and stale `session.working_state` fallback in `app/api/v1/pursuits/[id]/conversation/route.ts`) as well as the false `"Conversation archived"` reload state in `app/pursuits/[id]/page.tsx`.
+- Trigger → dispatcher job enqueueing (`lib/trigger-engine.ts`), the pursuit artifacts UI panel (`app/pursuits/[id]/artifacts-panel.tsx`), and regression tests for all authenticated-callable `SECURITY DEFINER` RPCs (`tests/trusted-plane-rpc-grants.test.ts`) are implemented and verified locally (`npm test` 262/262, `tsc --noEmit`, `npm run lint`, `npm run build`).
+- Production deployment remains at `dpl_HxMc5YPcdgndAT9KnvaEHYNQKm2G` (`1df7948`) until `fix/conversation-turn-reliability` is authorized for merge/deploy and live two-turn verification is executed.
 
-## Runtime checkpoint — 2026-10-17 (current)
+## Runtime checkpoint — 2026-10-17 (historical)
 
 - Current production deployment is `dpl_HxMc5YPcdgndAT9KnvaEHYNQKm2G`, READY, built from main commit `1df79487da20bd4066e7ff492f6851c0960e6141`, aliased to `stryde-topaz.vercel.app`.
 - Live `/api/health/model` returns HTTP 200 and resolves OpenRouter / `nvidia/nemotron-3-super-120b-a12b:free`, Gemini fallback / `gemini-flash-latest`, OmniRoute disabled. It is configuration evidence, not generation evidence.

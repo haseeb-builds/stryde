@@ -1,7 +1,25 @@
 # Stryde Handoff
 
+## 2026-10-18 — `fix/conversation-turn-reliability` engineering completion
 
-## 2026-10-17 — current engineering handoff
+### What changed on `fix/conversation-turn-reliability`
+
+1. **Resolved Second-Turn Production Failure & Retry Amplification (`lib/work-controller.ts`, `lib/adaptive-work-controller.ts`, `lib/model-gateway.ts`, `lib/adaptive-model.ts`, `app/api/v1/pursuits/[id]/conversation/route.ts`):**
+   - Added `"CREATE_ACTION"` to `AVAILABLE_WORK_MODES` in `lib/work-controller.ts` so `validateWorkingState` no longer rejects Turn 2+ outputs when the model converges to `CREATE_ACTION`.
+   - Aligned `validateWorkingState` and `validateWorkingStateShape` to normalize status aliases, normalize `next_move.mode` case/separators, accept `version: 1 | "1"`, accept string/boolean `ready_for_reasoning`, and slice `known`/`unknowns` arrays to `MAX_ITEMS` (8) instead of throwing on verbose model turns.
+   - Eliminated outer-loop retry amplification on `ModelProviderError` in `streamConversationTurn`, `runConversationTurn`, and `runAdaptiveWorkController` (rethrows immediately when the provider router has already exhausted retries or when `signal.aborted` is set, retrying only once on schema validation failure).
+   - Threaded `signal: turnSignal` into `runAdaptiveWorkController` and updated the route's `catch` fallback to preserve `result.turn.work ?? session.working_state` rather than overwriting Turn 2's work state with Turn 1's stale `session.working_state`.
+2. **Resolved Reload `"Conversation archived"` False Positive (`app/pursuits/[id]/page.tsx`):**
+   - Kept the initial workspace loading screen active until `session` finishes bootstrapping (`if (loading && (!pursuit || !session))`) and restricted the `"Conversation archived"` composer placeholder strictly to `session?.status === "ARCHIVED"`.
+3. **Completed Trigger → Dispatcher Job Enqueueing & Notification Loop (`lib/trigger-engine.ts`, `app/api/v1/triggers/route.ts`, `app/api/cron/continuity/route.ts`):**
+   - Implemented `resolveTriggerContext` (evaluating real pursuit inactivity windows, in-flight actions, and recent events for `STATE` and `EVENT` triggers), `planTriggerDispatch`, and `dispatchFiredTrigger` (enqueuing authorized `CONTROLLED` `action` + `job` + `job_authorization` rows with autonomy policy, active capability grant, and `worker_jobs` resource reservation checks, or recording deduplicated notifications).
+4. **Added Artifacts UI Surface (`app/pursuits/[id]/artifacts-panel.tsx`, `app/pursuits/[id]/page.tsx`):**
+   - Mounted `PursuitArtifactsPanel` in the pursuit workspace contextual disclosure section to view active artifacts, inspect content and provenance, create new artifacts, and record append-only revisions via `PUT /api/v1/artifacts/[id]`.
+5. **Audited & Tested Remaining `SECURITY DEFINER` RPCs (`tests/trusted-plane-rpc-grants.test.ts`):**
+   - Verified that all user-callable `SECURITY DEFINER` RPCs (`stryde_create_pursuit`, `stryde_internal.commit_intervention`, `stryde_internal.set_objective_claim`, `stryde_internal.complete_human_action`, `stryde_record_conversation_user_input`, `stryde_commit_conversation_turn`, and `stryde_revise_artifact`) bind ownership to `auth.uid()` and pin an explicit `search_path`.
+   - Full local verification suite passes: **262/262 unit tests**, `tsc --noEmit`, `eslint`, and `next build`.
+
+## 2026-10-17 — historical engineering handoff
 
 ### What just changed
 

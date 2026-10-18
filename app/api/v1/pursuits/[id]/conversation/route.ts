@@ -201,13 +201,15 @@ export async function POST(request: Request, context: RouteContext) {
                 contextPacket: adaptiveCompiled.packet,
                 conversation: conversationWithUser,
                 previousWorkingState: session.working_state as Parameters<typeof runAdaptiveWorkController>[0]["previousWorkingState"],
+                signal: turnSignal,
               });
               work = adaptive.workingState;
               workModel = { provider: adaptive.provider, model: adaptive.model };
             } catch {
-              // Preserve the last safe working state rather than failing the user's conversation
-              // because adaptive reassessment was temporarily unavailable.
-              work = session.working_state as Parameters<typeof runAdaptiveWorkController>[0]["previousWorkingState"] & {};
+              // Preserve the turn's validated working state (or previous working state)
+              // rather than failing the user's conversation because adaptive reassessment
+              // was temporarily unavailable.
+              work = result.turn.work ?? (session.working_state as Parameters<typeof runAdaptiveWorkController>[0]["previousWorkingState"] & {});
             }
           }
 

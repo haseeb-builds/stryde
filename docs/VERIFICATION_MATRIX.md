@@ -1,29 +1,28 @@
 ## Reconciliation update — 2026-10-06 post-GLM
 
 
-## Reconciliation update — 2026-10-17 (current)
+## Reconciliation update — 2026-10-18 (`fix/conversation-turn-reliability`)
 
 | Area | Implemented | Tested | Deployed / Live | Remaining evidence |
 |---|---|---|---|---|
-| Trusted-plane RPC grants | YES | Regression tests passed in CI; live before/after privilege query run | YES — migration version `20261017185728` applied | Continue reviewing other user-callable SECURITY DEFINER functions |
-| Artifact revision actor binding | YES | SQL definition inspected; CI regression test passed | YES | Adversarial authenticated cross-user invocation not separately exercised |
+| Trusted-plane RPC grants & SECURITY DEFINER owner checks | YES | Regression tests passed (`tests/trusted-plane-rpc-grants.test.ts` 4/4); live before/after privilege query run | YES — migration version `20261017185728` applied | Adversarial live cross-user RPC invocation not separately exercised |
+| Artifact revision actor binding | YES | SQL definition inspected; CI regression test passed | YES | None known |
 | Resource window search path | YES | CI regression test and live `proconfig` query | YES — `search_path=pg_catalog` | None known for this helper |
+| Turn 2 `CREATE_ACTION` & working-state normalization + retry-amplification guard | YES | Unit & regression tests (`tests/conversation-turn-normalization.test.ts` 5/5; 262/262 total) | Local branch `fix/conversation-turn-reliability` (awaiting deploy authorization) | Deploy branch and run live two-turn production conversation journey |
+| Reload `"Conversation archived"` false-positive UI fix | YES | Verified in `app/pursuits/[id]/page.tsx` & Next.js production build | Local branch `fix/conversation-turn-reliability` | Deploy branch and verify reload in production browser |
+| Trigger → dispatcher job enqueueing & notification loop | YES | Unit tests (`tests/trigger-notification.test.ts` 7/7) covering `ONE_TIME`, `RECURRING`, `STATE`, `EVENT`, worker job dispatch, and notification fallback | Local branch `fix/conversation-turn-reliability` | Deploy branch and exercise scheduled trigger enqueueing against live DB |
+| Artifacts UI surface (`PursuitArtifactsPanel`) | YES | Typecheck, lint, and Next.js production build clean | Local branch `fix/conversation-turn-reliability` | Deploy branch and verify in production browser |
 | Model provider configuration | YES | Live health endpoint returned HTTP 200 | YES | This is not proof of successful text generation |
-| Complete authenticated production conversation | YES in code | Earlier partial stream/persistence evidence exists | PARTIAL | Re-run current deployment: first structured turn, adaptive state update, second turn and persistence |
+| Complete authenticated production conversation | YES in code | Multi-turn normalization, adaptive fallback, and non-amplifying retry verified locally | PARTIAL (awaiting deployment of `fix/conversation-turn-reliability`) | Authorize deploy and run two-turn production verification |
 
-Live database evidence after the security migration: the eight internal entitlement/resource/trigger RPCs return `authenticated_can_execute=false` and `service_role_can_execute=true`. The authenticated artifact revision RPC remains executable by design and now verifies `p_actor = auth.uid()` and artifact ownership in its SECURITY DEFINER body.
+### Root cause of the observed production second-turn failure & reload "archived" state (resolved on `fix/conversation-turn-reliability`)
 
-Security PR #10 merged as `1df7948`; its CI pipeline passed unit tests, typecheck, lint, and production build. The resulting production Vercel deployment is READY. Vercel's last-seven-day grouped runtime-error query returned no errors, but current production conversation reliability is still **NOT PROVEN**.
+1. **`CREATE_ACTION` missing from `AVAILABLE_WORK_MODES` in `lib/work-controller.ts`:** While `WORK_MODES` and `ADAPTIVE_WORK_MODES` included `"CREATE_ACTION"`, `AVAILABLE_WORK_MODES` omitted it. When Turn 1 established an active working state and Turn 2 caused the model to converge to `next_move.mode = "CREATE_ACTION"`, `validateConversationTurn` → `validateWorkingState` threw `"Requested work mode is not currently available"`.
+2. **Pre-generation user turn persistence:** `POST /api/v1/pursuits/[id]/conversation` calls `stryde_record_conversation_user_input` before invoking `streamConversationTurn`. When Turn 2 failed validation (or timed out), the database retained `[1] USER`, `[2] STRYDE`, `[3] USER` with no second `STRYDE` row, while the session itself remained `status = 'ACTIVE'`.
+3. **Retry amplification & secondary LLM call fallback:** Previously, `streamConversationTurn`, `runConversationTurn`, and `runAdaptiveWorkController` wrapped `createModelRouter` in a 2-attempt `for` loop that caught *all* errors—including `ModelProviderError`s that the router had already retried 3 times per provider across the chain—doubling upstream calls to 6 per provider (12 total) and risking serverless timeouts on Turn 2 (which executes both `streamConversationTurn` and `runAdaptiveWorkController`). Additionally, if `runAdaptiveWorkController` failed on Turn 2+, its `catch` block fell back to Turn 1's `session.working_state` instead of `result.turn.work`. Both defects are fixed: `ModelProviderError` and aborted signals rethrow immediately without outer-loop amplification, `turnSignal` is threaded into `runAdaptiveWorkController`, and the fallback preserves `result.turn.work ?? session.working_state`.
+4. **False `"Conversation archived"` UI state on reload:** In `app/pursuits/[id]/page.tsx`, `loadWorkspace` set `loading = false` as soon as the pursuit fetched, before `bootstrapConversation` resolved `session`. While `session` was `null` (or if `bootstrapConversation` failed), `session?.status !== "ACTIVE"` evaluated to `true` and rendered `"Conversation archived"`. The loading guard now waits for `session` during initial load, and `"Conversation archived"` is shown only when `session?.status === "ARCHIVED"`.
 
-The live migration ledger contains 41 entries including version `20261017185728`. Research provider credentials (Exa/Firecrawl), production worker runtime, trigger-to-dispatcher E2E, artifact UI, and leaked-password protection remain outstanding or unverified.
-
-- **CI:** current main `1e3b7d7` has GitHub Actions `verify = SUCCESS`. The old Linux/Node path defect described in the earlier reconciliation was fixed in GLM's execution lineage, and current main includes that repair.
-- **Database:** live migration parity is now **37/37**. `user_agent_preference`, `skill`, `skill_version`, and `funnel_event` are live with RLS enabled. The earlier pending-migration statements below are historical.
-- **Production model:** current health configuration resolves OpenRouter to `nvidia/nemotron-3-super-120b-a12b:free`, Gemini fallback, OmniRoute disabled. This is configuration evidence only.
-- **Production reliability:** a fresh full conversation journey after the streaming malformed-output failover repair is still required. Do not promote this to PRODUCTION VERIFIED until the post-fix journey is observed on current main.
-- **Research:** Exa/Firecrawl live credentials remain absent; live research legs remain externally blocked.
-- **Billing/resource entitlements:** Free/Pro/Max budgeting and enforcement remain implementation targets, not production-proven capabilities.
-- **Issue #7:** capability-composition layer has not yet been implemented. The next engineering phase is governed by `docs/GLM_MASTER_IMPLEMENTATION_BRIEF.md`.
+## Reconciliation update — 2026-10-17 (historical)
 
 # Stryde Verification Matrix
 

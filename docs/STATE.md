@@ -1,7 +1,15 @@
-## 2026-10-06 (later) — capability-composition platform (Issue #8) checkpoint (current)
+## 2026-10-18 — `fix/conversation-turn-reliability` root-cause resolution & capability completion (current)
 
+- **Second-turn conversation failure root-caused and fixed:**
+  1. `lib/work-controller.ts` omitted `"CREATE_ACTION"` from `AVAILABLE_WORK_MODES`, causing `validateConversationTurn` to throw `"Requested work mode is not currently available"` whenever Turn 2+ proposed `CREATE_ACTION`.
+  2. `stryde_record_conversation_user_input` runs before `streamConversationTurn`, explaining why the live database held `[1] USER`, `[2] STRYDE`, `[3] USER` with no second `STRYDE` message while the session remained `ACTIVE`.
+  3. Outer validation retry loops in `lib/model-gateway.ts` and `lib/adaptive-model.ts` no longer re-invoke the provider chain when `ModelProviderError` is thrown (preventing 2x retry amplification across providers), and `runAdaptiveWorkController` now receives `turnSignal` and falls back to `result.turn.work ?? session.working_state`.
+  4. `app/pursuits/[id]/page.tsx` no longer renders `"Conversation archived"` while `session` is still `null` during page reload or when session bootstrap fails; `"Conversation archived"` is only shown when `session?.status === "ARCHIVED"`.
+- **Trigger → dispatcher job enqueueing & notification loop completed:** `lib/trigger-engine.ts` and `app/api/v1/triggers/route.ts` now validate trigger action payloads, resolve live pursuit/action/event context for `STATE` and `EVENT` triggers, and enqueue `CONTROLLED` worker jobs (gated by autonomy policy, active capability grant, in-flight action guard, and `worker_jobs` resource reservation) or record deduplicated notifications.
+- **Artifacts UI surface mounted:** `app/pursuits/[id]/artifacts-panel.tsx` (`PursuitArtifactsPanel`) is mounted on the pursuit workspace page, providing inspection, creation, and append-only revision (`PUT /api/v1/artifacts/[id]`).
+- **SECURITY DEFINER RPC audit & regression tests:** All user-callable `SECURITY DEFINER` functions were audited and pinned in `tests/trusted-plane-rpc-grants.test.ts` (4/4 passing; 262/262 total unit tests passing).
 
-## 2026-10-17 — production/security reconciliation (current)
+## 2026-10-17 — production/security reconciliation (historical)
 
 This checkpoint supersedes older deployment, migration-count, and RPC-permission statements below where they conflict. Historical checkpoints are retained as evidence.
 

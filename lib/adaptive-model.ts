@@ -2,11 +2,11 @@ import {
   ADAPTIVE_WORKING_STATE_SCHEMA,
   buildAdaptiveWorkControllerPrompt,
   validateAdaptiveWorkingState,
-} from "@/lib/adaptive-work-controller";
-import type { WorkingState } from "@/lib/work-controller";
-import { getModelRouter } from "@/lib/model-provider";
-import { WORKER_TYPES } from "@/lib/actor";
-import { modelOverrideForTask } from "@/lib/model-routing";
+} from "./adaptive-work-controller.ts";
+import type { WorkingState } from "./work-controller.ts";
+import { getModelRouter, ModelProviderError } from "./model-provider.ts";
+import { WORKER_TYPES } from "./actor.ts";
+import { modelOverrideForTask } from "./model-routing.ts";
 
 
 export const SOURCE_ADAPTATION_SCHEMA = {
@@ -149,10 +149,11 @@ async function callStructuredModel(
   schema: object,
   prompt: string,
   maxOutputTokens: number,
+  signal?: AbortSignal,
 ): Promise<{ parsed: unknown; provider: string; model: string }> {
   // Route through the full provider chain (fallback + disabled-provider rules
   // live inside the model boundary), never a single configured leg.
-  const result = await getModelRouter().generateStructured({ schemaName: name, schema, prompt, maxOutputTokens, modelOverride: modelOverrideForTask(name, process.env) });
+  const result = await getModelRouter().generateStructured({ schemaName: name, schema, prompt, maxOutputTokens, signal, modelOverride: modelOverrideForTask(name, process.env) });
   return { parsed: result.parsed, provider: result.provider, model: result.model };
 }
 
@@ -298,6 +299,7 @@ export async function runAdaptiveWorkController(input: {
   contextPacket: unknown;
   conversation: Array<{ role: "user" | "stryde"; content: string }>;
   previousWorkingState: WorkingState | null;
+  signal?: AbortSignal;
 }): Promise<{ workingState: WorkingState; provider: string; model: string }> {
   const prompt = buildAdaptiveWorkControllerPrompt({
     pursuitTitle: input.pursuitTitle,
@@ -305,8 +307,20 @@ export async function runAdaptiveWorkController(input: {
     conversation: input.conversation,
     previousWorkingState: input.previousWorkingState,
   });
-  const result = await callStructuredModel("stryde_adaptive_work_controller", ADAPTIVE_WORKING_STATE_SCHEMA, prompt, 2_600);
-  const workingState = validateAdaptiveWorkingState(result.parsed);
+  let result: { parsed: unknown; provider: string; model: string } | null = null;
+  let workingState: WorkingState | null = null;
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      result = await callStructuredModel("stryde_adaptive_work_controller", ADAPTIVE_WORKING_STATE_SCHEMA, prompt, 2_600, input.signal);
+      workingState = validateAdaptiveWorkingState(result.parsed);
+      break;
+    } catch (error) {
+      lastError = error;
+      if (input.signal?.aborted || error instanceof ModelProviderError) throw error;
+    }
+  }
+  if (!result || !workingState) throw lastError instanceof Error ? lastError : new Error("Adaptive work controller failed");
   const rawWorkers: unknown =
     input.contextPacket && typeof input.contextPacket === "object" && "worker_capabilities" in input.contextPacket
       ? (input.contextPacket as { worker_capabilities?: unknown }).worker_capabilities

@@ -10,6 +10,7 @@ import PursuitClaimsPanel from "./claims-panel";
 import PursuitMemoryPanel from "./memory-panel";
 import PursuitAutonomyRow from "./autonomy-row";
 import PursuitSkillsPanel from "./skills-panel";
+import PursuitArtifactsPanel from "./artifacts-panel";
 
 type Pursuit = { id: string; title: string | null; status: string };
 type Option = { label: string; value: string };
@@ -108,6 +109,7 @@ export default function PursuitPage() {
   const [listening, setListening] = useState(false);
   const [fileNotice, setFileNotice] = useState("");
   const [uploadingFile, setUploadingFile] = useState(false);
+  const [failedTurnMessage, setFailedTurnMessage] = useState<string | null>(null);
 
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const voiceRef = useRef<VoiceRecognition | null>(null);
@@ -671,9 +673,11 @@ export default function PursuitPage() {
       } else {
         setWorking(false);
       }
+      setFailedTurnMessage(null);
     } catch (err) {
       setMessages((current) => current.filter((item) => item.id !== assistantId));
       setError(err instanceof Error ? err.message : "Stryde couldn't continue.");
+      setFailedTurnMessage(content);
       setWorking(false);
     }
   }
@@ -683,7 +687,7 @@ export default function PursuitPage() {
     void sendMessage(input);
   }
 
-  if (loading && !pursuit) {
+  if (loading && (!pursuit || !session)) {
     return (
       <main className="min-h-screen bg-[#f7f7f8] p-8 text-sm text-zinc-500">
         Loading…
@@ -1031,8 +1035,17 @@ export default function PursuitPage() {
               )}
 
               {error && (
-                <div className="mb-8 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-                  {error}
+                <div className="mb-8 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                  <span className="min-w-0 flex-1">{error}</span>
+                  {failedTurnMessage && !working && session?.status === "ACTIVE" && (
+                    <button
+                      type="button"
+                      onClick={() => void sendMessage(failedTurnMessage)}
+                      className="shrink-0 rounded-md bg-red-700 px-2.5 py-1 text-xs font-medium text-white hover:bg-red-800"
+                    >
+                      Retry message
+                    </button>
+                  )}
                 </div>
               )}
 
@@ -1055,6 +1068,7 @@ export default function PursuitPage() {
                 />
                 <PursuitClaimsPanel pursuitId={params.id} sessionActive={Boolean(session)} />
                 <PursuitMemoryPanel pursuitId={params.id} sessionActive={Boolean(session)} />
+                <PursuitArtifactsPanel pursuitId={params.id} sessionActive={Boolean(session)} />
                 <PursuitSkillsPanel pursuitId={params.id} sessionActive={Boolean(session)} />
                 <PursuitAutonomyRow pursuitId={params.id} sessionActive={Boolean(session)} />
               </div>
@@ -1106,7 +1120,11 @@ export default function PursuitPage() {
                       ? "Tell Stryde what happened…"
                       : session?.status === "ACTIVE"
                         ? "Tell Stryde what’s happening…"
-                        : "Conversation archived"
+                        : session?.status === "ARCHIVED"
+                          ? "Conversation archived"
+                          : loading
+                            ? "Loading conversation…"
+                            : "Conversation unavailable — reload or start a new conversation"
                   }
                   className="min-h-14 w-full resize-none bg-transparent px-2 py-1 text-[15px] leading-6 outline-none placeholder:text-zinc-400"
                 />
