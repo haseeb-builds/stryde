@@ -11,6 +11,8 @@ import { recordSkillUsage } from "@/lib/skills";
 import { recordFunnelEvent } from "@/lib/instrumentation";
 import { getSupabaseServiceClient } from "@/lib/supabase/service";
 import { recordResourceUsage } from "@/lib/resource-control";
+import { executeWebResearch } from "@/lib/research-execution";
+import { checkAutoResearch } from "@/lib/autonomy-policy";
 
 export const runtime = "nodejs";
 // A full turn is TWO real model generations (the streamed ConversationTurn plus
@@ -213,6 +215,78 @@ export async function POST(request: Request, context: RouteContext) {
             }
           }
 
+          // Research-first execution: if the resulting next move is RESEARCH_WEB assigned
+          // to Stryde and search capabilities are active, execute the research pass immediately,
+          // record the observation on the trusted plane, and re-assess the situation so the
+          // committed turn and working state are informed by real evidence.
+          let autonomousResearch: { query: string; provider: string; results: unknown[]; observation_id: string | null } | null = null;
+          if (
+            work.next_move &&
+            work.next_move.mode === "RESEARCH_WEB" &&
+            work.next_move.actor === "STRYDE" &&
+            situationResult.situation?.capabilities.web_search
+          ) {
+            const { data: userPolicy } = await supabase
+              .from("user_autonomy_policy")
+              .select("allow_worker_delegation, allowed_worker_types, auto_execute_research")
+              .eq("owner_user_id", user.id)
+              .maybeSingle();
+
+            if (checkAutoResearch(userPolicy)) {
+              const researchTitle = work.next_move.title;
+              const priorMove = work.next_move;
+              try {
+                const execution = await executeWebResearch(
+                  supabase,
+                  user.id,
+                  id,
+                  researchTitle,
+                  trustedPlane,
+                );
+                autonomousResearch = execution;
+
+                const refreshedSituation = await assembleAdaptiveSituation(supabase, user.id, id);
+                if (!refreshedSituation.error && refreshedSituation.situation) {
+                  const refreshedCompiled = compileForSituation(refreshedSituation.situation, { userMessage: message });
+                  const reevaluated = await runAdaptiveWorkController({
+                    pursuitTitle: pursuit.title ?? "Untitled pursuit",
+                    contextPacket: refreshedCompiled.packet,
+                    conversation: conversationWithUser,
+                    previousWorkingState: work,
+                    signal: turnSignal,
+                  });
+                  work = reevaluated.workingState;
+                  workModel = { provider: reevaluated.provider, model: reevaluated.model };
+                }
+              } catch (error) {
+                autonomousResearch = {
+                  query: researchTitle,
+                  provider: "unavailable",
+                  results: [],
+                  observation_id: null,
+                };
+                work = {
+                  ...work,
+                  status: "STALLED",
+                  understanding: "Stryde identified a research bottleneck but could not complete the research pass.",
+                  bottleneck: error instanceof Error ? error.message : "Web research is temporarily unavailable.",
+                  next_move: {
+                    ...priorMove,
+                    mode: "ASK_USER",
+                    actor: "HUMAN",
+                    worker_type: null,
+                    title: "Choose whether to provide a source or continue later.",
+                    why: "The needed research capability was unavailable.",
+                    expected_change: "Provide evidence manually or retry when research is available.",
+                    stryde_can_do: "Retry the research when the capability is available.",
+                    user_needs_to_do: "Provide a source only if you already have one; otherwise you can return later.",
+                    completion_condition: "The research question is resolved or intentionally deferred.",
+                  },
+                };
+              }
+            }
+          }
+
           // Conversation turns can propose a few durable, user-specific memories.
           // These are stored as MODEL_INFERENCE candidates, never as verified truth.
           // A confident candidate may explicitly supersede an existing memory the
@@ -286,6 +360,7 @@ export async function POST(request: Request, context: RouteContext) {
                   work: committedWork,
                   memory_candidates: result.turn.memory_candidates,
                   universal_input: universalInput,
+                  ...(autonomousResearch ? { autonomous_research: autonomousResearch } : {}),
                   context_selection: {
                     used_chars: compiled.report.used_chars,
                     budget_chars: compiled.report.budget_chars,
@@ -314,7 +389,7 @@ export async function POST(request: Request, context: RouteContext) {
 
           controller.enqueue(encoder.encode(streamEvent({
             type: "complete",
-            turn: { ...result.turn, work },
+            turn: { ...result.turn, work, ...(autonomousResearch ? { autonomous_research: autonomousResearch } : {}) },
             model: workModel,
           })));
           controller.close();

@@ -284,7 +284,7 @@ export async function assembleAdaptiveSituation(
       memories,
       worker_capabilities,
       capabilities: {
-        web_search: Boolean(process.env.EXA_API_KEY?.trim()),
+        web_search: Boolean(process.env.EXA_API_KEY?.trim() || process.env.FIRECRAWL_API_KEY?.trim()),
       },
       agent_selection,
       skills: skillsRows as unknown as SkillContextItem[],

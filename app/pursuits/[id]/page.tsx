@@ -641,6 +641,7 @@ export default function PursuitPage() {
                   ready_for_reasoning: turn.ready_for_reasoning,
                   focus: turn.focus,
                   work: turn.work,
+                  ...(("autonomous_research" in turn && turn.autonomous_research) ? { autonomous_research: turn.autonomous_research } : {}),
                 },
               }
             : item,
@@ -667,7 +668,8 @@ export default function PursuitPage() {
         ),
       );
 
-      if (turn.work.next_move?.mode === "RESEARCH_WEB" && turn.work.next_move.actor === "STRYDE") {
+      const alreadyResearched = "autonomous_research" in turn && Boolean(turn.autonomous_research);
+      if (!alreadyResearched && turn.work.next_move?.mode === "RESEARCH_WEB" && turn.work.next_move.actor === "STRYDE") {
         setWorking(false);
         await recomputeWork();
       } else {

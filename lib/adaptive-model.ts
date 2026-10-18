@@ -57,6 +57,7 @@ export const SOURCE_ADAPTATION_SCHEMA = {
           prerequisites: { type: "array", maxItems: 8, items: { type: "string", minLength: 1, maxLength: 500 } },
           expected_change: { type: "string", minLength: 1, maxLength: 800 },
           actionability: { type: "string", enum: ["IMMEDIATE", "PREPARATORY", "REQUIRES_USER_CONTEXT", "NOT_ACTIONABLE_YET"] },
+          audit_status: { type: "string", enum: ["KEEP", "CHANGE", "REMOVE", "MISSING", "UNVERIFIED", "NEEDS_EXPERIMENT"] },
         },
       },
     },
@@ -126,6 +127,7 @@ export type SourceAdaptation = {
     prerequisites: string[];
     expected_change: string;
     actionability: "IMMEDIATE" | "PREPARATORY" | "REQUIRES_USER_CONTEXT" | "NOT_ACTIONABLE_YET";
+    audit_status?: "KEEP" | "CHANGE" | "REMOVE" | "MISSING" | "UNVERIFIED" | "NEEDS_EXPERIMENT";
   }>;
   assumptions: Array<{ statement: string; importance: "BLOCKING" | "MATERIAL" | "MINOR" }>;
   prerequisites: string[];
@@ -157,7 +159,7 @@ async function callStructuredModel(
   return { parsed: result.parsed, provider: result.provider, model: result.model };
 }
 
-function assertSourceAdaptation(value: unknown): SourceAdaptation {
+export function assertSourceAdaptation(value: unknown): SourceAdaptation {
   if (typeof value !== "object" || value === null) throw new Error("Source adaptation must be an object");
   const candidate = value as Record<string, unknown>;
   const text = (input: unknown, field: string, max = 4000) => {
@@ -199,6 +201,9 @@ function assertSourceAdaptation(value: unknown): SourceAdaptation {
       prerequisites: list(row.prerequisites, `methods[${index}].prerequisites`, 8, 500),
       expected_change: text(row.expected_change, `methods[${index}].expected_change`, 800),
       actionability: parseEnum(row.actionability, ["IMMEDIATE","PREPARATORY","REQUIRES_USER_CONTEXT","NOT_ACTIONABLE_YET"] as const, `methods[${index}].actionability`),
+      ...(typeof row.audit_status === "string" && ["KEEP","CHANGE","REMOVE","MISSING","UNVERIFIED","NEEDS_EXPERIMENT"].includes(row.audit_status)
+        ? { audit_status: row.audit_status as "KEEP" | "CHANGE" | "REMOVE" | "MISSING" | "UNVERIFIED" | "NEEDS_EXPERIMENT" }
+        : {}),
     };
   });
 
