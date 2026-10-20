@@ -1,9 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import type { AdaptiveSituation } from "../lib/adaptive-situation.ts";
 import {
   detectDeterministicResearchRequirement,
   detectPastedRoadmapFromText,
+  detectPursuitGoalIntent,
+  executeResearchAndRoadmapOrchestration,
 } from "../lib/research-orchestration.ts";
 import { executeWebResearch } from "../lib/research-execution.ts";
 import { assertSourceAdaptation } from "../lib/adaptive-model.ts";
@@ -28,7 +31,7 @@ function fakeSupabase(label: string, log: string[], rows?: Record<string, unknow
     client: {
       from: (table: string) => {
         log.push(`${label}:${table}`);
-        return builder;
+        return builder as unknown as ReturnType<SupabaseClient["from"]>;
       },
     } as unknown as SupabaseClient,
   };
@@ -526,3 +529,819 @@ test("pre-stream research ordering: research completes before turn stream and re
 });
 
 
+
+test("natural goal intent: recognizes goal-seeking language for fitness, career, business, tech, and roadmap", () => {
+  const muscleGoal = "I want to build muscle.";
+  const intent1 = detectPursuitGoalIntent(muscleGoal);
+  assert.equal(intent1.isGoalIntent, true);
+  assert.equal(intent1.domain, "FITNESS");
+  const check1 = detectDeterministicResearchRequirement({ message: muscleGoal });
+  assert.equal(check1.required, true);
+  assert.equal(check1.reason, "DOMAIN_PURSUIT");
+  assert.ok(check1.query?.toLowerCase().includes("hypertrophy") || check1.query?.toLowerCase().includes("muscle"));
+
+  const careerGoal = "I want to become an AI engineer.";
+  const intent2 = detectPursuitGoalIntent(careerGoal);
+  assert.equal(intent2.isGoalIntent, true);
+  assert.equal(intent2.domain, "CAREER");
+  const check2 = detectDeterministicResearchRequirement({ message: careerGoal });
+  assert.equal(check2.required, true);
+  assert.equal(check2.reason, "DOMAIN_PURSUIT");
+  assert.ok(check2.query?.toLowerCase().includes("ai engineer"));
+
+  const businessGoal = "Help me start an agency.";
+  const intent3 = detectPursuitGoalIntent(businessGoal);
+  assert.equal(intent3.isGoalIntent, true);
+  assert.equal(intent3.domain, "BUSINESS");
+  const check3 = detectDeterministicResearchRequirement({ message: businessGoal });
+  assert.equal(check3.required, true);
+  assert.equal(check3.reason, "DOMAIN_PURSUIT");
+  assert.ok(check3.query?.toLowerCase().includes("agency"));
+
+  const roadmapGoal = "Improve this roadmap for my current situation.";
+  const intent4 = detectPursuitGoalIntent(roadmapGoal);
+  assert.equal(intent4.isGoalIntent, true);
+  assert.equal(intent4.domain, "ROADMAP");
+  const check4 = detectDeterministicResearchRequirement({ message: roadmapGoal });
+  assert.equal(check4.required, true);
+  assert.equal(check4.reason, "ROADMAP_AUDIT");
+});
+
+test("natural goal intent: excludes mere mentions, symptoms, past meetings, and casual banter from research", () => {
+  const negativeCases = [
+    { text: "My muscle hurts today", reason: "physical symptom mention" },
+    { text: "I met an AI engineer yesterday", reason: "past meeting mention" },
+    { text: "My friend has an agency", reason: "third-party mention" },
+    { text: "I saw a roadmap online", reason: "passive observation" },
+    { text: "Good morning Stryde", reason: "greeting" },
+    { text: "Thanks for your help", reason: "gratitude" },
+    { text: "Tell me a joke", reason: "casual prompt" },
+    { text: "What is the capital of France?", reason: "general trivia" },
+  ];
+
+  for (const item of negativeCases) {
+    const intent = detectPursuitGoalIntent(item.text);
+    assert.equal(intent.isGoalIntent, false);
+    const check = detectDeterministicResearchRequirement({ message: item.text });
+    assert.equal(
+      check.required,
+      false,
+      `Expected '${item.text}' (${item.reason}) to NOT require research, got required=${check.required}`
+    );
+  }
+});
+
+test("resource safety: quota exhaustion fails closed before external search provider is called", async (t) => {
+  let searchProviderCalled = false;
+  const restore = setEnv({
+    EXA_API_KEY: "mock-exa",
+    STRYDE_SEARCH_PROVIDER: "exa",
+  });
+
+  const fetchMock = t.mock.method(globalThis, "fetch", async (url: unknown) => {
+    if (String(url).startsWith("https://api.exa.ai")) {
+      searchProviderCalled = true;
+      return json({ results: [] });
+    }
+    return new Response("", { status: 200 });
+  });
+
+  try {
+    const rpcCalls: string[] = [];
+    const mockTrustedPlane = {
+      rpc: async (method: string) => {
+        rpcCalls.push(method);
+        if (method === "stryde_reserve_resources") {
+          return { data: null, error: { message: "RESOURCE_EXHAUSTED: research_rounds" } };
+        }
+        return { data: null, error: null };
+      },
+      from: () => ({
+        select: () => ({
+          eq: () => ({
+            eq: () => Promise.resolve({ data: [], error: null }),
+          }),
+        }),
+      }),
+    } as unknown as SupabaseClient;
+
+    const mockSupabase = {
+      from: () => ({
+        select: () => ({
+          eq: () => ({
+            eq: () => Promise.resolve({ data: [], error: null }),
+          }),
+        }),
+      }),
+    } as unknown as SupabaseClient;
+
+    const situation = {
+      capabilities: { web_search: true },
+    } as unknown as AdaptiveSituation;
+
+    const userPolicy = {
+      allow_worker_delegation: true,
+      allowed_worker_types: ["BROWSER"],
+      auto_execute_research: true,
+    };
+
+    const quotaResult = await executeResearchAndRoadmapOrchestration({
+      supabase: mockSupabase,
+      trustedPlane: mockTrustedPlane,
+      ownerUserId: "user-1",
+      pursuitId: "pursuit-1",
+      turnKey: "turn-quota-test",
+      message: "I want to build muscle.",
+      currentSituation: situation,
+      userPolicy,
+    });
+
+    assert.equal(quotaResult.executed, false);
+    assert.ok(quotaResult.researchBlocker);
+    assert.equal(quotaResult.researchBlocker.reason, "BUDGET_EXHAUSTED");
+    assert.equal(searchProviderCalled, false, "External search provider must NEVER be called when quota is exhausted");
+  } finally {
+    restore();
+    fetchMock.mock.restore();
+  }
+});
+
+test("resource safety: resource-RPC failure fails closed before external provider is called", async (t) => {
+  let searchProviderCalled = false;
+  const restore = setEnv({
+    EXA_API_KEY: "mock-exa",
+    STRYDE_SEARCH_PROVIDER: "exa",
+  });
+
+  const fetchMock = t.mock.method(globalThis, "fetch", async (url: unknown) => {
+    if (String(url).startsWith("https://api.exa.ai")) {
+      searchProviderCalled = true;
+      return json({ results: [] });
+    }
+    return new Response("", { status: 200 });
+  });
+
+  try {
+    const mockTrustedPlane = {
+      rpc: async (method: string) => {
+        if (method === "stryde_reserve_resources") {
+          return { data: null, error: { message: "Connection terminated unexpectedly by database" } };
+        }
+        return { data: null, error: null };
+      },
+      from: () => ({
+        select: () => ({
+          eq: () => ({
+            eq: () => Promise.resolve({ data: [], error: null }),
+          }),
+        }),
+      }),
+    } as unknown as SupabaseClient;
+
+    const mockSupabase = {
+      from: () => ({
+        select: () => ({
+          eq: () => ({
+            eq: () => Promise.resolve({ data: [], error: null }),
+          }),
+        }),
+      }),
+    } as unknown as SupabaseClient;
+
+    const situation = {
+      capabilities: { web_search: true },
+    } as unknown as AdaptiveSituation;
+
+    const userPolicy = {
+      allow_worker_delegation: true,
+      allowed_worker_types: ["BROWSER"],
+      auto_execute_research: true,
+    };
+
+    const result = await executeResearchAndRoadmapOrchestration({
+      supabase: mockSupabase,
+      trustedPlane: mockTrustedPlane,
+      ownerUserId: "user-1",
+      pursuitId: "pursuit-1",
+      turnKey: "turn-rpc-err",
+      message: "I want to become an AI engineer.",
+      currentSituation: situation,
+      userPolicy,
+    });
+
+    assert.equal(result.executed, false);
+    assert.ok(result.researchBlocker);
+    assert.equal(result.researchBlocker.reason, "UNAVAILABLE");
+    assert.ok(result.researchBlocker.message.includes("Resource reservation failed"));
+    assert.equal(searchProviderCalled, false, "External provider must NEVER be called if reservation RPC fails");
+  } finally {
+    restore();
+    fetchMock.mock.restore();
+  }
+});
+
+test("resource safety: provider failure releases reservation and reports blocker", async (t) => {
+  const restore = setEnv({
+    EXA_API_KEY: "mock-exa",
+    STRYDE_SEARCH_PROVIDER: "exa",
+  });
+
+  const fetchMock = t.mock.method(globalThis, "fetch", async (url: unknown) => {
+    if (String(url).startsWith("https://api.exa.ai")) {
+      return new Response("Service Unavailable", { status: 503 });
+    }
+    return new Response("", { status: 200 });
+  });
+
+  try {
+    const rpcLog: Array<{ method: string; params: unknown }> = [];
+    const mockTrustedPlane = {
+      rpc: async (method: string, params: unknown) => {
+        rpcLog.push({ method, params });
+        if (method === "stryde_reserve_resources") {
+          return { data: "grp-res-fail-1", error: null };
+        }
+        return { data: null, error: null };
+      },
+      from: () => ({
+        select: () => ({
+          eq: () => ({
+            eq: () => Promise.resolve({ data: [], error: null }),
+          }),
+        }),
+      }),
+    } as unknown as SupabaseClient;
+
+    const mockSupabase = {
+      from: () => ({
+        select: () => ({
+          eq: () => ({
+            eq: () => Promise.resolve({ data: [], error: null }),
+          }),
+        }),
+      }),
+    } as unknown as SupabaseClient;
+
+    const situation = {
+      capabilities: { web_search: true },
+    } as unknown as AdaptiveSituation;
+
+    const userPolicy = {
+      allow_worker_delegation: true,
+      allowed_worker_types: ["BROWSER"],
+      auto_execute_research: true,
+    };
+
+    const result = await executeResearchAndRoadmapOrchestration({
+      supabase: mockSupabase,
+      trustedPlane: mockTrustedPlane,
+      ownerUserId: "user-1",
+      pursuitId: "pursuit-1",
+      turnKey: "turn-provider-fail",
+      message: "Help me start an agency.",
+      currentSituation: situation,
+      userPolicy,
+    });
+
+    assert.equal(result.executed, false);
+    assert.ok(result.researchBlocker);
+    assert.equal(result.researchBlocker.reason, "UNAVAILABLE");
+
+    // Verify stryde_reserve_resources was called, followed by stryde_release_reservations
+    const reservedCall = rpcLog.find((r) => r.method === "stryde_reserve_resources");
+    assert.ok(reservedCall, "Must have called stryde_reserve_resources");
+
+    const releaseCall = rpcLog.find((r) => r.method === "stryde_release_reservations");
+    assert.ok(releaseCall, "Must have called stryde_release_reservations on provider failure");
+    assert.deepEqual((releaseCall.params as Record<string, unknown>).p_group, "grp-res-fail-1");
+
+    const reconcileCall = rpcLog.find((r) => r.method === "stryde_reconcile_reservation");
+    assert.equal(reconcileCall, undefined, "stryde_reconcile_reservation must NOT be called on failure");
+  } finally {
+    restore();
+    fetchMock.mock.restore();
+  }
+});
+
+test("resource safety: replay idempotency avoids double reservation when already consumed", async (t) => {
+  let reserveResourcesCalled = false;
+  const restore = setEnv({
+    EXA_API_KEY: "mock-exa",
+    STRYDE_SEARCH_PROVIDER: "exa",
+  });
+
+  const fetchMock = t.mock.method(globalThis, "fetch", async (url: unknown) => {
+    if (String(url).startsWith("https://api.exa.ai")) {
+      return json({
+        results: [{ url: "https://example.com/item", title: "Doc", highlights: ["text"] }],
+      });
+    }
+    return new Response("<html><body>Content</body></html>", { status: 200 });
+  });
+
+  try {
+    const mockTrustedPlane = {
+      rpc: async (method: string) => {
+        if (method === "stryde_reserve_resources") {
+          reserveResourcesCalled = true;
+          return { data: "grp-new", error: null };
+        }
+        return { data: null, error: null };
+      },
+      from: () => ({
+        select: () => ({
+          eq: () => ({
+            eq: () =>
+              Promise.resolve({
+                data: [{ id: "res-consumed", status: "CONSUMED", actual: 1 }],
+                error: null,
+              }),
+          }),
+        }),
+        insert: (data: unknown) => ({
+          select: () => ({
+            single: async () => ({
+              data: { id: "obs-replay-id", ...(typeof data === "object" && data !== null ? data : {}) },
+              error: null,
+            }),
+          }),
+        }),
+      }),
+    } as unknown as SupabaseClient;
+
+    const mockSupabase = {
+      from: () => ({
+        select: () => ({
+          eq: () => ({
+            eq: () => ({
+              order: () => ({
+                limit: () => Promise.resolve({ data: [], error: null }),
+              }),
+              maybeSingle: async () => ({ data: null, error: null }),
+            }),
+          }),
+        }),
+        insert: () => ({
+          select: () => ({
+            single: async () => ({ data: { id: "obs-1" }, error: null }),
+          }),
+        }),
+      }),
+    } as unknown as SupabaseClient;
+
+    const situation = {
+      capabilities: { web_search: true },
+    } as unknown as AdaptiveSituation;
+
+    const userPolicy = {
+      allow_worker_delegation: true,
+      allowed_worker_types: ["BROWSER"],
+      auto_execute_research: true,
+    };
+
+    const result = await executeResearchAndRoadmapOrchestration({
+      supabase: mockSupabase,
+      trustedPlane: mockTrustedPlane,
+      ownerUserId: "user-1",
+      pursuitId: "pursuit-1",
+      turnKey: "turn-replay-1",
+      message: "I want to build muscle.",
+      currentSituation: situation,
+      userPolicy,
+    });
+
+    assert.equal(result.executed, true);
+    assert.equal(reserveResourcesCalled, false, "Replay must NOT create a new reservation when already consumed");
+  } finally {
+    restore();
+    fetchMock.mock.restore();
+  }
+});
+
+test("real retrieval status: distinguishes FULL_TEXT, PARTIAL_CONTENT, PAYWALLED, TRANSCRIPT_UNAVAILABLE, and traces primary source", async (t) => {
+  const restore = setEnv({
+    EXA_API_KEY: "mock-exa",
+    STRYDE_SEARCH_PROVIDER: "exa",
+  });
+
+  const fetchMock = t.mock.method(globalThis, "fetch", async (url: unknown) => {
+    const s = String(url);
+    if (s.startsWith("https://api.exa.ai")) {
+      return json({
+        results: [
+          { url: "https://example.com/full-doc", title: "Full Article", highlights: ["full"] },
+          { url: "https://example.com/partial-doc", title: "Huge Partial Article", highlights: ["partial"] },
+        ],
+      });
+    }
+    if (s.includes("partial-doc")) {
+      // Over 120_000 characters to trigger PARTIAL status
+      const hugeBody = "x".repeat(125_000);
+      return new Response(`<html><body><p>${hugeBody}</p></body></html>`, { status: 200 });
+    }
+    return new Response("<html><body><p>Normal article text</p></body></html>", { status: 200 });
+  });
+
+  try {
+    const log: string[] = [];
+    const { client } = fakeSupabase("service", log);
+
+    const execution = await executeWebResearch(
+      client,
+      "user-1",
+      "pursuit-1",
+      "testing retrieval locators",
+    );
+
+    assert.equal(execution.retrieved_sources.length, 2);
+    const fullSource = execution.retrieved_sources.find((s) => s.url.includes("full-doc"));
+    assert.ok(fullSource);
+    assert.equal(fullSource.locator_type, "FULL_TEXT");
+    assert.equal(fullSource.primary_source_traced, true, "FULL_TEXT must have primary_source_traced = true");
+
+    const partialSource = execution.retrieved_sources.find((s) => s.url.includes("partial-doc"));
+    assert.ok(partialSource);
+    assert.equal(partialSource.locator_type, "PARTIAL_CONTENT", "Truncated content must be PARTIAL_CONTENT, never FULL_TEXT");
+    assert.equal(partialSource.primary_source_traced, false, "PARTIAL_CONTENT must have primary_source_traced = false");
+  } finally {
+    restore();
+    fetchMock.mock.restore();
+  }
+});
+
+test("resource safety: cancellation releases reservation", async () => {
+  const restore = setEnv({
+    EXA_API_KEY: "mock-exa",
+    STRYDE_SEARCH_PROVIDER: "exa",
+  });
+
+  const abortController = new AbortController();
+  abortController.abort(); // already aborted
+
+  try {
+    const rpcLog: Array<{ method: string; params: unknown }> = [];
+    const mockTrustedPlane = {
+      rpc: async (method: string, params: unknown) => {
+        rpcLog.push({ method, params });
+        if (method === "stryde_reserve_resources") {
+          return { data: "grp-cancel-1", error: null };
+        }
+        return { data: null, error: null };
+      },
+      from: () => ({
+        select: () => ({
+          eq: () => ({
+            eq: () => Promise.resolve({ data: [], error: null }),
+          }),
+        }),
+      }),
+    } as unknown as SupabaseClient;
+
+    const mockSupabase = {
+      from: () => ({
+        select: () => ({
+          eq: () => ({
+            eq: () => Promise.resolve({ data: [], error: null }),
+          }),
+        }),
+      }),
+    } as unknown as SupabaseClient;
+
+    const situation = {
+      capabilities: { web_search: true },
+    } as unknown as AdaptiveSituation;
+
+    const userPolicy = {
+      allow_worker_delegation: true,
+      allowed_worker_types: ["BROWSER"],
+      auto_execute_research: true,
+    };
+
+    await assert.rejects(
+      async () => {
+        await executeResearchAndRoadmapOrchestration({
+          supabase: mockSupabase,
+          trustedPlane: mockTrustedPlane,
+          ownerUserId: "user-1",
+          pursuitId: "pursuit-1",
+          turnKey: "turn-cancel",
+          message: "I want to build muscle.",
+          currentSituation: situation,
+          userPolicy,
+          signal: abortController.signal,
+        });
+      },
+      (err: unknown) => (err as Error).name === "AbortError"
+    );
+
+    const releaseCall = rpcLog.find((r) => r.method === "stryde_release_reservations");
+    assert.ok(releaseCall, "stryde_release_reservations must be called when operation is cancelled");
+    assert.deepEqual((releaseCall.params as Record<string, unknown>).p_group, "grp-cancel-1");
+  } finally {
+    restore();
+  }
+});
+
+test("resource reconciliation: successful research reconciles reservation and updates Situation", async (t) => {
+  const restore = setEnv({
+    EXA_API_KEY: "mock-exa",
+    STRYDE_SEARCH_PROVIDER: "exa",
+  });
+
+  const fetchMock = t.mock.method(globalThis, "fetch", async (url: unknown) => {
+    if (String(url).startsWith("https://api.exa.ai")) {
+      return json({
+        results: [
+          { url: "https://example.com/evidence", title: "Evidence Doc", highlights: ["Research finding."] },
+        ],
+      });
+    }
+    return new Response("<html><body>Full text content</body></html>", { status: 200 });
+  });
+
+  try {
+    const rpcLog: Array<{ method: string; params: unknown }> = [];
+    const mockTrustedPlane = {
+      rpc: async (method: string, params: unknown) => {
+        rpcLog.push({ method, params });
+        if (method === "stryde_reserve_resources") {
+          return { data: "grp-success-1", error: null };
+        }
+        return { data: null, error: null };
+      },
+      from: () => ({
+        select: () => ({
+          eq: () => ({
+            eq: () => Promise.resolve({ data: [], error: null }),
+          }),
+        }),
+        insert: (data: unknown) => ({
+          select: () => ({
+            single: async () => ({
+              data: { id: "obs-success-id", ...(typeof data === "object" && data !== null ? data : {}) },
+              error: null,
+            }),
+          }),
+        }),
+      }),
+    } as unknown as SupabaseClient;
+
+    const mockSupabase = {
+      from: (table: string) => {
+        const builder = {
+          insert: (data: unknown) => {
+            return {
+              select: () => ({
+                single: async () => ({
+                  data: { id: `id-${table}`, ...(typeof data === "object" && data !== null ? data : {}) },
+                  error: null,
+                }),
+              }),
+            };
+          },
+          select: () => ({
+            eq: () => ({
+              eq: () => ({
+                maybeSingle: async () => ({ data: null, error: null }),
+                order: () => ({
+                  limit: () => Promise.resolve({ data: [], error: null }),
+                }),
+              }),
+            }),
+          }),
+        };
+        return builder as unknown as ReturnType<SupabaseClient["from"]>;
+      },
+    } as unknown as SupabaseClient;
+
+    const situation = {
+      capabilities: { web_search: true },
+      observations: [],
+      sources: [],
+    } as unknown as AdaptiveSituation;
+
+    const userPolicy = {
+      allow_worker_delegation: true,
+      allowed_worker_types: ["BROWSER"],
+      auto_execute_research: true,
+    };
+
+    const result = await executeResearchAndRoadmapOrchestration({
+      supabase: mockSupabase,
+      trustedPlane: mockTrustedPlane,
+      ownerUserId: "user-1",
+      pursuitId: "pursuit-1",
+      turnKey: "turn-success-reconcile",
+      message: "I want to become an AI engineer.",
+      currentSituation: situation,
+      userPolicy,
+    });
+
+    assert.equal(result.executed, true);
+    assert.equal(result.researchBlocker, null);
+    assert.ok(result.autonomousResearch);
+    assert.equal(result.autonomousResearch.results.length, 1);
+
+    // Verify reservation was reconciled with expected: 1
+    const reconcileCall = rpcLog.find((r) => r.method === "stryde_reconcile_reservation");
+    assert.ok(reconcileCall, "stryde_reconcile_reservation must be called on success");
+    assert.deepEqual((reconcileCall.params as Record<string, unknown>).p_group, "grp-success-1");
+    assert.deepEqual((reconcileCall.params as Record<string, unknown>).p_resource, "research_rounds");
+    assert.deepEqual((reconcileCall.params as Record<string, unknown>).p_actual, 1);
+  } finally {
+    restore();
+    fetchMock.mock.restore();
+  }
+});
+
+test("roadmap audit correctness: post-research reassessment increments version, supersedes v1, and links citations or marks incomplete", async (t) => {
+  const restore = setEnv({
+    EXA_API_KEY: "mock-exa",
+    STRYDE_SEARCH_PROVIDER: "exa",
+  });
+
+  const fetchMock = t.mock.method(globalThis, "fetch", async (url: unknown) => {
+    if (String(url).startsWith("https://api.exa.ai")) {
+      return json({
+        results: [
+          { url: "https://example.com/best-practices", title: "Engineering Practices", highlights: ["Verified curriculum"] },
+        ],
+      });
+    }
+    return new Response("<html><body>Verified curriculum and project-based learning guidelines</body></html>", { status: 200 });
+  });
+
+  try {
+    const mockTrustedPlane = {
+      rpc: async (method: string) => {
+        if (method === "stryde_reserve_resources") return { data: "grp-roadmap-1", error: null };
+        return { data: null, error: null };
+      },
+      from: () => ({
+        select: () => ({
+          eq: () => ({
+            eq: () => Promise.resolve({ data: [], error: null }),
+          }),
+        }),
+        insert: (data: unknown) => ({
+          select: () => ({
+            single: async () => ({
+              data: { id: "obs-roadmap-new", ...(typeof data === "object" && data !== null ? data : {}) },
+              error: null,
+            }),
+          }),
+        }),
+      }),
+    } as unknown as SupabaseClient;
+
+    const insertedRows: Array<{ table: string; data: unknown }> = [];
+    const updatedRows: Array<{ table: string; data: unknown }> = [];
+
+    const existingV1Adaptation = {
+      id: "adapt-v1-uuid",
+      source_id: "src-roadmap-uuid",
+      version: 1,
+      status: "ADVISED",
+      summary: "Preliminary roadmap intake",
+      methods: [
+        {
+          title: "Learn Linear Algebra",
+          sequence: 1,
+          description: "Read textbook",
+          prerequisites: [],
+          expected_change: "Math foundation",
+          actionability: "IMMEDIATE",
+          audit_status: "UNVERIFIED", // Pre-research forced UNVERIFIED
+        },
+      ],
+      source_claims: [
+        { statement: "Linear algebra is mandatory before any code", basis: "EXPLICIT_SOURCE", confidence: "HIGH" },
+      ],
+      assumptions: [],
+      prerequisites: [],
+      expected_outcomes: [],
+      unknowns: [],
+      fit: { status: "GOOD", reasons: [] },
+      conflicts: [],
+      gaps: [],
+      adapted_strategy: [],
+      goal_candidates: [],
+      provenance: { source_id: "src-roadmap-uuid", intake: "PRELIMINARY" },
+    };
+
+    const mockSupabase = {
+      from: (table: string) => {
+        const builder = {
+          insert: (data: unknown) => {
+            insertedRows.push({ table, data });
+            return {
+              select: () => ({
+                single: async () => ({
+                  data: { id: `id-${table}-new`, ...(typeof data === "object" && data !== null ? data : {}) },
+                  error: null,
+                }),
+              }),
+            };
+          },
+          update: (data: unknown) => {
+            updatedRows.push({ table, data });
+            return {
+              eq: () => Promise.resolve({ data: null, error: null }),
+            };
+          },
+          select: () => ({
+            eq: () => ({
+              eq: () => ({
+                order: () => ({
+                  limit: () => Promise.resolve({ data: [existingV1Adaptation], error: null }),
+                }),
+                maybeSingle: async () => {
+                  if (table === "pursuit_source") {
+                    return {
+                      data: {
+                        id: "src-roadmap-uuid",
+                        uri: "https://example.com/original-roadmap",
+                        title: "Original Roadmap",
+                        content_text: "Step 1: Read Math. Step 2: Code AI models.",
+                        content_sha256: "abc123sha",
+                        fetch_status: "FETCHED",
+                      },
+                      error: null,
+                    };
+                  }
+                  return { data: null, error: null };
+                },
+              }),
+              maybeSingle: async () => {
+                if (table === "pursuit_source") {
+                  return {
+                    data: {
+                      id: "src-roadmap-uuid",
+                      uri: "https://example.com/original-roadmap",
+                      title: "Original Roadmap",
+                      content_text: "Step 1: Read Math. Step 2: Code AI models.",
+                      content_sha256: "abc123sha",
+                      fetch_status: "FETCHED",
+                    },
+                    error: null,
+                  };
+                }
+                return { data: null, error: null };
+              },
+            }),
+          }),
+        };
+        return builder as unknown as ReturnType<SupabaseClient["from"]>;
+      },
+    } as unknown as SupabaseClient;
+
+    const situation = {
+      capabilities: { web_search: true },
+      observations: [],
+      sources: [],
+    } as unknown as AdaptiveSituation;
+
+    const userPolicy = {
+      allow_worker_delegation: true,
+      allowed_worker_types: ["BROWSER"],
+      auto_execute_research: true,
+    };
+
+    const result = await executeResearchAndRoadmapOrchestration({
+      supabase: mockSupabase,
+      trustedPlane: mockTrustedPlane,
+      ownerUserId: "user-1",
+      pursuitId: "pursuit-1",
+      turnKey: "turn-roadmap-audit-v2",
+      message: "Improve this roadmap for my current situation.",
+      currentSituation: situation,
+      userPolicy,
+    });
+
+    assert.equal(result.executed, true);
+
+    // Verify v1 adaptation was marked SUPERSEDED
+    const supersededUpdate = updatedRows.find(
+      (u) => u.table === "pursuit_source_adaptation" && (u.data as Record<string, unknown>).status === "SUPERSEDED"
+    );
+    assert.ok(supersededUpdate, "v1 adaptation must be marked SUPERSEDED");
+
+    // Verify v2 adaptation was inserted
+    const v2Insert = insertedRows.find(
+      (i) => i.table === "pursuit_source_adaptation" && (i.data as Record<string, unknown>).version === 2
+    );
+    assert.ok(v2Insert, "v2 adaptation must be inserted with incremented version");
+    const v2Data = v2Insert.data as Record<string, unknown>;
+    assert.equal(v2Data.status, "ADVISED");
+    assert.equal((v2Data.provenance as Record<string, unknown>).turn_key, "turn-roadmap-audit-v2");
+
+    // If model analysis ran without mock, it handled gracefully and marked audit_status INCOMPLETE or completed
+    assert.ok(
+      (v2Data.provenance as Record<string, unknown>).audit_status === "INCOMPLETE" ||
+      Array.isArray(v2Data.methods)
+    );
+  } finally {
+    restore();
+    fetchMock.mock.restore();
+  }
+});

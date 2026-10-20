@@ -1,4 +1,14 @@
-## Runtime checkpoint — 2026-10-18 (`fix/conversation-turn-reliability`)
+## Runtime checkpoint — 2026-10-21 (`fix/conversation-turn-reliability` correctness-closure pass)
+
+- Local branch `fix/conversation-turn-reliability` achieves the full correctness closure mandate:
+  1. Full resource reservation lifecycle (`reserveResources`, `releaseReservations`, `reconcileReservation`) replacing naive checks, ensuring fail-closed semantics for quota exhaustion (`BUDGET_EXHAUSTED`) vs RPC failures (`UNAVAILABLE`), with replay protection preventing double-charging on replayed turns.
+  2. Natural goal intent detection in `lib/research-orchestration.ts` covering fitness, career, tech, business, and roadmap domains while rejecting casual banter and mere mentions from triggering external research.
+  3. Strict roadmap audit ordering: preserves original source in `pursuit_source`, forces preliminary intake methods unconditionally to `UNVERIFIED`, executes research, re-evaluates methods against evidence to persist version 2 with citations, and falls back to `INCOMPLETE` with `UNVERIFIED` methods if model reassessment fails.
+  4. Real retrieval locators in `lib/research-execution.ts`: explicit `PARTIAL_CONTENT` and `PAYWALLED` statuses, preserving `#media` for `TRANSCRIPT_UNAVAILABLE`, and tracing `primary_source_traced: locator_type === "FULL_TEXT"`.
+  5. Comprehensive test verification: **289/289 tests passing** (`tests/research-first-orchestration.test.ts` 25/25), `npx tsc --noEmit` clean, ESLint clean (0 errors, 0 warnings), Next.js production build clean (Turbopack, 25 routes).
+- Production deployment remains at `dpl_HxMc5YPcdgndAT9KnvaEHYNQKm2G` (`1df7948`) on `stryde-topaz.vercel.app` pending explicit authorization to merge/deploy and run live production verification.
+
+## Runtime checkpoint — 2026-10-18 (`fix/conversation-turn-reliability` historical)
 
 - Local branch `fix/conversation-turn-reliability` resolves the observed Turn 2 conversation failure (`CREATE_ACTION` work-mode rejection in `lib/work-controller.ts`, retry amplification on `ModelProviderError` in `lib/model-gateway.ts` and `lib/adaptive-model.ts`, and stale `session.working_state` fallback in `app/api/v1/pursuits/[id]/conversation/route.ts`) as well as the false `"Conversation archived"` reload state in `app/pursuits/[id]/page.tsx`.
 - Deterministic research-first orchestration (`lib/research-orchestration.ts`), domain pursuit goal intent detection (Fitness, Career, Tech, Business), safe page retrieval with honest locators (`lib/research-execution.ts`), blocker handling without hallucinations, roadmap audit statuses (`KEEP`, `CHANGE`, `REMOVE`, `MISSING`, `UNVERIFIED`, `NEEDS_EXPERIMENT`), trigger → dispatcher job enqueueing (`lib/trigger-engine.ts`), the pursuit artifacts UI panel (`app/pursuits/[id]/artifacts-panel.tsx`), and regression tests (`tests/research-first-orchestration.test.ts` 12/12, `tests/trusted-plane-rpc-grants.test.ts` 4/4) are implemented and verified locally (**276/276 unit tests passing**, `tsc --noEmit`, clean ESLint 0 warnings, and Next.js production build passing).

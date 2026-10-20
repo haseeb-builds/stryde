@@ -142,7 +142,7 @@ export async function processUniversalInput(
           // Set unverified methods explicitly to UNVERIFIED.
           const preliminaryMethods = (adapted.adaptation.methods ?? []).map((m) => ({
             ...m,
-            audit_status: m.audit_status ?? "UNVERIFIED",
+            audit_status: "UNVERIFIED" as const,
           }));
 
           const { data: insertedAdaptation, error: adaptationError } = await supabase
@@ -313,6 +313,11 @@ export async function processUniversalInput(
               },
             });
 
+            const preliminaryMethods = (adapted.adaptation.methods ?? []).map((m) => ({
+              ...m,
+              audit_status: "UNVERIFIED" as const,
+            }));
+
             const { data: insertedAdaptation, error: adaptationError } = await supabase
               .from("pursuit_source_adaptation")
               .insert({
@@ -322,6 +327,7 @@ export async function processUniversalInput(
                 version: 1,
                 status: "ADVISED",
                 ...adapted.adaptation,
+                methods: preliminaryMethods,
               })
               .select("id, source_id, version, status, summary, source_claims, methods, assumptions, prerequisites, expected_outcomes, unknowns, fit, conflicts, gaps, adapted_strategy, goal_candidates, provenance, created_at")
               .single();

@@ -1,4 +1,32 @@
-## 2026-10-18 — `fix/conversation-turn-reliability` root-cause resolution & capability completion (current)
+## 2026-10-21 — `fix/conversation-turn-reliability` correctness-closure pass (current)
+
+- **Resource Safety & Reservation/Reconciliation Lifecycle:** Naive research availability checks and fire-and-forget post-hoc usage recording have been completely replaced with the formal reservation/reconciliation lifecycle in `lib/resource-control.ts`:
+  1. Calls `reserveResources(trustedPlane, { owner_id, operations: [{ resource: 'research_rounds', amount: 1 }] }, { operation_key })` before calling any external research provider.
+  2. Differentiates quota exhaustion (`ResourceExhaustedError`, mapping to `BUDGET_EXHAUSTED` blocker) from RPC / database connection failures (mapping to standard `UNAVAILABLE` blocker), failing closed in both cases without calling providers.
+  3. Releases reservations on failure, cancellation, or abort via `releaseReservations(trustedPlane, { reservation_id })`.
+  4. Reconciles actual usage on successful research completion via `reconcileReservation(trustedPlane, { reservation_id, consumed: { research_rounds: 1 } })`.
+  5. Replay protection: detects existing `CONSUMED` reservations for `research:${turnKey}` to prevent double-charging or running unmetered work on retried or replayed turns.
+- **Natural Goal Intent Across Domains:** `detectPursuitGoalIntent` in `lib/research-orchestration.ts` recognizes goal-seeking language for fitness/health ("I want to build muscle", "How do I start zone 2 cardio"), career/learning ("I want to become an AI engineer", "Help me prepare for staff engineering interviews"), business ("Help me start an agency", "How do I validate this SaaS product"), technical projects ("I want to build an offline-first mobile app"), and roadmap audits ("Improve this roadmap for my current situation"). It cleanly decouples pursuit goal detection from research necessity: casual banter, greetings, and mere mentions ("My muscle hurts", "I met an AI engineer today", "A friend started an agency") are recognized without triggering deep external research.
+- **Roadmap Audit Correctness & Adaptation v2:**
+  1. The original submitted roadmap is preserved unchanged in `pursuit_source`.
+  2. Preliminary intake method statuses are forced unconditionally to `UNVERIFIED` before evidence acquisition.
+  3. Post-research critical adaptation re-evaluates the roadmap against acquired evidence via `runSourceAdaptation`, creating version 2 with linked citations in `pursuit_source_citation` and explicit statuses (`KEEP`, `CHANGE`, `REMOVE`, `MISSING`, `UNVERIFIED`, `NEEDS_EXPERIMENT`).
+  4. If model analysis fails during reassessment, a fallback adaptation v2 is persisted marked `audit_status: "INCOMPLETE"` with `UNVERIFIED` methods, ensuring preliminary steps never masquerade as research-verified findings.
+  5. Dedupes adaptation version creation to avoid duplicate versions on retries.
+- **Real Retrieval Status & Locators:**
+  1. In `lib/research-execution.ts`, added explicit `PARTIAL_CONTENT` and `PAYWALLED` locator types to `RetrievedSourceInfo['locator_type']`.
+  2. Partial content extracts are never mislabeled as `FULL_TEXT`.
+  3. Uses domain and content heuristics (`PAYWALLED_DOMAINS_REGEX`, `PAYWALLED_CONTENT_REGEX`) to classify paywalled pages honestly.
+  4. Retains `TRANSCRIPT_UNAVAILABLE` with `#media` locators for audio/video sources.
+  5. Sets `primary_source_traced: locator_type === "FULL_TEXT"`.
+- **Comprehensive Test Suite & Verification:**
+  - `tests/research-first-orchestration.test.ts` expanded to 25 comprehensive tests directly exercising `executeResearchAndRoadmapOrchestration` and `detectPursuitGoalIntent`.
+  - Total test suite: **289/289 passing**.
+  - `npx tsc --noEmit`: 0 errors.
+  - `npm run lint`: 0 errors, 0 warnings (no explicit `any`, clean rules).
+  - `npm run build`: Production Next.js Turbopack build clean (all 25 routes generated in 8.4s).
+
+## 2026-10-18 — `fix/conversation-turn-reliability` root-cause resolution & capability completion (historical)
 
 - **Second-turn conversation failure root-caused and fixed:**
   1. `lib/work-controller.ts` omitted `"CREATE_ACTION"` from `AVAILABLE_WORK_MODES`, causing `validateConversationTurn` to throw `"Requested work mode is not currently available"` whenever Turn 2+ proposed `CREATE_ACTION`.

@@ -1,6 +1,42 @@
 # Stryde Handoff
 
-## 2026-10-18 — `fix/conversation-turn-reliability` engineering completion
+## 2026-10-21 — `fix/conversation-turn-reliability` correctness-closure pass
+
+### What changed in this correctness-closure pass
+
+1. **Resource Safety & Reservation Lifecycle (`lib/resource-control.ts`, `lib/research-orchestration.ts`, `app/api/v1/pursuits/[id]/conversation/route.ts`):**
+   - Replaced naive availability checks with `reserveResources` for `research_rounds`.
+   - Distinctly differentiated quota exhaustion (`ResourceExhaustedError`, mapped to `BUDGET_EXHAUSTED` blocker) from RPC / database connection failures (mapped to `UNAVAILABLE` blocker), failing closed without calling external research providers.
+   - Guaranteed `releaseReservations` on error, cancellation, or abort.
+   - Guaranteed `reconcileReservation` with actual consumption on research success.
+   - Idempotent replay protection: checks for consumed reservation on `research:${turnKey}` to avoid double-charging or re-running unmetered work on replayed turns.
+2. **Natural Goal Intent Across Domains (`lib/research-orchestration.ts`):**
+   - Implemented `detectPursuitGoalIntent` recognizing goal-seeking language for fitness/health, career/learning, business, tech, and roadmap audits.
+   - Decoupled pursuit goal recognition from research necessity: casual banter, greetings, and mere mentions do not trigger deep web research.
+3. **Roadmap Audit Intake & Post-Research Adaptation (`lib/universal-input.ts`, `lib/research-orchestration.ts`):**
+   - Retained original submitted roadmap unchanged in `pursuit_source`.
+   - Forced preliminary intake methods unconditionally to `UNVERIFIED` before evidence acquisition.
+   - Re-evaluated roadmap post-research against retrieved evidence to create version 2 with linked citations in `pursuit_source_citation` and explicit statuses (`KEEP`, `CHANGE`, `REMOVE`, `MISSING`, `UNVERIFIED`, `NEEDS_EXPERIMENT`).
+   - If model analysis fails, persists v2 marked `INCOMPLETE` with `UNVERIFIED` methods, ensuring preliminary steps never masquerade as verified findings.
+   - Avoids creating duplicate versions on retries.
+4. **Real Retrieval Status & Locators (`lib/research-execution.ts`):**
+   - Explicitly differentiates `FULL_TEXT`, `PARTIAL_CONTENT`, `PAYWALLED`, `SNIPPET`, `INACCESSIBLE`, and `TRANSCRIPT_UNAVAILABLE`.
+   - Never mislabels partial extracts as `FULL_TEXT`.
+   - Sets `primary_source_traced: locator_type === "FULL_TEXT"`.
+5. **Comprehensive Verification & Regression Suite (`tests/research-first-orchestration.test.ts`):**
+   - 25 route-level integration tests exercising `executeResearchAndRoadmapOrchestration` and `detectPursuitGoalIntent`.
+   - Entire test suite: **289/289 tests passing**.
+   - `npx tsc --noEmit`: 0 errors.
+   - `npm run lint`: 0 errors, 0 warnings.
+   - `npm run build`: Production Next.js Turbopack build succeeds in 8.4s.
+
+### Next actions — priority order
+1. **Authorize deployment of `fix/conversation-turn-reliability` to production** (do not merge or deploy until authorized).
+2. **Run fresh full authenticated production conversation journey** on deployed build: signup/login → pursuit → structured Turn 1 → adaptive working state → Turn 2 (`CREATE_ACTION` / research convergence) → reload workspace (verify no "Conversation archived" bug) → state persistence.
+3. **Provision live research credentials** (`EXA_API_KEY` / `FIRECRAWL_API_KEY`) on Vercel environment to enable production web search and crawling.
+4. **Enable leaked-password protection** in Supabase Auth before broad public access.
+
+## 2026-10-18 — `fix/conversation-turn-reliability` engineering completion (historical)
 
 ### What changed on `fix/conversation-turn-reliability`
 

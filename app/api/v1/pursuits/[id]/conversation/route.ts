@@ -10,10 +10,10 @@ import { compileForSituation } from "@/lib/context-compiler";
 import { recordSkillUsage } from "@/lib/skills";
 import { recordFunnelEvent } from "@/lib/instrumentation";
 import { getSupabaseServiceClient } from "@/lib/supabase/service";
-import { recordResourceUsage } from "@/lib/resource-control";
+import { reserveResources, recordResourceUsage, type ReservationGroup } from "@/lib/resource-control";
 import { executeWebResearch } from "@/lib/research-execution";
-import { checkAutoResearch } from "@/lib/autonomy-policy";
-import { detectDeterministicResearchRequirement } from "@/lib/research-orchestration";
+import { checkAutoResearch, loadAutonomyPolicy } from "@/lib/autonomy-policy";
+import { executeResearchAndRoadmapOrchestration, detectDeterministicResearchRequirement } from "@/lib/research-orchestration";
 
 export const runtime = "nodejs";
 // A full turn is TWO real model generations (the streamed ConversationTurn plus
@@ -134,85 +134,25 @@ export async function POST(request: Request, context: RouteContext) {
     const trustedPlane = getSupabaseServiceClient();
 
     // Deterministic research policy: check if intent or situation requires external research.
-    let autonomousResearch: { query: string; provider: string; results: unknown[]; observation_id: string | null } | null = null;
-    let researchBlocker: { reason: "UNCONFIGURED" | "UNAUTHORIZED" | "BUDGET_EXHAUSTED" | "UNAVAILABLE"; message: string } | null = null;
+    const userPolicy = await loadAutonomyPolicy(supabase, user.id);
 
-    const researchCheck = detectDeterministicResearchRequirement({
+    const orchestration = await executeResearchAndRoadmapOrchestration({
+      supabase,
+      trustedPlane,
+      ownerUserId: user.id,
+      pursuitId: id,
+      turnKey,
       message,
       pursuitTitle: pursuit.title,
-      situation: currentSituation,
+      currentSituation,
       workingState: (session.working_state ?? null) as Parameters<typeof detectDeterministicResearchRequirement>[0]["workingState"],
+      userPolicy,
+      signal: request.signal,
     });
 
-    if (researchCheck.required) {
-      if (!currentSituation.capabilities.web_search) {
-        researchBlocker = {
-          reason: "UNCONFIGURED",
-          message: "External web research capability is unconfigured or not available in this environment.",
-        };
-      } else {
-        const { data: userPolicy } = await supabase
-          .from("user_autonomy_policy")
-          .select("allow_worker_delegation, allowed_worker_types, auto_execute_research")
-          .eq("owner_user_id", user.id)
-          .maybeSingle();
-
-        if (!checkAutoResearch(userPolicy)) {
-          researchBlocker = {
-            reason: "UNAUTHORIZED",
-            message: "Automatic research is not authorized by your autonomy policy. Permission is required to execute external research.",
-          };
-        } else {
-          // Pre-flight check research_rounds resource availability
-          const { data: researchAvailable, error: researchCheckError } = await trustedPlane
-            .rpc("stryde_resource_available", { p_owner: user.id, p_resource: "research_rounds" });
-
-          if (!researchCheckError && researchAvailable === 0) {
-            researchBlocker = {
-              reason: "BUDGET_EXHAUSTED",
-              message: "Daily plan limit reached for research rounds. Your quota resets tomorrow.",
-            };
-          } else {
-            try {
-              const execution = await executeWebResearch(
-                supabase,
-                user.id,
-                id,
-                researchCheck.query!,
-                trustedPlane,
-              );
-              autonomousResearch = execution;
-
-              // Record research usage post-hoc on trusted plane
-              void recordResourceUsage(trustedPlane, {
-                ownerUserId: user.id,
-                pursuitId: id,
-                resource: "research_rounds",
-                amount: 1,
-                capabilityKey: "research.web",
-              }).catch(() => {});
-
-              // Re-assemble situation with the new observation and retrieved sources
-              const refreshed = await assembleAdaptiveSituation(supabase, user.id, id);
-              if (!refreshed.error && refreshed.situation) {
-                currentSituation = refreshed.situation;
-              }
-            } catch (researchError) {
-              autonomousResearch = {
-                query: researchCheck.query!,
-                provider: "unavailable",
-                results: [],
-                observation_id: null,
-              };
-              researchBlocker = {
-                reason: "UNAVAILABLE",
-                message: researchError instanceof Error ? researchError.message : "The external research provider failed or was unreachable.",
-              };
-            }
-          }
-        }
-      }
-    }
+    let autonomousResearch = orchestration.autonomousResearch;
+    const researchBlocker = orchestration.researchBlocker;
+    currentSituation = orchestration.updatedSituation;
 
     // The Context Compiler turns the canonical Situation into a task-specific
     // packet for THIS turn. The model never sees the full situation replay;
@@ -379,15 +319,28 @@ export async function POST(request: Request, context: RouteContext) {
             if (checkAutoResearch(userPolicy)) {
               const researchTitle = work.next_move.title;
               const priorMove = work.next_move;
+              const operationKey = `research:${turnKey}:post_turn`;
+              let reservation: ReservationGroup | null = null;
               try {
+                reservation = await reserveResources(trustedPlane, {
+                  ownerUserId: user.id,
+                  pursuitId: id,
+                  operationKey,
+                  capabilityKey: "research.web",
+                  requests: [{ resource: "research_rounds", expected: 1 }],
+                  ttlSeconds: 900,
+                });
+
                 const execution = await executeWebResearch(
                   supabase,
                   user.id,
                   id,
                   researchTitle,
                   trustedPlane,
+                  turnSignal,
                 );
                 autonomousResearch = execution;
+                await reservation.reconcile([{ resource: "research_rounds", expected: 1 }]);
 
                 const refreshedSituation = await assembleAdaptiveSituation(supabase, user.id, id);
                 if (!refreshedSituation.error && refreshedSituation.situation) {
@@ -403,10 +356,14 @@ export async function POST(request: Request, context: RouteContext) {
                   workModel = { provider: reevaluated.provider, model: reevaluated.model };
                 }
               } catch (error) {
+                if (reservation) {
+                  await reservation.release().catch(() => {});
+                }
                 autonomousResearch = {
                   query: researchTitle,
                   provider: "unavailable",
                   results: [],
+                  retrieved_sources: [],
                   observation_id: null,
                 };
                 work = {

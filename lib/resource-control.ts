@@ -50,10 +50,10 @@ export async function reserveResources(
   });
   if (error) {
     const resource = parseExhaustion(error.message);
-    throw new ResourceExhaustedError(
-      resource ? `Resource budget exhausted: ${resource}` : error.message,
-      resource,
-    );
+    if (resource) {
+      throw new ResourceExhaustedError(`Resource budget exhausted: ${resource}`, resource);
+    }
+    throw new Error(`Reservation failed: ${error.message}`);
   }
   const groupId = String(data);
 

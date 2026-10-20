@@ -1,7 +1,17 @@
 ## Reconciliation update — 2026-10-06 post-GLM
 
 
-## Reconciliation update — 2026-10-18 (`fix/conversation-turn-reliability`)
+## Reconciliation update — 2026-10-21 (`fix/conversation-turn-reliability` correctness-closure pass)
+
+| Area | Implemented | Tested | Deployed / Live | Remaining evidence |
+|---|---|---|---|---|
+| Resource safety & reservation/reconciliation lifecycle | YES | Integrated in `lib/resource-control.ts` and `lib/research-orchestration.ts` with `reserveResources`, `releaseReservations`, `reconcileReservation`, replay idempotency (`research:${turnKey}`), and honest discrimination between quota exhaustion (`BUDGET_EXHAUSTED`) and RPC failures (`UNAVAILABLE`); 25/25 orchestration tests, 289/289 full suite | Local branch `fix/conversation-turn-reliability` | Live DB quota verification on production database |
+| Natural goal intent detection across domains | YES | `detectPursuitGoalIntent` in `lib/research-orchestration.ts` parses natural goal language (fitness, career, tech, business, roadmap) while excluding banter, greetings, and mere mentions; tested across positive/negative suites in `tests/research-first-orchestration.test.ts` | Local branch `fix/conversation-turn-reliability` | Production user interaction evaluation |
+| Roadmap audit correctness & adaptation v2 | YES | Original roadmap preserved unchanged in `pursuit_source`; preliminary intake methods forced to `UNVERIFIED`; post-research critical adaptation re-evaluates methods against evidence, creating version 2 with linked citations; falls back to `INCOMPLETE` with `UNVERIFIED` methods on model failure; tested in `tests/research-first-orchestration.test.ts` | Local branch `fix/conversation-turn-reliability` | Production verification with real roadmap uploads |
+| Real retrieval statuses & honest locators | YES | `lib/research-execution.ts` differentiates `FULL_TEXT`, `PARTIAL_CONTENT`, `PAYWALLED`, `SNIPPET`, `INACCESSIBLE`, `TRANSCRIPT_UNAVAILABLE` (with `#media` locators); sets `primary_source_traced: locator_type === "FULL_TEXT"`; tested in `tests/research-first-orchestration.test.ts` | Local branch `fix/conversation-turn-reliability` | Live web crawling with active search keys |
+| Direct route execution & regression suite | YES | Route-level tests in `tests/research-first-orchestration.test.ts` exercise `executeResearchAndRoadmapOrchestration` end-to-end with realistic mocks (quota exhaustion, RPC error, provider error, replay, post-research audit, unverified preliminary methods, and paywall classification) | Local branch `fix/conversation-turn-reliability` | Live authenticated end-to-end turn on deployed infrastructure |
+
+## Reconciliation update — 2026-10-18 (`fix/conversation-turn-reliability` historical)
 
 | Area | Implemented | Tested | Deployed / Live | Remaining evidence |
 |---|---|---|---|---|

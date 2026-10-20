@@ -8,11 +8,18 @@ import { ingestUrlSource } from "./source-ingestion.ts";
 export type RetrievedSourceInfo = {
   url: string;
   source_id: string | null;
-  locator_type: "FULL_TEXT" | "SNIPPET" | "INACCESSIBLE" | "TRANSCRIPT_UNAVAILABLE";
+  locator_type: "FULL_TEXT" | "PARTIAL_CONTENT" | "SNIPPET" | "INACCESSIBLE" | "TRANSCRIPT_UNAVAILABLE" | "PAYWALLED";
   content_locator: string;
   title: string | null;
   retrieved_at: string;
+  primary_source_traced: boolean;
 };
+
+const PAYWALLED_DOMAINS_REGEX =
+  /\b(sciencedirect\.com|link\.springer\.com|nature\.com|wiley\.com|ieeexplore\.ieee\.org|tandfonline\.com|nejm\.org|thelancet\.com|jamanetwork\.com|cell\.com|academic\.oup\.com|jstor\.org)\b/i;
+
+const PAYWALLED_CONTENT_REGEX =
+  /\b(subscribe to read|purchase this article|access through your institution|institutional access|paywall|subscription required|purchase access|article purchase|buy this article)\b/i;
 
 export type ResearchExecution = {
   query: string;
@@ -83,13 +90,27 @@ export async function executeWebResearch(
         content_locator: `${hit.url}#media`,
         title: hit.title ?? null,
         retrieved_at: new Date().toISOString(),
+        primary_source_traced: false,
       });
       continue;
     }
 
     try {
+      const isPaywalledDomain = PAYWALLED_DOMAINS_REGEX.test(hit.url);
       const ingested = await ingestUrlSource(hit.url);
-      if (ingested.fetchStatus === "FETCHED" || ingested.fetchStatus === "PARTIAL") {
+      const isPaywalledContent = PAYWALLED_CONTENT_REGEX.test(ingested.contentText ?? "");
+
+      if (isPaywalledDomain || isPaywalledContent) {
+        retrievedSources.push({
+          url: hit.url,
+          source_id: null,
+          locator_type: "PAYWALLED",
+          content_locator: `${hit.url}#paywalled`,
+          title: hit.title ?? ingested.title,
+          retrieved_at: new Date().toISOString(),
+          primary_source_traced: false,
+        });
+      } else if (ingested.fetchStatus === "FETCHED" || ingested.fetchStatus === "PARTIAL") {
         const { data: savedSource } = await supabase
           .from("pursuit_source")
           .insert({
@@ -112,32 +133,45 @@ export async function executeWebResearch(
           .select("id")
           .single();
 
+        const locatorType: "FULL_TEXT" | "PARTIAL_CONTENT" =
+          ingested.fetchStatus === "FETCHED" ? "FULL_TEXT" : "PARTIAL_CONTENT";
+
         retrievedSources.push({
           url: hit.url,
           source_id: savedSource?.id ?? null,
-          locator_type: "FULL_TEXT",
+          locator_type: locatorType,
           content_locator: `${hit.url}#sha256:${ingested.contentSha256?.slice(0, 16) ?? "text"}`,
           title: hit.title ?? ingested.title,
           retrieved_at: new Date().toISOString(),
+          primary_source_traced: locatorType === "FULL_TEXT",
         });
       } else {
+        const locatorType = hit.highlights?.length ? "SNIPPET" : "INACCESSIBLE";
         retrievedSources.push({
           url: hit.url,
           source_id: null,
-          locator_type: "INACCESSIBLE",
+          locator_type: locatorType,
           content_locator: hit.url,
           title: hit.title ?? null,
           retrieved_at: new Date().toISOString(),
+          primary_source_traced: false,
         });
       }
     } catch {
+      const isPaywalledDomain = PAYWALLED_DOMAINS_REGEX.test(hit.url);
+      const locatorType = isPaywalledDomain
+        ? "PAYWALLED"
+        : hit.highlights?.length
+        ? "SNIPPET"
+        : "INACCESSIBLE";
       retrievedSources.push({
         url: hit.url,
         source_id: null,
-        locator_type: hit.highlights?.length ? "SNIPPET" : "INACCESSIBLE",
+        locator_type: locatorType,
         content_locator: hit.url,
         title: hit.title ?? null,
         retrieved_at: new Date().toISOString(),
+        primary_source_traced: false,
       });
     }
   }
@@ -170,7 +204,7 @@ export async function executeWebResearch(
         query: normalizedQuery,
         provider: provider.name,
         result_count: result.results.length,
-        retrieved_count: retrievedSources.filter((s) => s.locator_type === "FULL_TEXT").length,
+        retrieved_count: retrievedSources.filter((s) => s.locator_type === "FULL_TEXT" || s.locator_type === "PARTIAL_CONTENT").length,
       },
     })
     .select("id")

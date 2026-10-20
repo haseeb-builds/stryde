@@ -1,7 +1,22 @@
 # Stryde Integration Truth
 
 
-## Live integration reconciliation — 2026-10-18 (`fix/conversation-turn-reliability`)
+## Live integration reconciliation — 2026-10-21 (`fix/conversation-turn-reliability` correctness-closure pass)
+
+- **Vercel:** production deployment `dpl_HxMc5YPcdgndAT9KnvaEHYNQKm2G` is READY on main commit `1df79487da20bd4066e7ff492f6851c0960e6141`; alias `stryde-topaz.vercel.app`.
+- **Supabase:** project `pvijrnwdnolvnoibarrj` is ACTIVE_HEALTHY. The live ledger contains 41 migration entries. Security migration version `20261017185728` is applied and live effective privileges are restricted so trusted-plane resource RPCs require service role.
+- **Model provider:** direct Google AI Studio Gemini API primary (configured via `GEMINI_API_KEY`, `STRYDE_GEMINI_API_KEY`, or `GOOGLE_AI_STUDIO_API_KEY`), OpenRouter fallback. Model-health success confirms configuration, while conversation turn streaming and structured extraction are proven in local test suites.
+- **Research & Resource Reservation:**
+  - Full reservation lifecycle: `reserveResources` pre-allocates `research_rounds` before calling providers, releasing on failure/cancellation, reconciling on success, and preventing double-billing on replayed turns (`research:${turnKey}`).
+  - Search provider chain configured (`Exa` primary, `Firecrawl` fallback); requires `EXA_API_KEY` or `FIRECRAWL_API_KEY` for live upstream execution. When unconfigured, research degrades honestly to `WAITING_EXTERNAL`/`ASK_USER` without hallucinating citations.
+- **Source retrieval paths & Locators:**
+  - Public web pages: direct fetch with DNS SSRF assertion + Firecrawl JS-render fallback when configured; top research hits are ingested as canonical `pursuit_source` items.
+  - Locator classification: `FULL_TEXT` (with `#sha256:` content locators), `PARTIAL_CONTENT`, `PAYWALLED` (detected via domain/content paywall patterns), `SNIPPET`, `INACCESSIBLE`, and `TRANSCRIPT_UNAVAILABLE` (with `#media` locators). `primary_source_traced` is strictly `true` only for `FULL_TEXT`.
+  - Pasted roadmaps & text: ingested directly with SHA-256 hash (up to 120k chars); methods default to `UNVERIFIED` until research is acquired. Post-research adaptation creates v2 with citations or falls back to `INCOMPLETE` on model failure.
+- **Billing:** Stripe keys are absent. Billing/payment and the customer-facing paid subscription path remain intentionally unconfigured.
+- **Security:** authenticated execution was removed from eight resource/trigger RPCs designed for the trusted plane. Artifact revision now verifies the actual authenticated actor. Leaked-password protection remains disabled in Supabase Auth.
+
+## Live integration reconciliation — 2026-10-18 (`fix/conversation-turn-reliability` historical)
 
 - **Vercel:** production deployment `dpl_HxMc5YPcdgndAT9KnvaEHYNQKm2G` is READY on main commit `1df79487da20bd4066e7ff492f6851c0960e6141`; alias `stryde-topaz.vercel.app`.
 - **Supabase:** project `pvijrnwdnolvnoibarrj` is ACTIVE_HEALTHY. The live ledger contains 41 migration entries. Security migration version `20261017185728` is applied and live effective privileges were queried afterward.

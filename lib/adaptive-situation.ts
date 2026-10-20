@@ -1,9 +1,9 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { assembleSituation, type Situation } from "@/lib/situation";
-import { rankMemories } from "@/lib/memory-core";
-import { WORKER_TYPES, type WorkerType } from "@/lib/actor";
-import { workerToolKey } from "@/lib/worker-contract";
-import { loadAgentSelection, resolvePreferredWorkers, type AgentSelection } from "@/lib/agent-selection";
+import { assembleSituation, type Situation } from "./situation.ts";
+import { rankMemories } from "./memory-core.ts";
+import { WORKER_TYPES, type WorkerType } from "./actor.ts";
+import { workerToolKey } from "./worker-contract.ts";
+import { loadAgentSelection, resolvePreferredWorkers, type AgentSelection } from "./agent-selection.ts";
 
 export type MemoryEpisode = {
   session_id: string;
