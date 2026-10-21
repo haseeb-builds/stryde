@@ -177,6 +177,7 @@ export async function executeWebResearch(
   }
 
   const observationPayload = {
+    pursuit_id: pursuitId,
     query: normalizedQuery,
     provider: provider.name,
     results: result.results,
@@ -201,6 +202,7 @@ export async function executeWebResearch(
       source_type: "WEB_SEARCH",
       source_reference: result.providerMetadata.request_id ?? provider.name,
       source_metadata: {
+        pursuit_id: pursuitId,
         query: normalizedQuery,
         provider: provider.name,
         result_count: result.results.length,

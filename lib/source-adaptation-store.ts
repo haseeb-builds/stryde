@@ -77,20 +77,44 @@ export async function adaptAndStoreSource(input: {
     }
 
     const sourceClaims = Array.isArray(adapted.adaptation.source_claims) ? adapted.adaptation.source_claims : [];
-    if (sourceClaims.length && input.source.contentSha256) {
-      const citations = sourceClaims.map((item) => ({
-        owner_user_id: input.ownerUserId,
-        pursuit_id: input.pursuitId,
-        source_id: input.source.id,
-        adaptation_id: inserted.id,
-        ...buildSourceCitation({
-          content: input.source.contentText as string,
-          contentSha256: input.source.contentSha256 as string,
-          statement: typeof item.statement === "string" ? item.statement : "",
+    if (sourceClaims.length && input.source.contentSha256 && input.source.contentText) {
+      const citations = [];
+      for (const item of sourceClaims) {
+        const stmt = typeof item.statement === "string" ? item.statement.trim() : "";
+        if (!stmt) continue;
+        const built = buildSourceCitation({
+          content: input.source.contentText,
+          contentSha256: input.source.contentSha256,
+          statement: stmt,
           basis: typeof item.basis === "string" ? item.basis : "INFERRED",
-        }),
-      }));
-      if (citations.length) await input.supabase.from("pursuit_source_citation").insert(citations);
+        });
+        if (built) {
+          citations.push({
+            owner_user_id: input.ownerUserId,
+            pursuit_id: input.pursuitId,
+            source_id: input.source.id,
+            adaptation_id: inserted.id,
+            ...built,
+          });
+        }
+      }
+      if (citations.length) {
+        const { error: insertError } = await input.supabase.from("pursuit_source_citation").insert(citations);
+        if (insertError) {
+          return {
+            adaptation: adapted.adaptation,
+            adaptation_id: inserted.id,
+            warning: `Source was saved, but evidence citations could not be persisted: ${insertError.message}`,
+          };
+        }
+      }
+      if (citations.length < sourceClaims.length) {
+        return {
+          adaptation: adapted.adaptation,
+          adaptation_id: inserted.id,
+          warning: `Source adaptation partially verified: ${citations.length} of ${sourceClaims.length} claims could be substantiated.`,
+        };
+      }
     }
 
     return { adaptation: adapted.adaptation, adaptation_id: inserted.id, warning: null };

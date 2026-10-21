@@ -66,9 +66,14 @@ export async function POST(request: Request, context: RouteContext) {
           else adaptation = insertedAdaptation as unknown as SourceAdaptation;
         } catch (error) { warning = error instanceof Error ? error.message : "Source adaptation failed"; }
       } else warning = situationResult.error ?? "Unable to assemble situation for source adaptation";
-      if (source.content_sha256) {
+      if (source.content_sha256 && ingested.contentText) {
         const citation = buildSourceCitation({ content: ingested.contentText, contentSha256: source.content_sha256, statement: highlights[0] || title || url, basis: "EXPLICIT_SOURCE" });
-        await supabase.from("pursuit_source_citation").insert({ owner_user_id: user.id, pursuit_id: id, source_id: source.id, adaptation_id: adaptation ? (adaptation as { id?: string }).id ?? null : null, source_content_sha256: citation.source_content_sha256, locator: citation.locator, excerpt: citation.excerpt, basis: citation.basis });
+        if (citation) {
+          const { error: citError } = await supabase.from("pursuit_source_citation").insert({ owner_user_id: user.id, pursuit_id: id, source_id: source.id, adaptation_id: adaptation ? (adaptation as { id?: string }).id ?? null : null, source_content_sha256: citation.source_content_sha256, locator: citation.locator, excerpt: citation.excerpt, basis: citation.basis });
+          if (citError) {
+            warning = `Source was materialized, but citation could not be persisted: ${citError.message}`;
+          }
+        }
       }
       return NextResponse.json({ source, adaptation, materialized: true, warning }, { status: 201 });
     }

@@ -162,20 +162,36 @@ export async function processUniversalInput(
           if (!adaptationError && insertedAdaptation) {
             adaptation = insertedAdaptation as unknown as SourceAdaptation;
             const sourceClaims = Array.isArray(adapted.adaptation.source_claims) ? adapted.adaptation.source_claims : [];
-            if (sourceClaims.length && activeSource.content_sha256) {
-              const citations = sourceClaims.map((item) => ({
-                owner_user_id: ownerUserId,
-                pursuit_id: pursuitId,
-                source_id: activeSource.id,
-                adaptation_id: insertedAdaptation.id,
-                ...buildSourceCitation({
-                  content: ingested.contentText as string,
-                  contentSha256: activeSource.content_sha256 as string,
-                  statement: typeof item.statement === "string" ? item.statement : "",
+            if (sourceClaims.length && activeSource.content_sha256 && ingested.contentText) {
+              const citations = [];
+              for (const item of sourceClaims) {
+                const stmt = typeof item.statement === "string" ? item.statement.trim() : "";
+                if (!stmt) continue;
+                const built = buildSourceCitation({
+                  content: ingested.contentText,
+                  contentSha256: activeSource.content_sha256,
+                  statement: stmt,
                   basis: typeof item.basis === "string" ? item.basis : "INFERRED",
-                }),
-              }));
-              if (citations.length) await supabase.from("pursuit_source_citation").insert(citations);
+                });
+                if (built) {
+                  citations.push({
+                    owner_user_id: ownerUserId,
+                    pursuit_id: pursuitId,
+                    source_id: activeSource.id,
+                    adaptation_id: insertedAdaptation.id,
+                    ...built,
+                  });
+                }
+              }
+              if (citations.length) {
+                const { error: insertError } = await supabase.from("pursuit_source_citation").insert(citations);
+                if (insertError) {
+                  warning = `Roadmap was saved, but evidence citations could not be persisted: ${insertError.message}`;
+                }
+              }
+              if (citations.length < sourceClaims.length) {
+                warning = `Roadmap partially verified: ${citations.length} of ${sourceClaims.length} claims substantiated.`;
+              }
             }
           } else {
             warning = "Roadmap source saved, but adaptation could not be persisted.";
@@ -338,20 +354,36 @@ export async function processUniversalInput(
               adaptation = insertedAdaptation as unknown as SourceAdaptation;
 
               const sourceClaims = Array.isArray(adapted.adaptation.source_claims) ? adapted.adaptation.source_claims : [];
-              if (sourceClaims.length && source.content_sha256) {
-                const citations = sourceClaims.map((item) => ({
-                  owner_user_id: ownerUserId,
-                  pursuit_id: pursuitId,
-                  source_id: source.id,
-                  adaptation_id: insertedAdaptation.id,
-                  ...buildSourceCitation({
-                    content: ingested.contentText as string,
-                    contentSha256: source.content_sha256 as string,
-                    statement: typeof item.statement === "string" ? item.statement : "",
+              if (sourceClaims.length && source.content_sha256 && ingested.contentText) {
+                const citations = [];
+                for (const item of sourceClaims) {
+                  const stmt = typeof item.statement === "string" ? item.statement.trim() : "";
+                  if (!stmt) continue;
+                  const built = buildSourceCitation({
+                    content: ingested.contentText,
+                    contentSha256: source.content_sha256,
+                    statement: stmt,
                     basis: typeof item.basis === "string" ? item.basis : "INFERRED",
-                  }),
-                }));
-                if (citations.length) await supabase.from("pursuit_source_citation").insert(citations);
+                  });
+                  if (built) {
+                    citations.push({
+                      owner_user_id: ownerUserId,
+                      pursuit_id: pursuitId,
+                      source_id: source.id,
+                      adaptation_id: insertedAdaptation.id,
+                      ...built,
+                    });
+                  }
+                }
+                if (citations.length) {
+                  const { error: insertError } = await supabase.from("pursuit_source_citation").insert(citations);
+                  if (insertError) {
+                    warning = `Source was saved, but evidence citations could not be persisted: ${insertError.message}`;
+                  }
+                }
+                if (citations.length < sourceClaims.length) {
+                  warning = `Source partially verified: ${citations.length} of ${sourceClaims.length} claims substantiated.`;
+                }
               }
             }
           } catch (error) {

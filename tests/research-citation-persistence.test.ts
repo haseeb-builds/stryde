@@ -306,7 +306,7 @@ test("R-1 post-research roadmap reassessment: persists valid schema-conforming c
             if (prop === "update") {
               return (data: unknown) => {
                 updatedRows.push({ table, data });
-                return createChainableBuilder({ data: null, error: null });
+                return createChainableBuilder({ data: [{ id: "adapt-v1-roadmap" }], error: null });
               };
             }
 
@@ -618,7 +618,7 @@ test("R-1 multiple citations: accurately maps multiple claims to retrieved sourc
             }
 
             if (prop === "update") {
-              return () => createChainableBuilder({ data: null, error: null });
+              return () => createChainableBuilder({ data: [{ id: "adapt-v1-roadmap" }], error: null });
             }
 
             if (prop === "select") {
@@ -840,7 +840,7 @@ test("R-1 insert failure handling: does not swallow citation failure, updates ad
                 if (table === "pursuit_source_adaptation") {
                   updatedAdaptations.push(typeof data === "object" && data !== null ? (data as Record<string, unknown>) : {});
                 }
-                return createChainableBuilder({ data: null, error: null });
+                return createChainableBuilder({ data: [{ id: "adapt-v1-roadmap" }], error: null });
               };
             }
 

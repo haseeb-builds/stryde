@@ -424,7 +424,7 @@ export async function supersedeAdaptation(
       }
       return { success: true, affectedCount: result.data.length, error: null };
     }
-    return { success: true, affectedCount: 1, error: null };
+    return { success: false, affectedCount: 0, error: "Unable to confirm affected rows" };
   } catch (err: unknown) {
     return { success: false, affectedCount: 0, error: err instanceof Error ? err.message : String(err) };
   }
@@ -468,7 +468,7 @@ export async function updateAdaptationAuditStatus(
       }
       return { success: true, affectedCount: result.data.length, error: null };
     }
-    return { success: true, affectedCount: 1, error: null };
+    return { success: false, affectedCount: 0, error: "Unable to confirm affected rows" };
   } catch (err: unknown) {
     return { success: false, affectedCount: 0, error: err instanceof Error ? err.message : String(err) };
   }
@@ -683,11 +683,22 @@ export async function executeResearchAndRoadmapOrchestration(input: {
           });
 
           const nextVersion = (latestAdaptation.version ?? 1) + 1;
-          await supersedeAdaptation(input.trustedPlane, {
+          const supersedeResult = await supersedeAdaptation(input.trustedPlane, {
             adaptationId: latestAdaptation.id,
             ownerUserId: input.ownerUserId,
             pursuitId: input.pursuitId,
           });
+
+          if (!supersedeResult.success || supersedeResult.affectedCount === 0) {
+            // Superseding the prior version failed!
+            // Do NOT continue creating or describing a new adaptation as a successful supersession!
+            return {
+              executed: true,
+              autonomousResearch: execution,
+              researchBlocker: null,
+              updatedSituation: refreshedSituation,
+            };
+          }
 
           const retrievedLocators = execution.retrieved_sources
             .filter((s) => s.locator_type === "FULL_TEXT" || s.locator_type === "PARTIAL_CONTENT")
@@ -838,6 +849,25 @@ export async function executeResearchAndRoadmapOrchestration(input: {
                           citation_error: citationError.message,
                         },
                       });
+                    } else if (citations.length < claims.length) {
+                      // Mixed claims: only a subset of claims were substantiated by retrieved sources.
+                      // Retain defensible citations and explicitly mark the adaptation audit INCOMPLETE
+                      // with unsupported methods marked UNVERIFIED!
+                      await updateAdaptationAuditStatus(input.trustedPlane, {
+                        adaptationId: newAdaptation.id,
+                        ownerUserId: input.ownerUserId,
+                        pursuitId: input.pursuitId,
+                        summary: `Roadmap reassessed with partial evidence: ${citations.length} of ${claims.length} claims substantiated by retrieved sources.`,
+                        methods: unverifiedMethods,
+                        provenance: {
+                          ...(typeof newAdaptation.provenance === "object" && newAdaptation.provenance !== null ? newAdaptation.provenance : {}),
+                          turn_key: input.turnKey,
+                          audit_status: "INCOMPLETE",
+                          partial_evidence: true,
+                          substantiated_claims: citations.length,
+                          total_claims: claims.length,
+                        },
+                      });
                     }
                   }
                 }
@@ -851,11 +881,20 @@ export async function executeResearchAndRoadmapOrchestration(input: {
           }
         } catch (reAdaptError) {
           const nextVersion = (latestAdaptation.version ?? 1) + 1;
-          await supersedeAdaptation(input.trustedPlane, {
+          const supersedeErrResult = await supersedeAdaptation(input.trustedPlane, {
             adaptationId: latestAdaptation.id,
             ownerUserId: input.ownerUserId,
             pursuitId: input.pursuitId,
           });
+
+          if (!supersedeErrResult.success || supersedeErrResult.affectedCount === 0) {
+            return {
+              executed: true,
+              autonomousResearch: execution,
+              researchBlocker: null,
+              updatedSituation: refreshedSituation,
+            };
+          }
 
           const incompleteMethods = (Array.isArray(latestAdaptation.methods) ? latestAdaptation.methods : []).map(
             (m: Record<string, unknown>) => ({

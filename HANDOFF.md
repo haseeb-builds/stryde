@@ -1,3 +1,36 @@
+## 2026-10-22 — Independently identified release blockers closed & verified: R-1, R-2, R-3, R-6 (`fix/conversation-turn-reliability`)
+
+### Branch status
+- Branch: `fix/conversation-turn-reliability` on PR #13, base `main` at `5259e7d0004000b3459e2a7ce7f9d6371a6feecc`.
+- **Independently Identified Release Blockers Resolved & Verified (TDD):**
+  - **R-1 (Citation Semantics Across All Paths):**
+    - `buildSourceCitation` returns `SourceCitation | null`; unlocatable statements return `null` instead of generating fallback stubs with `located: false`.
+    - `findSupportingSource` searches candidate sources without falling back to unrelated sources.
+    - Research orchestration and direct `/sources` route handle mixed claims (`0 < citations.length < claims.length`): inserts valid citations, updates adaptation to `INCOMPLETE` with `partial_evidence: true`, and demotes unsupported methods to `UNVERIFIED`.
+    - Citation persistence failures explicitly update adaptation to `INCOMPLETE` via `trustedPlane` with `citation_error` documented and return clear warning messages.
+    - Verified by `tests/source-citation.test.ts`, `tests/research-citation-persistence.test.ts`, and `tests/research-citation-integrity.test.ts` (5/5).
+  - **R-2 (Adaptation Supersession & Audit Status Persistence):**
+    - `supersedeAdaptation` and `updateAdaptationAuditStatus` fail closed (`affectedCount: 0`, `success: false`) if result data is empty or not an array.
+    - Both normal try path and error catch path in `executeResearchAndRoadmapOrchestration` abort inserting a new adaptation if supersession fails or returns 0 affected rows.
+    - Verified by `tests/adaptation-supersession.test.ts` (7/7).
+  - **R-3 (Search Observation Contract & Cross-Pursuit Isolation):**
+    - `executeWebResearch` writes `pursuit_id: pursuitId` inside `content`, `raw_payload`, and `source_metadata`.
+    - `assembleAdaptiveSituation` enforces a strict cross-pursuit guard: drops any observation whose explicit `pursuit_id` (`content.pursuit_id` or `source_metadata.pursuit_id`) does not match the active `pursuitId`, even if the observation shares a `source_uri` with the pursuit's sources.
+    - Preserves source-less observations belonging to the target pursuit.
+    - Verified by `tests/search-observations-situation.test.ts` (3/3).
+  - **R-6 (Source Extraction Atomic Quota & Concurrency Safety):**
+    - Direct `/sources` URL extraction uses atomic reservation lifecycle: `reserveResources` for `source_extraction: 1`, followed by `reconcile` on success or `release` on failure.
+    - Denial throws `ResourceExhaustedError` and returns HTTP 429 ("Daily plan limit reached for source extractions").
+    - Ingestion failures or reconciliation failures release reservations and fail closed (HTTP 503).
+    - Prevents race conditions and double reservations under concurrent load.
+    - Verified by `tests/source-extraction-concurrency.test.ts` (5/5) and `tests/resource-autonomy-controls.test.ts`.
+- **Full Verification Suite:**
+  - `npm test`: **328/328 tests passing** (all 45 test files passing).
+  - `npx tsc --noEmit`: **0 errors**.
+  - `npm run lint`: **0 errors, 0 warnings**.
+  - `npm run build`: **Clean Turbopack compile across all 25 routes in 2.4s**.
+  - `npm audit --omit=dev`: **0 vulnerabilities**.
+
 ## 2026-10-21 — Core release-hardening defects closed & verified: R-1, R-2, R-3, R-6, R-7, R-8 (`fix/conversation-turn-reliability`)
 
 ### Branch status

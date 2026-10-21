@@ -255,3 +255,465 @@ test("R-1 source query failure: persists honest incomplete state via trusted pla
     fetchMock.mock.restore();
   }
 });
+
+test("R-1 mixed claims: persists verified citation, marks adaptation INCOMPLETE with partial_evidence, and marks methods UNVERIFIED", async (t) => {
+  const restore = setEnv({
+    EXA_API_KEY: "mock-exa",
+    STRYDE_SEARCH_PROVIDER: "exa",
+    STRYDE_MODEL_PROVIDER: "gemini",
+    STRYDE_MODEL_API_KEY: "mock-gemini-key",
+  });
+
+  const fetchMock = t.mock.method(globalThis, "fetch", async (url: unknown) => {
+    const urlStr = String(url);
+    if (urlStr.startsWith("https://api.exa.ai")) {
+      return json({
+        results: [{ url: "https://example.com/deepwork", title: "Deep Work Study", highlights: ["Deep work requires 90 minutes of unbroken focus."] }],
+      });
+    }
+
+    if (urlStr.includes("generativelanguage.googleapis.com") || urlStr.includes("openrouter.ai")) {
+      return json({
+        candidates: [
+          {
+            content: {
+              parts: [
+                {
+                  text: JSON.stringify({
+                    summary: "Roadmap audit with mixed evidence",
+                    source_claims: [
+                      { statement: "Deep work requires 90 minutes of unbroken focus.", basis: "EXPLICIT_SOURCE", confidence: "HIGH" },
+                      { statement: "Cold plunge instantly boosts productivity by 500 percent.", basis: "EXPLICIT_SOURCE", confidence: "HIGH" },
+                    ],
+                    methods: [
+                      { title: "Schedule 90m blocks", sequence: 1, description: "Unbroken focus blocks", prerequisites: [], expected_change: "Focus", actionability: "IMMEDIATE", audit_status: "KEEP" },
+                    ],
+                    assumptions: [],
+                    prerequisites: [],
+                    expected_outcomes: [],
+                    unknowns: [],
+                    fit: { status: "GOOD", reasons: [] },
+                    conflicts: [],
+                    gaps: [],
+                    adapted_strategy: [],
+                    goal_candidates: [],
+                    provenance: { source_id: "src-roadmap-pasted", extraction_status: "FETCHED" },
+                  }),
+                },
+              ],
+            },
+          },
+        ],
+      });
+    }
+
+    if (urlStr === "https://example.com/deepwork") {
+      return new Response("Deep work requires 90 minutes of unbroken focus. Without digital distraction, cognitive output peaks.", {
+        status: 200,
+        headers: { "content-type": "text/html" },
+      });
+    }
+
+    return new Response("Some content", { status: 200 });
+  });
+
+  try {
+    const updatedAdaptations: Array<Record<string, unknown>> = [];
+    const insertedCitations: Array<Record<string, unknown>> = [];
+
+    const mockSupabase = {
+      from: (table: string) => {
+        const handler: ProxyHandler<object> = {
+          get(target, prop) {
+            if (prop === "select") {
+              return () => {
+                const sHandler: ProxyHandler<object> = {
+                  get(sTarget, sProp) {
+                    if (sProp === "then") {
+                      if (table === "pursuit_source_adaptation") {
+                        return (resolve: (val: unknown) => unknown) =>
+                          Promise.resolve({
+                            data: [
+                              {
+                                id: "adapt-v1",
+                                source_id: "src-roadmap-pasted",
+                                version: 1,
+                                status: "ADVISED",
+                                summary: "Initial roadmap",
+                                methods: [{ title: "Step 1", audit_status: "UNVERIFIED" }],
+                                source_claims: [],
+                                assumptions: [],
+                                prerequisites: [],
+                                expected_outcomes: [],
+                                unknowns: [],
+                                fit: {},
+                                conflicts: [],
+                                gaps: [],
+                                adapted_strategy: [],
+                                goal_candidates: [],
+                                provenance: {},
+                              },
+                            ],
+                            error: null,
+                          }).then(resolve);
+                      }
+                      return (resolve: (val: unknown) => unknown) =>
+                        Promise.resolve({ data: [], error: null }).then(resolve);
+                    }
+                    if (sProp === "maybeSingle") {
+                      return async () => ({
+                        data: {
+                          id: "src-roadmap-pasted",
+                          title: "Roadmap",
+                          content_text: "Roadmap text",
+                          content_sha256: "hash-pasted",
+                          fetch_status: "FETCHED",
+                        },
+                        error: null,
+                      });
+                    }
+                    if (sProp === "in") {
+                      return () =>
+                        createChainableBuilder({
+                          data: [
+                            {
+                              id: "src-deepwork-ext",
+                              title: "Deep Work Study",
+                              content_text: "Deep work requires 90 minutes of unbroken focus. Without digital distraction, cognitive output peaks.",
+                              content_sha256: "sha-deepwork-123",
+                              fetch_status: "FETCHED",
+                            },
+                          ],
+                          error: null,
+                        });
+                    }
+                    return () => new Proxy({}, sHandler);
+                  },
+                };
+                return new Proxy({}, sHandler);
+              };
+            }
+
+            if (prop === "insert") {
+              return (data: unknown) => {
+                if (table === "pursuit_source_citation") {
+                  if (Array.isArray(data)) insertedCitations.push(...data);
+                  else if (data && typeof data === "object") insertedCitations.push(data as Record<string, unknown>);
+                  return Promise.resolve({ data: insertedCitations, error: null });
+                }
+                return {
+                  select: () => ({
+                    single: async () => {
+                      if (table === "pursuit_source") {
+                        return { data: { id: "src-deepwork-ext" }, error: null };
+                      }
+                      return {
+                        data: { id: "adapt-v2-inserted", ...(typeof data === "object" && data !== null ? data : {}) },
+                        error: null,
+                      };
+                    },
+                  }),
+                };
+              };
+            }
+
+            if (prop === "update") {
+              return (data: unknown) => {
+                if (table === "pursuit_source_adaptation") {
+                  updatedAdaptations.push(typeof data === "object" && data !== null ? (data as Record<string, unknown>) : {});
+                }
+                return createChainableBuilder({ data: [{ id: "adapt-updated" }], error: null });
+              };
+            }
+
+            return () => new Proxy({}, handler);
+          },
+        };
+        return new Proxy({}, handler) as unknown as ReturnType<SupabaseClient["from"]>;
+      },
+    } as unknown as SupabaseClient;
+
+    const mockTrustedPlane = {
+      rpc: async (method: string) => {
+        if (method === "stryde_reserve_resources") return { data: "grp-test", error: null };
+        return { data: null, error: null };
+      },
+      from: (table: string) => mockSupabase.from(table),
+    } as unknown as SupabaseClient;
+
+    const situation = {
+      capabilities: { web_search: true },
+      observations: [],
+      sources: [],
+    } as unknown as AdaptiveSituation;
+
+    await executeResearchAndRoadmapOrchestration({
+      supabase: mockSupabase,
+      trustedPlane: mockTrustedPlane,
+      ownerUserId: "user-test",
+      pursuitId: "pursuit-test",
+      turnKey: "turn-mixed-claims",
+      message: "Audit my roadmap against scientific literature.",
+      currentSituation: situation,
+      userPolicy: {
+        allow_worker_delegation: true,
+        allowed_worker_types: ["BROWSER"],
+        auto_execute_research: true,
+      },
+    });
+
+    assert.equal(insertedCitations.length, 1, "Only substantiated claim should be persisted as citation");
+    assert.equal(
+      (insertedCitations[0].locator as Record<string, unknown>).claim_text,
+      "Deep work requires 90 minutes of unbroken focus."
+    );
+    assert.equal(insertedCitations[0].source_id, "src-deepwork-ext");
+    assert.equal(insertedCitations[0].excerpt, "Deep work requires 90 minutes of unbroken focus.");
+
+    const partialUpdate = updatedAdaptations.find(
+      (u) =>
+        (u.provenance as Record<string, unknown> | undefined)?.audit_status === "INCOMPLETE" &&
+        (u.provenance as Record<string, unknown> | undefined)?.partial_evidence === true
+    );
+
+    assert.ok(partialUpdate, "Adaptation must be updated with INCOMPLETE audit_status and partial_evidence flag");
+    assert.equal((partialUpdate.provenance as Record<string, unknown>).substantiated_claims, 1);
+    assert.equal((partialUpdate.provenance as Record<string, unknown>).total_claims, 2);
+    assert.match(String(partialUpdate.summary), /partial evidence/i);
+    assert.ok(
+      Array.isArray(partialUpdate.methods) &&
+        partialUpdate.methods.every((m: Record<string, unknown>) => m.audit_status === "UNVERIFIED"),
+      "Methods must be marked UNVERIFIED when adaptation has only partial evidence"
+    );
+  } finally {
+    restore();
+    fetchMock.mock.restore();
+  }
+});
+
+test("R-1 citation persistence failure: records citation_error, marks adaptation INCOMPLETE, and marks methods UNVERIFIED", async (t) => {
+  const restore = setEnv({
+    EXA_API_KEY: "mock-exa",
+    STRYDE_SEARCH_PROVIDER: "exa",
+    STRYDE_MODEL_PROVIDER: "gemini",
+    STRYDE_MODEL_API_KEY: "mock-gemini-key",
+  });
+
+  const fetchMock = t.mock.method(globalThis, "fetch", async (url: unknown) => {
+    const urlStr = String(url);
+    if (urlStr.startsWith("https://api.exa.ai")) {
+      return json({
+        results: [{ url: "https://example.com/deepwork", title: "Deep Work Study", highlights: ["Deep work requires 90 minutes of unbroken focus."] }],
+      });
+    }
+
+    if (urlStr.includes("generativelanguage.googleapis.com") || urlStr.includes("openrouter.ai")) {
+      return json({
+        candidates: [
+          {
+            content: {
+              parts: [
+                {
+                  text: JSON.stringify({
+                    summary: "Roadmap audit with failing citation insert",
+                    source_claims: [
+                      { statement: "Deep work requires 90 minutes of unbroken focus.", basis: "EXPLICIT_SOURCE", confidence: "HIGH" },
+                    ],
+                    methods: [
+                      { title: "Schedule 90m blocks", sequence: 1, description: "Unbroken focus blocks", prerequisites: [], expected_change: "Focus", actionability: "IMMEDIATE", audit_status: "KEEP" },
+                    ],
+                    assumptions: [],
+                    prerequisites: [],
+                    expected_outcomes: [],
+                    unknowns: [],
+                    fit: { status: "GOOD", reasons: [] },
+                    conflicts: [],
+                    gaps: [],
+                    adapted_strategy: [],
+                    goal_candidates: [],
+                    provenance: { source_id: "src-roadmap-pasted", extraction_status: "FETCHED" },
+                  }),
+                },
+              ],
+            },
+          },
+        ],
+      });
+    }
+
+    if (urlStr === "https://example.com/deepwork") {
+      return new Response("Deep work requires 90 minutes of unbroken focus. Without digital distraction, cognitive output peaks.", {
+        status: 200,
+        headers: { "content-type": "text/html" },
+      });
+    }
+
+    return new Response("Some content", { status: 200 });
+  });
+
+  try {
+    const updatedAdaptations: Array<Record<string, unknown>> = [];
+
+    const mockSupabase = {
+      from: (table: string) => {
+        const handler: ProxyHandler<object> = {
+          get(target, prop) {
+            if (prop === "select") {
+              return () => {
+                const sHandler: ProxyHandler<object> = {
+                  get(sTarget, sProp) {
+                    if (sProp === "then") {
+                      if (table === "pursuit_source_adaptation") {
+                        return (resolve: (val: unknown) => unknown) =>
+                          Promise.resolve({
+                            data: [
+                              {
+                                id: "adapt-v1",
+                                source_id: "src-roadmap-pasted",
+                                version: 1,
+                                status: "ADVISED",
+                                summary: "Initial roadmap",
+                                methods: [{ title: "Step 1", audit_status: "UNVERIFIED" }],
+                                source_claims: [],
+                                assumptions: [],
+                                prerequisites: [],
+                                expected_outcomes: [],
+                                unknowns: [],
+                                fit: {},
+                                conflicts: [],
+                                gaps: [],
+                                adapted_strategy: [],
+                                goal_candidates: [],
+                                provenance: {},
+                              },
+                            ],
+                            error: null,
+                          }).then(resolve);
+                      }
+                      return (resolve: (val: unknown) => unknown) =>
+                        Promise.resolve({ data: [], error: null }).then(resolve);
+                    }
+                    if (sProp === "maybeSingle") {
+                      return async () => ({
+                        data: {
+                          id: "src-roadmap-pasted",
+                          title: "Roadmap",
+                          content_text: "Roadmap text",
+                          content_sha256: "hash-pasted",
+                          fetch_status: "FETCHED",
+                        },
+                        error: null,
+                      });
+                    }
+                    if (sProp === "in") {
+                      return () =>
+                        createChainableBuilder({
+                          data: [
+                            {
+                              id: "src-deepwork-ext",
+                              title: "Deep Work Study",
+                              content_text: "Deep work requires 90 minutes of unbroken focus. Without digital distraction, cognitive output peaks.",
+                              content_sha256: "sha-deepwork-123",
+                              fetch_status: "FETCHED",
+                            },
+                          ],
+                          error: null,
+                        });
+                    }
+                    return () => new Proxy({}, sHandler);
+                  },
+                };
+                return new Proxy({}, sHandler);
+              };
+            }
+
+            if (prop === "insert") {
+              return (data: unknown) => {
+                if (table === "pursuit_source_citation") {
+                  return Promise.resolve({
+                    data: null,
+                    error: { message: "violates foreign key constraint on pursuit_source" },
+                  });
+                }
+                return {
+                  select: () => ({
+                    single: async () => {
+                      if (table === "pursuit_source") {
+                        return { data: { id: "src-deepwork-ext" }, error: null };
+                      }
+                      return {
+                        data: { id: "adapt-v2-inserted", ...(typeof data === "object" && data !== null ? data : {}) },
+                        error: null,
+                      };
+                    },
+                  }),
+                };
+              };
+            }
+
+            if (prop === "update") {
+              return (data: unknown) => {
+                if (table === "pursuit_source_adaptation") {
+                  updatedAdaptations.push(typeof data === "object" && data !== null ? (data as Record<string, unknown>) : {});
+                }
+                return createChainableBuilder({ data: [{ id: "adapt-updated" }], error: null });
+              };
+            }
+
+            return () => new Proxy({}, handler);
+          },
+        };
+        return new Proxy({}, handler) as unknown as ReturnType<SupabaseClient["from"]>;
+      },
+    } as unknown as SupabaseClient;
+
+    const mockTrustedPlane = {
+      rpc: async (method: string) => {
+        if (method === "stryde_reserve_resources") return { data: "grp-test", error: null };
+        return { data: null, error: null };
+      },
+      from: (table: string) => mockSupabase.from(table),
+    } as unknown as SupabaseClient;
+
+    const situation = {
+      capabilities: { web_search: true },
+      observations: [],
+      sources: [],
+    } as unknown as AdaptiveSituation;
+
+    await executeResearchAndRoadmapOrchestration({
+      supabase: mockSupabase,
+      trustedPlane: mockTrustedPlane,
+      ownerUserId: "user-test",
+      pursuitId: "pursuit-test",
+      turnKey: "turn-citation-err",
+      message: "Audit my roadmap against scientific literature.",
+      currentSituation: situation,
+      userPolicy: {
+        allow_worker_delegation: true,
+        allowed_worker_types: ["BROWSER"],
+        auto_execute_research: true,
+      },
+    });
+
+    const errorUpdate = updatedAdaptations.find(
+      (u) =>
+        (u.provenance as Record<string, unknown> | undefined)?.audit_status === "INCOMPLETE" &&
+        (u.provenance as Record<string, unknown> | undefined)?.citation_error
+    );
+
+    assert.ok(errorUpdate, "Citation persistence failure must update adaptation with INCOMPLETE status and citation_error");
+    assert.match(
+      String((errorUpdate.provenance as Record<string, unknown>).citation_error),
+      /violates foreign key constraint/
+    );
+    assert.ok(
+      Array.isArray(errorUpdate.methods) &&
+        errorUpdate.methods.every((m: Record<string, unknown>) => m.audit_status === "UNVERIFIED"),
+      "Methods must be marked UNVERIFIED when citation persistence fails"
+    );
+  } finally {
+    restore();
+    fetchMock.mock.restore();
+  }
+});

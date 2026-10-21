@@ -103,18 +103,16 @@ export function findSupportingSource<T extends { id: string; content_text: strin
   return null;
 }
 
-export function buildSourceCitation(input: { content: string; contentSha256: string; statement: string; basis: string }): SourceCitation {
+export function buildSourceCitation(input: { content: string; contentSha256: string; statement: string; basis: string }): SourceCitation | null {
   if (!input.contentSha256 || !input.statement.trim()) throw new Error("Citation requires a source hash and excerpt");
-  // Honest fallback: an unlocatable statement keeps the full-range locator
-  // (located: false); the caller-provided basis is model provenance and is
-  // never rewritten here.
   const range = locateStatement(input.content, input.statement);
-  const locator = range
-    ? { type: "CHARACTER_RANGE" as const, start: range.start, end: range.end, located: true }
-    : { type: "CHARACTER_RANGE" as const, start: 0, end: input.content.length, located: false };
-  const excerpt = range
-    ? input.content.slice(range.start, range.end)
-    : input.statement.trim().slice(0, 4000);
+  if (!range) {
+    // An unsupported claim must not produce a verified citation.
+    // Unlocatable statements return null so evidence persistence paths never persist false citations.
+    return null;
+  }
+  const locator = { type: "CHARACTER_RANGE" as const, start: range.start, end: range.end, located: true };
+  const excerpt = input.content.slice(range.start, range.end);
   return { source_content_sha256: input.contentSha256, locator, excerpt, basis: input.basis === "EXPLICIT_SOURCE" ? "EXPLICIT_SOURCE" : "INFERRED" };
 }
 
