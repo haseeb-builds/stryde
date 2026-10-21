@@ -9,9 +9,10 @@
 | Research reservation lifecycle | YES (`lib/resource-control.ts`) | 25 integration tests passed | LOCAL | Synchronized on feature branch |
 | Domain goal intent recognition | YES (`lib/research-orchestration.ts`) | Unit tests passed | LOCAL | Synchronized on feature branch |
 | Roadmap audit adaptation | YES (`lib/universal-input.ts`) | Tests passed | LOCAL | Synchronized on feature branch |
+| R-4: Blocked research ungrounded advice prevention | YES (`lib/research-orchestration.ts`, `route.ts`) | 6/6 regression tests in `tests/research-blocked-ungrounded-guard.test.ts`; 296/296 full suite | LOCAL | Synchronized on feature branch |
 
 ## Reconciliation update — 2026-10-17 (superseded)
->>>>>>> origin/main
+
 
 | Area | Implemented | Tested | Deployed / Live | Remaining evidence |
 |---|---|---|---|---|

@@ -1,10 +1,19 @@
 # Stryde Handoff
 
-## 2026-10-21 — `fix/conversation-turn-reliability` synchronized with production baseline (current branch)
+## 2026-10-21 — R-4 implemented & verified: ungrounded model stream blocked when research is impeded (`fix/conversation-turn-reliability`)
 
 ### Branch status
 - Synchronized with `origin/main` at commit `5259e7d0004000b3459e2a7ce7f9d6371a6feecc` (incorporating Next.js 16.4.2, puppeteer-core 25.14.0, zero production CVEs, and `docs/ENGINEERING_CONTROL_PLANE.md`).
-- Immediate focus: Implement R-4 (blocked research ungrounded advice prevention) test-first per `docs/ENGINEERING_CONTROL_PLANE.md`.
+- **Defect R-4 implemented & verified (TDD):**
+  - Added `buildBlockedResearchTurn` in `lib/research-orchestration.ts` to construct deterministic blocker turns, honest messaging explaining why research was not performed (unauthorized, unconfigured, budget exhausted, or unavailable), appropriate interactive options, and updated working state (`WAITING_USER` / `WAITING_EXTERNAL`, `ASK_USER`, bottleneck recorded).
+  - Added pre-stream interceptor in `app/api/v1/pursuits/[id]/conversation/route.ts` inside `ReadableStream.start`. When `researchBlocker` is present, `streamConversationTurn` is never called. Blocker text is emitted directly as `message_delta` SSE chunks and committed synchronously to `stryde_commit_conversation_turn` before the `complete` event.
+  - Eliminated token waste, redundant provider charges, and ungrounded model hallucinations when research cannot run.
+  - Verified across SSE streaming and non-streaming / replayed turn contracts via `tests/research-blocked-ungrounded-guard.test.ts` (6/6 tests passing).
+  - Full test suite: 296/296 passing.
+  - `npx tsc --noEmit`: 0 errors.
+  - `npm run lint`: 0 errors.
+  - `npm run build`: clean Turbopack compile across all 25 routes.
+  - `npm audit --omit=dev`: 0 vulnerabilities.
 
 ## 2026-10-21 — security baseline released to production (current production truth)
 

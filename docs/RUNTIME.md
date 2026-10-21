@@ -1,4 +1,9 @@
-## Runtime checkpoint — 2026-10-21 (current branch synchronized with main 5259e7d)
+## Runtime checkpoint — 2026-10-21 (R-4 verified on fix/conversation-turn-reliability)
+
+- Branch `fix/conversation-turn-reliability` implements pre-stream research-blocker interception for defect R-4:
+  - If `researchBlocker` is detected during conversation turn setup (due to `checkAutoResearch` refusing automatic execution, unconfigured provider, quota exhaustion via `reserveResources`, or provider outage), the route does not invoke `streamConversationTurn`.
+  - Honest blocker guidance is streamed via SSE (`message_delta`), saved to database via `stryde_commit_conversation_turn` with `p_working_state` updated to `WAITING_USER` / `WAITING_EXTERNAL`, and completed with `complete` event without model token consumption.
+  - Verified by `tests/research-blocked-ungrounded-guard.test.ts` across streaming and non-streaming contracts.
 
 - Branch `fix/conversation-turn-reliability` is synchronized with `main` at commit `5259e7d0004000b3459e2a7ce7f9d6371a6feecc`.
 - Production is live on `main` at `68f98517522ea8d50311b53aebaf3974217216c9` (Vercel deployment `7232279533` / `U9TyZuZdtBFRAckVU7Hp7NRdbWD8`, READY), aliased to `https://stryde-topaz.vercel.app`.

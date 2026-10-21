@@ -13,7 +13,7 @@ import { getSupabaseServiceClient } from "@/lib/supabase/service";
 import { reserveResources, recordResourceUsage, type ReservationGroup } from "@/lib/resource-control";
 import { executeWebResearch } from "@/lib/research-execution";
 import { checkAutoResearch, loadAutonomyPolicy } from "@/lib/autonomy-policy";
-import { executeResearchAndRoadmapOrchestration, detectDeterministicResearchRequirement } from "@/lib/research-orchestration";
+import { executeResearchAndRoadmapOrchestration, detectDeterministicResearchRequirement, buildBlockedResearchTurn } from "@/lib/research-orchestration";
 
 export const runtime = "nodejs";
 // A full turn is TWO real model generations (the streamed ConversationTurn plus
@@ -203,6 +203,60 @@ export async function POST(request: Request, context: RouteContext) {
         };
 
         try {
+          // R-4: If required research is blocked, do NOT invoke model generation or stream ungrounded advice.
+          // Stream the honest blocker notification directly and commit consistent state.
+          if (researchBlocker) {
+            const blocked = buildBlockedResearchTurn({
+              blocker: researchBlocker,
+              workingState: (session.working_state ?? null) as Parameters<typeof buildBlockedResearchTurn>[0]["workingState"],
+              pursuitTitle: pursuit.title,
+              autonomousResearch,
+            });
+
+            emit({ type: "message_delta", content: blocked.streamText });
+
+            const commit = createConversationCommitter({
+              commit: async (turn, committedWork) => {
+                const { error } = await supabase.rpc("stryde_commit_conversation_turn", {
+                  p_session_id: sessionId,
+                  p_turn_key: turnKey,
+                  p_content: turn.message,
+                  p_metadata: {
+                    question: turn.question,
+                    options: turn.options,
+                    ready_for_reasoning: turn.ready_for_reasoning,
+                    focus: turn.focus,
+                    input_class: turn.input_class,
+                    work: committedWork,
+                    memory_candidates: [],
+                    universal_input: universalInput,
+                    ...(autonomousResearch ? { autonomous_research: autonomousResearch } : {}),
+                    research_blocker: researchBlocker,
+                    context_selection: {
+                      used_chars: compiled.report.used_chars,
+                      budget_chars: compiled.report.budget_chars,
+                      included: compiled.report.included,
+                      dropped: compiled.report.dropped.slice(0, 50),
+                      truncated: compiled.report.truncated.slice(0, 50),
+                    },
+                  },
+                  p_working_state: committedWork,
+                });
+                if (error) throw new Error("Unable to save Stryde's response");
+              },
+            });
+
+            await commit(blocked.turn, blocked.work);
+
+            controller.enqueue(encoder.encode(streamEvent({
+              type: "complete",
+              turn: blocked.turn,
+              model: null,
+            })));
+            controller.close();
+            return;
+          }
+
           const turnSignal = AbortSignal.any([request.signal, AbortSignal.timeout(TURN_DEADLINE_MS)]);
           const result = await streamConversationTurn({
             pursuitTitle: pursuit.title ?? "Untitled pursuit",
@@ -243,42 +297,7 @@ export async function POST(request: Request, context: RouteContext) {
             }
           }
 
-          if (researchBlocker) {
-            work = {
-              ...work,
-              status: researchBlocker.reason === "UNAUTHORIZED" ? "WAITING_USER" : "WAITING_EXTERNAL",
-              understanding: `Stryde identified that research is required before an evidence-backed recommendation can be made, but external research was not performed: ${researchBlocker.message}`,
-              bottleneck: researchBlocker.message,
-              next_move: {
-                ...(work.next_move ?? {
-                  action_name: null,
-                  confidence: 0.5,
-                  phase: "INVESTIGATION",
-                  risk_level: "LOW",
-                  success_metric: "Resolved research blocker",
-                }),
-                mode: "ASK_USER",
-                actor: "HUMAN",
-                worker_type: null,
-                title: researchBlocker.reason === "UNAUTHORIZED"
-                  ? "Authorize research to investigate this question."
-                  : researchBlocker.reason === "UNCONFIGURED"
-                  ? "Configure search credentials or provide a source document directly."
-                  : researchBlocker.reason === "BUDGET_EXHAUSTED"
-                  ? "Wait for research quota reset or provide evidence manually."
-                  : "Retry research or supply a source manually.",
-                why: researchBlocker.message,
-                expected_change: "Clear the research blocker or provide empirical evidence directly.",
-                stryde_can_do: researchBlocker.reason === "UNAUTHORIZED"
-                  ? "Perform the research pass once permission is granted in autonomy settings."
-                  : "Integrate provided source text or citations.",
-                user_needs_to_do: researchBlocker.reason === "UNAUTHORIZED"
-                  ? "Confirm whether Stryde is permitted to search the web for this inquiry."
-                  : "Provide a link or paste reference material to continue.",
-                completion_condition: "Evidence acquired or manual source supplied.",
-              },
-            };
-          } else if (autonomousResearch && autonomousResearch.provider === "unavailable") {
+          if (autonomousResearch && autonomousResearch.provider === "unavailable") {
             work = {
               ...work,
               status: "STALLED",

@@ -10,6 +10,10 @@ import { reserveResources, ResourceExhaustedError, type ReservationGroup } from 
 import { assembleAdaptiveSituation, type AdaptiveSituation } from "./adaptive-situation.ts";
 import { runSourceAdaptation } from "./adaptive-model.ts";
 import { checkAutoResearch, type AutonomyPolicy } from "./autonomy-policy.ts";
+import type { WorkingState } from "./work-controller.ts";
+import type { ConversationTurn } from "./model-gateway.ts";
+
+type ConversationOption = { label: string; value: string };
 
 export type GoalDomain = "FITNESS" | "CAREER" | "BUSINESS" | "TECH" | "ROADMAP" | "GENERAL";
 
@@ -718,4 +722,124 @@ export async function executeResearchAndRoadmapOrchestration(input: {
     researchBlocker: null,
     updatedSituation: refreshedSituation,
   };
+}
+
+export function buildBlockedResearchTurn(input: {
+  blocker: {
+    reason: "UNCONFIGURED" | "UNAUTHORIZED" | "BUDGET_EXHAUSTED" | "UNAVAILABLE";
+    message: string;
+  };
+  workingState?: WorkingState | null;
+  pursuitTitle?: string | null;
+  autonomousResearch?: ResearchExecution | null;
+}): {
+  turn: ConversationTurn & {
+    research_blocker?: {
+      reason: "UNCONFIGURED" | "UNAUTHORIZED" | "BUDGET_EXHAUSTED" | "UNAVAILABLE";
+      message: string;
+    };
+    autonomous_research?: ResearchExecution | null;
+  };
+  work: WorkingState;
+  streamText: string;
+} {
+  const { blocker } = input;
+  let streamText: string;
+  let question: string | null = null;
+  let options: ConversationOption[] = [];
+
+  switch (blocker.reason) {
+    case "UNAUTHORIZED":
+      streamText =
+        "Stryde identified that research is required before an evidence-backed recommendation can be made, but automatic research is not authorized by your autonomy policy. Please authorize research in your settings or confirm whether you'd like me to investigate this question.";
+      question = "Would you like to authorize external web research for this pursuit?";
+      options = [
+        { label: "Authorize research", value: "Authorize external web research" },
+        { label: "Provide sources manually", value: "I'll provide reference material manually" },
+        { label: "Continue without research", value: "Proceed without external research" },
+      ];
+      break;
+
+    case "UNCONFIGURED":
+      streamText =
+        "Stryde identified that research is required before an evidence-backed recommendation can be made, but external web research capability is unconfigured or not available in this environment. You can configure search credentials or provide reference material directly.";
+      question = "Would you like to provide a source link or document directly?";
+      options = [
+        { label: "Provide reference link or document", value: "I'll provide a reference link or document" },
+        { label: "Continue without research", value: "Proceed without external research" },
+      ];
+      break;
+
+    case "BUDGET_EXHAUSTED":
+      streamText =
+        "Stryde identified that research is required before an evidence-backed recommendation can be made, but your daily plan limit for research rounds has been reached. Your quota resets tomorrow, or you can provide source evidence directly.";
+      question = "Would you like to provide reference material directly?";
+      options = [
+        { label: "Provide reference material", value: "I'll provide reference material manually" },
+        { label: "Wait for quota reset", value: "I'll continue once my quota resets" },
+      ];
+      break;
+
+    case "UNAVAILABLE":
+    default:
+      streamText = `Stryde identified that research is required before an evidence-backed recommendation can be made, but external research was temporarily unavailable: ${blocker.message}. You can retry or provide reference material directly.`;
+      question = "Would you like to retry research or provide a source directly?";
+      options = [
+        { label: "Retry research", value: "Retry the research pass" },
+        { label: "Provide reference material", value: "I'll provide reference material manually" },
+      ];
+      break;
+  }
+
+  const work: WorkingState = {
+    version: 1,
+    status: blocker.reason === "UNAUTHORIZED" ? "WAITING_USER" : "WAITING_EXTERNAL",
+    objective: input.workingState?.objective ?? input.pursuitTitle ?? "Pursuit",
+    understanding: `Stryde identified that research is required before an evidence-backed recommendation can be made, but external research was not performed: ${blocker.message}`,
+    known: input.workingState?.known ?? [],
+    unknowns: input.workingState?.unknowns ?? [],
+    bottleneck: blocker.message,
+    next_move: {
+      mode: "ASK_USER",
+      actor: "HUMAN",
+      worker_type: null,
+      title:
+        blocker.reason === "UNAUTHORIZED"
+          ? "Authorize research to investigate this question."
+          : blocker.reason === "UNCONFIGURED"
+          ? "Configure search credentials or provide a source document directly."
+          : blocker.reason === "BUDGET_EXHAUSTED"
+          ? "Wait for research quota reset or provide evidence manually."
+          : "Retry research or supply a source manually.",
+      why: blocker.message,
+      expected_change: "Clear the research blocker or provide empirical evidence directly.",
+      stryde_can_do:
+        blocker.reason === "UNAUTHORIZED"
+          ? "Perform the research pass once permission is granted in autonomy settings."
+          : "Integrate provided source text or citations.",
+      user_needs_to_do:
+        blocker.reason === "UNAUTHORIZED"
+          ? "Confirm whether Stryde is permitted to search the web for this inquiry."
+          : "Provide a link or paste reference material to continue.",
+      completion_condition: "Evidence acquired or manual source supplied.",
+    },
+  };
+
+  const turn: ConversationTurn & {
+    research_blocker?: typeof blocker;
+    autonomous_research?: ResearchExecution | null;
+  } = {
+    message: streamText,
+    question,
+    options,
+    ready_for_reasoning: false,
+    focus: "CLARIFICATION",
+    input_class: "QUESTION",
+    memory_candidates: [],
+    work,
+    research_blocker: blocker,
+    ...(input.autonomousResearch ? { autonomous_research: input.autonomousResearch } : {}),
+  };
+
+  return { turn, work, streamText };
 }
