@@ -1,7 +1,21 @@
 ## 2026-10-06 (later) — capability-composition platform (Issue #8) checkpoint (current)
 
 
-## 2026-10-17 — production/security reconciliation (current)
+## 2026-10-21 — release baseline security reconciliation (current candidate)
+
+This checkpoint records the reconciliation of PR #9 (`chore/release-baseline-security-2026-10-17`) and PR #12 (`docs/ENGINEERING_CONTROL_PLANE.md`) with `origin/main` (`b3680469703369fa8f27123fc0eb04f171700f49`). Historical checkpoints below are retained as evidence.
+
+### Repository and release baseline
+- Rebased PR #9 onto current main (`b3680469703369fa8f27123fc0eb04f171700f49`).
+- Production dependency audit: `npm audit --omit=dev` reports 0 vulnerabilities on Next.js 16.4.2 + puppeteer-core 25.14.0 (previously 13 vulnerabilities including 1 Critical Next.js App Router bypass advisory on 16.2.9).
+- Unit test suite: 255/255 passed.
+- TypeScript (`npx tsc --noEmit`): clean, zero errors.
+- ESLint (`npm run lint`): clean, zero errors/warnings.
+- Production build (`npm run build`): clean Turbopack compile across all 25 routes.
+- PR #12 engineering control plane incorporated at `docs/ENGINEERING_CONTROL_PLANE.md`.
+- Production deployment remains gated on user approval; PR #9 is review-ready and unmerged.
+
+## 2026-10-17 — production/security reconciliation (superseded by 2026-10-21 candidate)
 
 This checkpoint supersedes older deployment, migration-count, and RPC-permission statements below where they conflict. Historical checkpoints are retained as evidence.
 

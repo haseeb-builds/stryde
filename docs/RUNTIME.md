@@ -1,7 +1,14 @@
 ## Runtime checkpoint — 2026-10-06 post-GLM (current)
 
 
-## Runtime checkpoint — 2026-10-17 (current)
+## Runtime checkpoint — 2026-10-21 (security candidate)
+
+- Production remains on `main` at `b3680469703369fa8f27123fc0eb04f171700f49` (deployment `dpl_2LtLW5PZGgEh1EBVWpbX4X5GPvQn`, READY).
+- PR #9 (`chore/release-baseline-security-2026-10-17`) is rebased onto `main` and verified locally (`npm audit --omit=dev` passes with 0 vulnerabilities; all 255 tests pass; build clean).
+- PR #9 is gated for user approval; production deployment is NOT yet updated with Next.js 16.4.2 until PR #9 is merged.
+- PR #12 engineering control plane recorded at `docs/ENGINEERING_CONTROL_PLANE.md`.
+
+## Runtime checkpoint — 2026-10-17 (superseded)
 
 - Current production deployment is `dpl_HxMc5YPcdgndAT9KnvaEHYNQKm2G`, READY, built from main commit `1df79487da20bd4066e7ff492f6851c0960e6141`, aliased to `stryde-topaz.vercel.app`.
 - Live `/api/health/model` returns HTTP 200 and resolves OpenRouter / `nvidia/nemotron-3-super-120b-a12b:free`, Gemini fallback / `gemini-flash-latest`, OmniRoute disabled. It is configuration evidence, not generation evidence.

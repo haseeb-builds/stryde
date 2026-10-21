@@ -1,7 +1,16 @@
 # Stryde Handoff
 
 
-## 2026-10-17 — current engineering handoff
+## 2026-10-21 — security baseline & control plane reconciliation (current candidate)
+
+### What just changed
+- Rebased PR #9 (`chore/release-baseline-security-2026-10-17`) onto `origin/main` (`b3680469703369fa8f27123fc0eb04f171700f49`).
+- Pinned Next.js and `eslint-config-next` to `16.4.2` and `puppeteer-core` to `25.14.0`, closing all 13 production vulnerabilities (including Critical advisory GHSA-6gpp-xcg3-4w24). `npm audit --omit=dev` verified locally with 0 vulnerabilities.
+- Portable module path helper (`scripts/repo-root.mjs`) and regression test (`tests/repo-root.test.ts`) verified clean across all 255 tests.
+- Reconciled PR #12 by incorporating `docs/ENGINEERING_CONTROL_PLANE.md` into the canonical repository record.
+- Historical checkpoints are preserved below. Production remains gated for user approval; PR #9 is unmerged.
+
+## 2026-10-17 — prior engineering handoff (superseded)
 
 ### What just changed
 
