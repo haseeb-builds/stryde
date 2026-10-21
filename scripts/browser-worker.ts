@@ -1,3 +1,5 @@
+import { fileURLToPath } from "node:url";
+import { repoRootFromModuleUrl } from "./repo-root.mjs";
 // A real browser-backed worker endpoint for Stryde's CONTROLLED execution plane.
 //
 // It implements the exact HTTP contract lib/worker-gateway.ts speaks
@@ -31,7 +33,7 @@ import { isAuthorizedWorkerRequest } from "../lib/worker-server-auth.ts";
 // Load .env.local the same way the other worker servers do, so the documented
 // "npm run worker:browser" flow sees STRYDE_BROWSER_TOKEN without the operator
 // exporting it manually. Existing process env always wins.
-const repoRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname.replace(/^\//, "")), "..");
+const repoRoot = repoRootFromModuleUrl(import.meta.url);
 const localEnvPath = path.join(repoRoot, ".env.local");
 if (existsSync(localEnvPath)) {
   const fileEnv = Object.fromEntries(
@@ -345,7 +347,7 @@ const server = createServer((req, res) => {
 // Listen only when this file is the process entry point, so unit tests can
 // import the pure decision function without binding a port.
 const entry = process.argv[1];
-const modulePath = path.resolve(decodeURIComponent(new URL(import.meta.url).pathname).replace(/^\/([A-Za-z]:)/, "$1"));
+const modulePath = fileURLToPath(import.meta.url);
 if (entry && path.resolve(entry) === modulePath) {
   const port = Number(process.env.STRYDE_BROWSER_WORKER_PORT ?? "8899");
   server.listen(port, "127.0.0.1", () => {

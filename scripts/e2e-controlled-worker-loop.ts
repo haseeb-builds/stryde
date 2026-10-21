@@ -1,3 +1,4 @@
+import { repoRootFromModuleUrl } from "./repo-root.mjs";
 // Deterministic end-to-end proof of the CONTROLLED (worker) action lifecycle,
 // independent of model availability. Seeds a schema-valid working state (the
 // deterministic seam), then drives the REAL authenticated API routes, RPCs, the
@@ -114,7 +115,7 @@ function startStubWorker(behavior: StubBehavior): Promise<{ url: string; close: 
 function runDispatcher(stubUrl: string, extraEnv: Record<string, string> = {}): Promise<{ code: number | null; output: string }> {
   return new Promise((resolve) => {
     const child = spawn(process.execPath, ["--experimental-strip-types", "scripts/worker-dispatcher.ts"], {
-      cwd: new URL("..", import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1"),
+      cwd: repoRootFromModuleUrl(import.meta.url),
       env: {
         ...process.env,
         NEXT_PUBLIC_SUPABASE_URL: supabaseUrl,

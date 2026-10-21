@@ -10,6 +10,8 @@ jobs:
     env:
       NEXT_PUBLIC_SUPABASE_URL: https://ci.example.supabase.co
       NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-placeholder
+      SUPABASE_SECRET_KEY: ci-placeholder-secret
+      SUPABASE_SERVICE_ROLE_KEY: ci-placeholder-service-role
       STRYDE_MODEL_PROVIDER: gemini
       STRYDE_MODEL_NAME: gemini-2.5-flash
       STRYDE_MODEL_API_KEY: ci-placeholder
@@ -34,6 +36,9 @@ jobs:
 
       - name: Lint
         run: npm run lint
+
+      - name: Production dependency audit
+        run: npm audit --omit=dev
 
       - name: Build
         run: npm run build

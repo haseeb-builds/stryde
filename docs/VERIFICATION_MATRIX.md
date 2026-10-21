@@ -1,7 +1,16 @@
 ## Reconciliation update — 2026-10-06 post-GLM
 
 
-## Reconciliation update — 2026-10-17 (current)
+## Reconciliation update — 2026-10-21 (current candidate)
+
+| Area | Implemented | Tested | Deployed / Live | Remaining evidence |
+|---|---|---|---|---|
+| Next.js & Puppeteer dependency security | YES (16.4.2 / 25.14.0) | `npm audit --omit=dev` passed (0 vulnerabilities); 255/255 unit tests passed | GATED | PR #9 rebased onto main; preview deploy pending CI completion; production unmerged |
+| Portable module path resolution | YES (`scripts/repo-root.mjs`) | `tests/repo-root.test.ts` passed | GATED | Verified across all 12 worker & E2E scripts |
+| CI production dependency audit gate | YES (`ci.yml`) | Passed locally; hosted CI pending push | GATED | Blocks PRs with production CVEs |
+| Engineering control plane | YES (`docs/ENGINEERING_CONTROL_PLANE.md`) | Reconciled with PR #12 | GATED | Working agreement established |
+
+## Reconciliation update — 2026-10-17 (superseded)
 
 | Area | Implemented | Tested | Deployed / Live | Remaining evidence |
 |---|---|---|---|---|

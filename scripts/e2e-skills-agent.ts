@@ -1,3 +1,4 @@
+import { repoRootFromModuleUrl } from "./repo-root.mjs";
 // Proves the two policy decisions that need the newest schema (run against a
 // Supabase runtime that HAS the 2026100501/0200 migrations — the local stack):
 //
@@ -14,7 +15,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 
-const repoRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname.replace(/^\//, "")), "..");
+const repoRoot = repoRootFromModuleUrl(import.meta.url);
 const env = Object.fromEntries(
   fs.readFileSync(path.join(repoRoot, ".env.local"), "utf8")
     .split(/\r?\n/).filter((l) => l.includes("=") && !l.trimStart().startsWith("#"))
