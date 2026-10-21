@@ -1,3 +1,11 @@
+## 2026-10-21 — R-1 implemented & verified: citation persistence and schema reconciliation (`fix/conversation-turn-reliability`)
+
+- Branch `fix/conversation-turn-reliability` on PR #13, base `main` at `5259e7d0004000b3459e2a7ce7f9d6371a6feecc`.
+- **R-1 Defect Resolution (TDD):**
+  - Problem: Post-research roadmap reassessment previously constructed incompatible citation payloads with non-existent columns (`quote`, `content_sha256`, `locator_type`, `metadata`), cited the pasted roadmap (`sourceRow.id`) instead of retrieved external evidence, and silently swallowed database insertion failures.
+  - Solution: Integrated `validatePursuitSourceCitationRow` from `lib/source-citation.ts` into research orchestration. Replaced citation payload with actual PostgreSQL schema columns (`owner_user_id`, `pursuit_id`, `source_id`, `adaptation_id`, `source_content_sha256`, `locator`, `excerpt`, `basis`). Citations now link exclusively to retrieved external `pursuit_source` rows with real content hashes and locators. Handled citation insert errors explicitly by updating adaptation to `INCOMPLETE` with `UNVERIFIED` methods.
+  - Verification: 4 tests in `tests/research-citation-persistence.test.ts` verify schema validation, external source linkage, multi-citation handling, and explicit failure reporting. Full test suite: 300/300 passed.
+
 ## 2026-10-21 — R-4 implemented & verified: ungrounded model stream blocked when research is impeded (`fix/conversation-turn-reliability`)
 
 - Branch `fix/conversation-turn-reliability` is synchronized with `main` at commit `5259e7d0004000b3459e2a7ce7f9d6371a6feecc` and incorporates the security baseline (Next.js 16.4.2, puppeteer-core 25.14.0, 0 production CVEs).

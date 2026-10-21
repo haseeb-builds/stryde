@@ -9,6 +9,7 @@ import { executeWebResearch, type ResearchExecution } from "./research-execution
 import { reserveResources, ResourceExhaustedError, type ReservationGroup } from "./resource-control.ts";
 import { assembleAdaptiveSituation, type AdaptiveSituation } from "./adaptive-situation.ts";
 import { runSourceAdaptation } from "./adaptive-model.ts";
+import { buildSourceCitation } from "./source-citation.ts";
 import { checkAutoResearch, type AutonomyPolicy } from "./autonomy-policy.ts";
 import type { WorkingState } from "./work-controller.ts";
 import type { ConversationTurn } from "./model-gateway.ts";
@@ -635,26 +636,114 @@ export async function executeResearchAndRoadmapOrchestration(input: {
 
           if (newAdaptation) {
             const claims = Array.isArray(reAdapted.adaptation.source_claims) ? reAdapted.adaptation.source_claims : [];
-            if (claims.length && sourceRow.content_sha256) {
-              const citations = claims.map((item) => ({
-                owner_user_id: input.ownerUserId,
-                pursuit_id: input.pursuitId,
-                source_id: sourceRow.id,
-                adaptation_id: newAdaptation.id,
-                quote: item.statement,
-                content_sha256: sourceRow.content_sha256!,
-                locator_type: "FULL_TEXT",
-                locator: sourceRow.uri ? `${sourceRow.uri}#quote` : "source#quote",
-                exact_match: false,
-                verification_status: "VERIFIED",
-                metadata: {
-                  turn_key: input.turnKey,
-                  basis: item.basis,
-                  confidence: item.confidence,
-                  retrieved_locators: retrievedLocators,
-                },
-              }));
-              await input.supabase.from("pursuit_source_citation").insert(citations);
+
+            // Link citations to actual retrieved external sources, not the pasted roadmap
+            const externalSourceIds = execution.retrieved_sources
+              .map((s) => s.source_id)
+              .filter((id): id is string => typeof id === "string" && id.length > 0);
+
+            let externalSources: Array<{
+              id: string;
+              uri: string | null;
+              title: string | null;
+              content_text: string | null;
+              content_sha256: string | null;
+              fetch_status: string;
+            }> = [];
+
+            if (externalSourceIds.length > 0) {
+              const { data: dbSources } = await input.supabase
+                .from("pursuit_source")
+                .select("id, uri, title, content_text, content_sha256, fetch_status")
+                .in("id", externalSourceIds);
+              externalSources = (dbSources ?? []).filter(
+                (s): s is typeof externalSources[number] => Boolean(s.content_text && s.content_sha256)
+              );
+            }
+
+            const citations: Array<{
+              owner_user_id: string;
+              pursuit_id: string;
+              source_id: string;
+              adaptation_id: string | null;
+              source_content_sha256: string;
+              locator: {
+                type: string;
+                start?: number;
+                end?: number;
+                located?: boolean;
+                claim_text?: string;
+                [key: string]: unknown;
+              };
+              excerpt: string;
+              basis: "EXPLICIT_SOURCE" | "INFERRED";
+            }> = [];
+            if (claims.length && externalSources.length) {
+              for (const claim of claims) {
+                const statement = typeof claim.statement === "string" ? claim.statement.trim() : "";
+                if (!statement) continue;
+
+                let matchedSource = externalSources.find(
+                  (s) => s.content_text && s.content_text.toLowerCase().includes(statement.toLowerCase())
+                );
+                if (!matchedSource) {
+                  matchedSource = externalSources[0];
+                }
+
+                if (matchedSource && matchedSource.content_text && matchedSource.content_sha256) {
+                  const builtCitation = buildSourceCitation({
+                    content: matchedSource.content_text,
+                    contentSha256: matchedSource.content_sha256,
+                    statement,
+                    basis: claim.basis === "EXPLICIT_SOURCE" ? "EXPLICIT_SOURCE" : "INFERRED",
+                  });
+
+                  citations.push({
+                    owner_user_id: input.ownerUserId,
+                    pursuit_id: input.pursuitId,
+                    source_id: matchedSource.id,
+                    adaptation_id: newAdaptation.id,
+                    source_content_sha256: builtCitation.source_content_sha256,
+                    locator: {
+                      ...builtCitation.locator,
+                      claim_text: statement,
+                    },
+                    excerpt: builtCitation.excerpt,
+                    basis: builtCitation.basis,
+                  });
+                }
+              }
+            }
+
+            if (citations.length) {
+              const { error: citationError } = await input.supabase
+                .from("pursuit_source_citation")
+                .insert(citations);
+
+              if (citationError) {
+                // Do not swallow citation persistence failures!
+                // Update adaptation status and methods honestly so steps do not claim to be verified
+                const incompleteMethods = (Array.isArray(newAdaptation.methods) ? newAdaptation.methods : []).map(
+                  (m: Record<string, unknown>) => ({
+                    ...m,
+                    audit_status: "UNVERIFIED",
+                  })
+                );
+
+                await input.supabase
+                  .from("pursuit_source_adaptation")
+                  .update({
+                    summary: `Roadmap reassessed, but evidence citations could not be persisted: ${citationError.message}`,
+                    methods: incompleteMethods,
+                    provenance: {
+                      ...(typeof newAdaptation.provenance === "object" && newAdaptation.provenance !== null ? newAdaptation.provenance : {}),
+                      turn_key: input.turnKey,
+                      audit_status: "INCOMPLETE",
+                      citation_error: citationError.message,
+                    },
+                  })
+                  .eq("id", newAdaptation.id);
+              }
             }
 
             const finalRefreshed = await assembleAdaptiveSituation(input.supabase, input.ownerUserId, input.pursuitId);

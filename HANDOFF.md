@@ -1,5 +1,21 @@
 # Stryde Handoff
 
+## 2026-10-21 — R-1 implemented & verified: citation persistence and schema reconciliation (`fix/conversation-turn-reliability`)
+
+### Branch status
+- Branch: `fix/conversation-turn-reliability` on PR #13, base `main` at `5259e7d0004000b3459e2a7ce7f9d6371a6feecc`.
+- **Defect R-1 implemented & verified (TDD):**
+  - Inspected real PostgreSQL migration schema for `public.pursuit_source_citation` (`owner_user_id`, `pursuit_id`, `source_id`, `adaptation_id`, `source_content_sha256`, `locator`, `excerpt`, `basis`).
+  - Added `validatePursuitSourceCitationRow` and `PursuitSourceCitationInsert` to `lib/source-citation.ts` to enforce schema constraints and reject legacy incompatible columns (`quote`, `content_sha256`, `locator_type`, `metadata`, `exact_match`, `verification_status`).
+  - In `lib/research-orchestration.ts`, replaced incompatible citation payloads with schema-conforming rows. Linked citations to the actual retrieved external `pursuit_source` rows, preserving real content hashes and locator character ranges with `claim_text` in locator JSONB, rather than citing the pasted roadmap.
+  - Stopped swallowing insert failures: if citation insertion fails, the adaptation is updated to record `audit_status: "INCOMPLETE"`, methods demoted to `"UNVERIFIED"`, and `citation_error` documented, ensuring Stryde never falsely claims evidence was persisted.
+  - Verified by regression suite `tests/research-citation-persistence.test.ts` (4/4 passed).
+  - Full test suite: 300/300 passing.
+  - `npx tsc --noEmit`: 0 errors.
+  - `npm run lint`: 0 errors.
+  - `npm run build`: clean Turbopack compile across all 25 routes.
+  - `npm audit --omit=dev`: 0 vulnerabilities.
+
 ## 2026-10-21 — R-4 implemented & verified: ungrounded model stream blocked when research is impeded (`fix/conversation-turn-reliability`)
 
 ### Branch status

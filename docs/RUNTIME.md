@@ -1,4 +1,9 @@
-## Runtime checkpoint — 2026-10-21 (R-4 verified on fix/conversation-turn-reliability)
+## Runtime checkpoint — 2026-10-21 (R-1 & R-4 verified on fix/conversation-turn-reliability)
+
+- Branch `fix/conversation-turn-reliability` implements schema-conforming citation persistence for defect R-1:
+  - Post-research roadmap adaptation cites retrieved external `pursuit_source` rows, populating required fields (`owner_user_id`, `pursuit_id`, `source_id`, `adaptation_id`, `source_content_sha256`, `locator` with `claim_text`, `excerpt`, `basis`).
+  - Insertion failures are explicitly handled; adaptation is marked `audit_status: "INCOMPLETE"` with `citation_error` documented and methods demoted to `UNVERIFIED`.
+  - Verified by `tests/research-citation-persistence.test.ts` (4/4 passed).
 
 - Branch `fix/conversation-turn-reliability` implements pre-stream research-blocker interception for defect R-4:
   - If `researchBlocker` is detected during conversation turn setup (due to `checkAutoResearch` refusing automatic execution, unconfigured provider, quota exhaustion via `reserveResources`, or provider outage), the route does not invoke `streamConversationTurn`.

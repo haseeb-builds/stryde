@@ -86,3 +86,62 @@ export function buildSourceCitation(input: { content: string; contentSha256: str
     : { type: "CHARACTER_RANGE" as const, start: 0, end: input.content.length, located: false };
   return { source_content_sha256: input.contentSha256, locator, excerpt, basis: input.basis === "EXPLICIT_SOURCE" ? "EXPLICIT_SOURCE" : "INFERRED" };
 }
+
+
+export type PursuitSourceCitationInsert = {
+  owner_user_id: string;
+  pursuit_id: string;
+  source_id: string;
+  adaptation_id?: string | null;
+  source_content_sha256: string;
+  locator: {
+    type: "CHARACTER_RANGE" | "CONTENT_LOCATOR" | string;
+    start?: number;
+    end?: number;
+    located?: boolean;
+    claim_text?: string;
+    content_locator?: string;
+    [key: string]: unknown;
+  };
+  excerpt: string;
+  basis: "EXPLICIT_SOURCE" | "INFERRED";
+  claim_text?: string;
+};
+
+export function validatePursuitSourceCitationRow(row: unknown): PursuitSourceCitationInsert {
+  if (typeof row !== "object" || row === null) throw new Error("Citation payload must be an object");
+  const r = row as Record<string, unknown>;
+
+  // Check required NOT NULL fields per PostgreSQL schema
+  if (typeof r.owner_user_id !== "string" || !r.owner_user_id.trim()) {
+    throw new Error("Citation requires non-empty owner_user_id");
+  }
+  if (typeof r.pursuit_id !== "string" || !r.pursuit_id.trim()) {
+    throw new Error("Citation requires non-empty pursuit_id");
+  }
+  if (typeof r.source_id !== "string" || !r.source_id.trim()) {
+    throw new Error("Citation requires non-empty source_id");
+  }
+  if (typeof r.source_content_sha256 !== "string" || !r.source_content_sha256.trim()) {
+    throw new Error("Citation requires non-empty source_content_sha256");
+  }
+  if (typeof r.locator !== "object" || r.locator === null || Array.isArray(r.locator)) {
+    throw new Error("Citation requires jsonb object locator");
+  }
+  if (typeof r.excerpt !== "string" || !r.excerpt.trim()) {
+    throw new Error("Citation requires non-empty excerpt");
+  }
+  if (r.basis !== "EXPLICIT_SOURCE" && r.basis !== "INFERRED") {
+    throw new Error("Citation basis must be EXPLICIT_SOURCE or INFERRED");
+  }
+
+  // Reject legacy incompatible column names that caused defect R-1
+  if ("quote" in r) throw new Error("quote is invalid: schema column is excerpt");
+  if ("content_sha256" in r) throw new Error("content_sha256 is invalid: schema column is source_content_sha256");
+  if ("locator_type" in r) throw new Error("locator_type is not a column on pursuit_source_citation");
+  if ("exact_match" in r) throw new Error("exact_match is not a column on pursuit_source_citation");
+  if ("verification_status" in r) throw new Error("verification_status is not a column on pursuit_source_citation");
+  if ("metadata" in r) throw new Error("metadata is not a column on pursuit_source_citation");
+
+  return r as PursuitSourceCitationInsert;
+}

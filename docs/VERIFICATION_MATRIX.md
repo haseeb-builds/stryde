@@ -10,6 +10,7 @@
 | Domain goal intent recognition | YES (`lib/research-orchestration.ts`) | Unit tests passed | LOCAL | Synchronized on feature branch |
 | Roadmap audit adaptation | YES (`lib/universal-input.ts`) | Tests passed | LOCAL | Synchronized on feature branch |
 | R-4: Blocked research ungrounded advice prevention | YES (`lib/research-orchestration.ts`, `route.ts`) | 6/6 regression tests in `tests/research-blocked-ungrounded-guard.test.ts`; 296/296 full suite | LOCAL | Synchronized on feature branch |
+| R-1: Citation persistence & schema reconciliation | YES (`lib/research-orchestration.ts`, `lib/source-citation.ts`) | 4/4 regression tests in `tests/research-citation-persistence.test.ts`; 300/300 full suite | LOCAL | Synchronized on feature branch |
 
 ## Reconciliation update — 2026-10-17 (superseded)
 
