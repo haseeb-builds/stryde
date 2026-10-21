@@ -1,3 +1,4 @@
+import { repoRootFromModuleUrl } from "./repo-root.mjs";
 import fs from "node:fs";
 import path from "node:path";
 import { createClient } from "@supabase/supabase-js";
@@ -8,7 +9,7 @@ import { getWorkerProvider, type WorkerResult } from "../lib/worker-gateway.ts";
 // the dispatcher aborts with a missing-credential error even when the local
 // environment is fully configured, which made the worker plane look
 // unreachable when it was only unconfigured-in-this-process.
-const repoRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname.replace(/^\//, "")), "..");
+const repoRoot = repoRootFromModuleUrl(import.meta.url);
 const localEnvPath = path.join(repoRoot, ".env.local");
 if (fs.existsSync(localEnvPath)) {
   const fileEnv = Object.fromEntries(

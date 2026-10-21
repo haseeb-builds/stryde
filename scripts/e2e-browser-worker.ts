@@ -1,3 +1,4 @@
+import { repoRootFromModuleUrl } from "./repo-root.mjs";
 // Proves that a REAL headless browser executes REAL page observation through
 // Stryde's CONTROLLED plane. This is the browser twin of scripts/e2e-opencode-worker.ts:
 // the BROWSER worker type is declared, policy-addressable, and backed by a real
@@ -18,7 +19,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 
-const repoRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname.replace(/^\//, "")), "..");
+const repoRoot = repoRootFromModuleUrl(import.meta.url);
 const env = Object.fromEntries(
   fs.readFileSync(path.join(repoRoot, ".env.local"), "utf8")
     .split(/\r?\n/).filter((l) => l.includes("=") && !l.trimStart().startsWith("#"))

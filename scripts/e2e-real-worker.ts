@@ -1,3 +1,4 @@
+import { repoRootFromModuleUrl } from "./repo-root.mjs";
 // Proves that a REAL agent executes REAL work through Stryde's CONTROLLED plane.
 //
 // This is the one capability that cannot be honestly claimed from a stub: it
@@ -17,7 +18,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 
-const repoRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname.replace(/^\//, "")), "..");
+const repoRoot = repoRootFromModuleUrl(import.meta.url);
 const env = Object.fromEntries(
   fs.readFileSync(path.join(repoRoot, ".env.local"), "utf8")
     .split(/\r?\n/).filter((l) => l.includes("=") && !l.trimStart().startsWith("#"))

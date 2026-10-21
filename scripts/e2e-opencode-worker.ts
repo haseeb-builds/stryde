@@ -1,3 +1,4 @@
+import { repoRootFromModuleUrl } from "./repo-root.mjs";
 // Proves that a REAL OpenCode agent executes REAL work through Stryde's
 // CONTROLLED plane. This is the OpenCode twin of scripts/e2e-real-worker.ts:
 // the Hermes plane was proven there; this closes the OpenCode contract gap the
@@ -20,7 +21,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 
-const repoRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname.replace(/^\//, "")), "..");
+const repoRoot = repoRootFromModuleUrl(import.meta.url);
 const env = Object.fromEntries(
   fs.readFileSync(path.join(repoRoot, ".env.local"), "utf8")
     .split(/\r?\n/).filter((l) => l.includes("=") && !l.trimStart().startsWith("#"))

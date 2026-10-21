@@ -1,3 +1,4 @@
+import { repoRootFromModuleUrl } from "./repo-root.mjs";
 // A real OpenCode-backed worker endpoint for Stryde's CONTROLLED execution plane.
 //
 // It implements the exact HTTP contract lib/worker-gateway.ts speaks
@@ -38,7 +39,7 @@ import { isAuthorizedWorkerRequest } from "../lib/worker-server-auth.ts";
 // environment still produced a fail-closed worker that rejected everything,
 // which is silent misconfiguration of exactly the kind the auth contract
 // must not hide.
-const repoRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname.replace(/^\//, "")), "..");
+const repoRoot = repoRootFromModuleUrl(import.meta.url);
 const localEnvPath = path.join(repoRoot, ".env.local");
 if (existsSync(localEnvPath)) {
   const fileEnv = Object.fromEntries(

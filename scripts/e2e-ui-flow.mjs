@@ -1,3 +1,4 @@
+import { repoRootFromModuleUrl } from "./repo-root.mjs";
 // Real-browser verification of the core user flow against the PRODUCTION build.
 //
 // Everything else in this repository is verified at the API or database layer.
@@ -17,7 +18,7 @@
 // Credentials are read from .env.local and are never printed or persisted.
 import fs from "node:fs";
 import path from "node:path";
-const repo = path.resolve(path.dirname(new URL(import.meta.url).pathname.replace(/^\//, "")), "..");
+const repo = repoRootFromModuleUrl(import.meta.url);
 const cdp = (await import("./cdp-client.mjs")).default;
 const env = Object.fromEntries(
   fs.readFileSync(path.join(repo, ".env.local"), "utf8")

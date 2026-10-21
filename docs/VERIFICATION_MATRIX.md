@@ -1,7 +1,17 @@
-## Reconciliation update — 2026-10-06 post-GLM
+## Reconciliation update — 2026-10-21 (current branch synchronized with main 5259e7d)
 
+| Area | Implemented | Tested | Deployed / Live | Remaining evidence |
+|---|---|---|---|---|
+| Next.js & Puppeteer dependency security | YES (16.4.2 / 25.14.0) | `npm audit --omit=dev` passed (0 vulnerabilities); 255/255 unit tests passed | YES | Deployed to production (deployment `7232279533`, commit `68f9851`) |
+| Portable module path resolution | YES (`scripts/repo-root.mjs`) | `tests/repo-root.test.ts` passed | YES | Live in production across all worker & E2E scripts |
+| CI production dependency audit gate | YES (`ci.yml`) | Verified in hosted CI run `39640958877` on main | YES | Active on main branch |
+| Engineering control plane | YES (`docs/ENGINEERING_CONTROL_PLANE.md`) | Reconciled with PR #12 | YES | Merged into main branch |
+| Research reservation lifecycle | YES (`lib/resource-control.ts`) | 25 integration tests passed | LOCAL | Synchronized on feature branch |
+| Domain goal intent recognition | YES (`lib/research-orchestration.ts`) | Unit tests passed | LOCAL | Synchronized on feature branch |
+| Roadmap audit adaptation | YES (`lib/universal-input.ts`) | Tests passed | LOCAL | Synchronized on feature branch |
 
-## Reconciliation update — 2026-10-21 (`fix/conversation-turn-reliability` correctness-closure pass)
+## Reconciliation update — 2026-10-17 (superseded)
+>>>>>>> origin/main
 
 | Area | Implemented | Tested | Deployed / Live | Remaining evidence |
 |---|---|---|---|---|

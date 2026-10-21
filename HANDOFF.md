@@ -1,6 +1,22 @@
 # Stryde Handoff
 
-## 2026-10-21 — `fix/conversation-turn-reliability` correctness-closure pass
+## 2026-10-21 — `fix/conversation-turn-reliability` synchronized with production baseline (current branch)
+
+### Branch status
+- Synchronized with `origin/main` at commit `5259e7d0004000b3459e2a7ce7f9d6371a6feecc` (incorporating Next.js 16.4.2, puppeteer-core 25.14.0, zero production CVEs, and `docs/ENGINEERING_CONTROL_PLANE.md`).
+- Immediate focus: Implement R-4 (blocked research ungrounded advice prevention) test-first per `docs/ENGINEERING_CONTROL_PLANE.md`.
+
+## 2026-10-21 — security baseline released to production (current production truth)
+
+### What just changed
+- **PR #9 squash-merged to main:** commit `68f98517522ea8d50311b53aebaf3974217216c9` merged with head guard on `f0eeefa`.
+- **Production deployment READY:** Vercel deployment `7232279533` (`U9TyZuZdtBFRAckVU7Hp7NRdbWD8`) on `68f9851` is live at `https://stryde-topaz.vercel.app`.
+- **CI green on main:** GitHub Actions run `39640958877` (`verify`) passed all unit tests, typecheck, lint, audit, and build.
+- **Production audit clean:** Next.js 16.4.2 + puppeteer-core 25.14.0 live with 0 production vulnerabilities.
+- **Safe production smoke test passed:** HTTP 200 on landing, HTTP 200 on `/api/health/model`, HTTP 401 on unauthenticated `/api/v1/pursuits`.
+- **Database disclosure:** PR #9 contained 0 DDL migrations. Isolated test records from local pre-merge E2E runs are preserved in Supabase project `pvijrnwdnolvnoibarrj` under test user `5b1dbe29-d6b7-4c0f-86bd-f285b4465a37` (protected by RLS).
+
+## 2026-10-21 — `fix/conversation-turn-reliability` correctness-closure pass (historical)
 
 ### What changed in this correctness-closure pass
 
@@ -30,12 +46,6 @@
    - `npm run lint`: 0 errors, 0 warnings.
    - `npm run build`: Production Next.js Turbopack build succeeds in 8.4s.
 
-### Next actions — priority order
-1. **Authorize deployment of `fix/conversation-turn-reliability` to production** (do not merge or deploy until authorized).
-2. **Run fresh full authenticated production conversation journey** on deployed build: signup/login → pursuit → structured Turn 1 → adaptive working state → Turn 2 (`CREATE_ACTION` / research convergence) → reload workspace (verify no "Conversation archived" bug) → state persistence.
-3. **Provision live research credentials** (`EXA_API_KEY` / `FIRECRAWL_API_KEY`) on Vercel environment to enable production web search and crawling.
-4. **Enable leaked-password protection** in Supabase Auth before broad public access.
-
 ## 2026-10-18 — `fix/conversation-turn-reliability` engineering completion (historical)
 
 ### What changed on `fix/conversation-turn-reliability`
@@ -62,7 +72,6 @@
    - Ingests pasted roadmaps into `pursuit_source` as canonical `PASTED` sources with SHA-256 hash.
    - `runSourceAdaptation` decomposes steps and assigns `audit_status` (`KEEP`, `CHANGE`, `REMOVE`, `MISSING`, `UNVERIFIED`, `NEEDS_EXPERIMENT`), persisted in `pursuit_source_adaptation` and cited in `pursuit_source_citation`.
    - Renders distinct semantic badge styling in `work-panels.tsx`.
-   - Full local verification suite passes: **272/272 unit tests**, `tsc --noEmit`, clean `eslint` (0 errors, 0 warnings), and Next.js production `build` clean.
 
 ## 2026-10-17 — historical engineering handoff
 
@@ -87,106 +96,3 @@
 
 - **PROVEN:** CI pipeline for the security fix; production deployment READY; security migration applied; live RPC privilege changes queried; production model configuration resolves.
 - **NOT PROVEN:** full current-production conversational journey, sustained provider reliability, live Exa/Firecrawl research, public worker runtime, customer-paid billing path, trigger-to-dispatcher complete loop.
-- **Do not begin marketing yet.** LinkedIn launch and user acquisition come after the critical production journey and security checks are done. That is launch work, not a substitute for verification.
-
-Current as of 2026-10-06 post-GLM checkpoint.
-
-## Current truth
-
-- main = `1e3b7d7dd886d2f8e7a0e70b0e84e06e6b06bfec`.
-- GLM's streaming malformed-output failover fix = `a67e36d23e1d7528af71277d8e627be5732216e7`, and it is an ancestor of current main.
-- Current GitHub Actions `verify` check is SUCCESS on current main.
-- Current Vercel production deployment = `dpl_2w7iPjCcKAWZmQ8VdaJ8CeLb5XcP`, READY, serving `1e3b7d7`.
-- Current production model configuration: OpenRouter preferred with `nvidia/nemotron-3-super-120b-a12b:free`; Gemini fallback `gemini-flash-latest`; OmniRoute disabled.
-- Vercel project plan is Hobby.
-- Supabase migration parity is 37/37.
-- Live `user_agent_preference`, `skill`, `skill_version`, and `funnel_event` tables now exist with RLS enabled.
-- RESEND_API_KEY is no longer present in the Vercel environment.
-- Exa / Firecrawl credentials are still absent, so live research legs remain blocked.
-- Production worker runtime is still not established.
-- A historical 55-second conversation timeout error group remains in Vercel telemetry, last seen on 2026-10-06T15:59:52Z on an older deployment. Fresh current-main conversation proof is still required before calling the production conversation path stable.
-
-## What the interrupted GLM run accomplished
-
-It was useful and should not be discarded.
-
-It:
-- reconciled documentation;
-- fixed the CI/Linux path defect;
-- reconciled/applied the five live migrations;
-- removed stale RESEND_API_KEY;
-- discovered the production model problem;
-- contract-tested free OpenRouter model candidates;
-- selected `nvidia/nemotron-3-super-120b-a12b:free`;
-- fixed streaming malformed-output retry/failover in `a67e36d`.
-
-The run stopped before completing the final post-fix production conversation journey and before implementing Issue #7's capability-composition layer.
-
-## Read first
-
-1. docs/PRODUCT_CONSTITUTION.md
-2. docs/ARCHITECTURE.md
-3. docs/STATE.md
-4. docs/RUNTIME.md
-5. docs/VERIFICATION_MATRIX.md
-6. docs/DECISIONS.md
-7. docs/INTEGRATIONS.md
-8. docs/RESEARCH_REALITY_ENGINE.md
-9. docs/SUBSCRIPTION_AND_RESOURCE_MODEL.md
-10. docs/RESEARCH_COST_CONTROL.md
-11. docs/BILLING_PROVIDER_ARCHITECTURE.md
-12. docs/AI_CAPABILITY_LANDSCAPE_AND_GAPS.md
-13. docs/GLM_MASTER_IMPLEMENTATION_BRIEF.md
-14. docs/GLM_RESUME_MANDATE.md
-15. docs/GLM_WORLD_CLASS_SINGLE_SESSION_BUILD_MANDATE.md
-
-## Next action
-
-Use `docs/GLM_WORLD_CLASS_SINGLE_SESSION_BUILD_MANDATE.md` for the new GLM session. Do not restart the old documentation-reconciliation/migration work.
-
-First run the fresh production conversation proof described in `docs/GLM_RESUME_MANDATE.md`.
-
-If that passes, proceed directly into Issue #7 / `docs/GLM_MASTER_IMPLEMENTATION_BRIEF.md`, beginning with Phase 1: Unified Capability Registry.
-
-## Non-negotiables
-
-- Do not reset the live Supabase database.
-- Do not revert `a67e36d` unless a verified regression requires it.
-- Do not treat `/api/health/model` as proof of generation quality.
-- Do not claim production stability without the current-main conversation proof.
-- Do not duplicate existing skills, memory, worker, MCP, research, or job primitives.
-- Capability discovery is not authority.
-- External content is untrusted.
-- Tool success is not outcome success.
-- Keep provider interfaces replaceable.
-- Keep Free genuinely useful but economically bounded.
-- Do not add heavyweight agent frameworks without a demonstrated need.
-- Record implemented/tested/deployed/production-proven status separately.
-
-## 2026-10-06 (latest) — capability platform shipped; next engineer starts here
-
-The Issue #8 capability-composition platform pass is IMPLEMENTED, TESTED
-(251/251 unit), and DEPLOYED. Registry/discovery/entitlements, resource
-reservation, Skills V2, plugin manifest, MCP normalization, research
-planner + evidence-graph novelty, triggers, artifacts, notifications,
-task-aware routing, sub-agent spec, policy hooks, and draft API contracts
-are all in. Migration parity 40/40. Production cron runs the platform
-maintenance surface (verified live). Four real streamed conversation turns
-proven on production after the 55s-timeout repair.
-
-### Remaining work, in priority order
-
-1. Re-run the complete production journey (`.prod-journey.mjs` from the
-   workspace root, with STRYDE_JOURNEY_EMAIL/PASSWORD of a confirmed user)
-   once OpenRouter free-models-per-day quota resets — the last unobserved
-   boundary is convergence-to-action on the deployed build. Then observe
-   whether the adaptive controller's convergence/answer rules hold.
-2. Funded provider credential (OpenRouter credits or billed Gemini) —
-   structural; free tiers are non-viable for a public product.
-3. EXA / FIRECRAWL keys to move research from honest degradation to live;
-   the planner, novelty classification, and reservation wiring are ready.
-4. Trigger → dispatcher job enqueueing E2E (the firing window and cron
-   evaluation are proven; the enqueue leg needs a scheduled-run harness).
-5. Artifacts UI surface (API + RPC + migration are done).
-6. Substrate decisions for sandboxed code, connectors (OAuth), transcripts —
-   registered BLOCKED/UNAVAILABLE in the live capability catalog.

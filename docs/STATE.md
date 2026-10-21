@@ -1,4 +1,27 @@
-## 2026-10-21 — `fix/conversation-turn-reliability` correctness-closure pass (current)
+## 2026-10-21 — `fix/conversation-turn-reliability` synchronized with production baseline (current branch)
+
+- Branch `fix/conversation-turn-reliability` is synchronized with `main` at commit `5259e7d0004000b3459e2a7ce7f9d6371a6feecc`.
+- All security baseline fixes from PR #9 (Next.js 16.4.2, puppeteer-core 25.14.0, zero production CVEs, portable module paths) are active on this branch.
+- Feature work preserved: resource safety lifecycle, domain goal intent, research-first orchestration, and post-research roadmap adaptation.
+- Current task: R-4 implementation (preventing ungrounded model output when required research is blocked) test-first.
+
+## 2026-10-21 — release baseline security release (current production truth)
+
+This checkpoint records the successful authorization, squash-merge, and production release of PR #9 (`chore/release-baseline-security-2026-10-17`) into `origin/main` at commit `68f98517522ea8d50311b53aebaf3974217216c9`. Historical checkpoints below are retained as evidence.
+
+### Production repository and release baseline
+- PR #9 was squash-merged into `main` via GitHub API with head guard on `f0eeefab51e6be0091ea90a9345e578f2f5e728c`. Resulting `main` commit SHA is `68f98517522ea8d50311b53aebaf3974217216c9`.
+- Vercel production deployment `7232279533` (`U9TyZuZdtBFRAckVU7Hp7NRdbWD8`) automatically triggered, completed with state `success`, and reached `READY`. Target URL: `https://stryde-f0fiumxem-abdhaseebtech-5772s-projects.vercel.app`, aliased to production `https://stryde-topaz.vercel.app`.
+- Hosted GitHub Actions CI run `39640958877` / job `119364024415` (`verify`) PASSED on `68f98517522ea8d50311b53aebaf3974217216c9`.
+- Production dependency audit: `npm audit --omit=dev` reports 0 vulnerabilities on Next.js 16.4.2 + puppeteer-core 25.14.0 (closing all 13 production vulnerabilities including Critical App Router advisory GHSA-6gpp-xcg3-4w24).
+- Production smoke test verified live:
+  - `GET https://stryde-topaz.vercel.app`: HTTP 200 OK.
+  - `GET https://stryde-topaz.vercel.app/api/health/model`: HTTP 200 OK (`ready: true`, chain `gemini -> openrouter -> omniroute`, disabled `omniroute`).
+  - `GET https://stryde-topaz.vercel.app/api/v1/pursuits`: HTTP 401 Unauthorized (`Missing bearer token`), verifying active auth boundary.
+- Database state: PR #9 contained zero database migrations (DDL). Live Supabase project `pvijrnwdnolvnoibarrj` retains isolated test records from local pre-merge E2E testing under dedicated test user `5b1dbe29-d6b7-4c0f-86bd-f285b4465a37` (isolated by Row Level Security; no other accounts or tables touched). Records are preserved without mutation or deletion.
+- Engineering control plane incorporated at `docs/ENGINEERING_CONTROL_PLANE.md`.
+
+## 2026-10-21 — `fix/conversation-turn-reliability` correctness-closure pass (historical)
 
 - **Resource Safety & Reservation/Reconciliation Lifecycle:** Naive research availability checks and fire-and-forget post-hoc usage recording have been completely replaced with the formal reservation/reconciliation lifecycle in `lib/resource-control.ts`:
   1. Calls `reserveResources(trustedPlane, { owner_id, operations: [{ resource: 'research_rounds', amount: 1 }] }, { operation_key })` before calling any external research provider.
@@ -6,43 +29,47 @@
   3. Releases reservations on failure, cancellation, or abort via `releaseReservations(trustedPlane, { reservation_id })`.
   4. Reconciles actual usage on successful research completion via `reconcileReservation(trustedPlane, { reservation_id, consumed: { research_rounds: 1 } })`.
   5. Replay protection: detects existing `CONSUMED` reservations for `research:${turnKey}` to prevent double-charging or running unmetered work on retried or replayed turns.
-- **Natural Goal Intent Across Domains:** `detectPursuitGoalIntent` in `lib/research-orchestration.ts` recognizes goal-seeking language for fitness/health ("I want to build muscle", "How do I start zone 2 cardio"), career/learning ("I want to become an AI engineer", "Help me prepare for staff engineering interviews"), business ("Help me start an agency", "How do I validate this SaaS product"), technical projects ("I want to build an offline-first mobile app"), and roadmap audits ("Improve this roadmap for my current situation"). It cleanly decouples pursuit goal detection from research necessity: casual banter, greetings, and mere mentions ("My muscle hurts", "I met an AI engineer today", "A friend started an agency") are recognized without triggering deep external research.
+- **Natural Goal Intent Across Domains:** `detectPursuitGoalIntent` in `lib/research-orchestration.ts` recognizes goal-seeking language for fitness/health, career/learning, business, technical projects, and roadmap audits.
 - **Roadmap Audit Correctness & Adaptation v2:**
-  1. The original submitted roadmap is preserved unchanged in `pursuit_source`.
-  2. Preliminary intake method statuses are forced unconditionally to `UNVERIFIED` before evidence acquisition.
-  3. Post-research critical adaptation re-evaluates the roadmap against acquired evidence via `runSourceAdaptation`, creating version 2 with linked citations in `pursuit_source_citation` and explicit statuses (`KEEP`, `CHANGE`, `REMOVE`, `MISSING`, `UNVERIFIED`, `NEEDS_EXPERIMENT`).
-  4. If model analysis fails during reassessment, a fallback adaptation v2 is persisted marked `audit_status: "INCOMPLETE"` with `UNVERIFIED` methods, ensuring preliminary steps never masquerade as research-verified findings.
-  5. Dedupes adaptation version creation to avoid duplicate versions on retries.
-- **Real Retrieval Status & Locators:**
-  1. In `lib/research-execution.ts`, added explicit `PARTIAL_CONTENT` and `PAYWALLED` locator types to `RetrievedSourceInfo['locator_type']`.
-  2. Partial content extracts are never mislabeled as `FULL_TEXT`.
-  3. Uses domain and content heuristics (`PAYWALLED_DOMAINS_REGEX`, `PAYWALLED_CONTENT_REGEX`) to classify paywalled pages honestly.
-  4. Retains `TRANSCRIPT_UNAVAILABLE` with `#media` locators for audio/video sources.
-  5. Sets `primary_source_traced: locator_type === "FULL_TEXT"`.
-- **Comprehensive Test Suite & Verification:**
-  - `tests/research-first-orchestration.test.ts` expanded to 25 comprehensive tests directly exercising `executeResearchAndRoadmapOrchestration` and `detectPursuitGoalIntent`.
-  - Total test suite: **289/289 passing**.
-  - `npx tsc --noEmit`: 0 errors.
-  - `npm run lint`: 0 errors, 0 warnings (no explicit `any`, clean rules).
-  - `npm run build`: Production Next.js Turbopack build clean (all 25 routes generated in 8.4s).
-
-## 2026-10-18 — `fix/conversation-turn-reliability` root-cause resolution & capability completion (historical)
-
-- **Second-turn conversation failure root-caused and fixed:**
-  1. `lib/work-controller.ts` omitted `"CREATE_ACTION"` from `AVAILABLE_WORK_MODES`, causing `validateConversationTurn` to throw `"Requested work mode is not currently available"` whenever Turn 2+ proposed `CREATE_ACTION`.
-  2. `stryde_record_conversation_user_input` runs before `streamConversationTurn`, explaining why the live database held `[1] USER`, `[2] STRYDE`, `[3] USER` with no second `STRYDE` message while the session remained `ACTIVE`.
-  3. Outer validation retry loops in `lib/model-gateway.ts` and `lib/adaptive-model.ts` no longer re-invoke the provider chain when `ModelProviderError` is thrown (preventing 2x retry amplification across providers), and `runAdaptiveWorkController` now receives `turnSignal` and falls back to `result.turn.work ?? session.working_state`.
-  4. `app/pursuits/[id]/page.tsx` no longer renders `"Conversation archived"` while `session` is still `null` during page reload or when session bootstrap fails; `"Conversation archived"` is only shown when `session?.status === "ARCHIVED"`.
-- **Trigger → dispatcher job enqueueing & notification loop completed:** `lib/trigger-engine.ts` and `app/api/v1/triggers/route.ts` now validate trigger action payloads, resolve live pursuit/action/event context for `STATE` and `EVENT` triggers, and enqueue `CONTROLLED` worker jobs (gated by autonomy policy, active capability grant, in-flight action guard, and `worker_jobs` resource reservation) or record deduplicated notifications.
-- **Research-first turn execution & deterministic orchestration:** In `app/api/v1/pursuits/[id]/conversation/route.ts` and `lib/research-orchestration.ts`, research-dependent goals across domain pursuits (Fitness/Health protocols, Career compensation/interview bars, Tech architecture/database tradeoffs, Business unit economics/CAC/LTV) and roadmap-audit requests deterministically trigger a trusted-plane web research pass before any substantive assistant response is streamed or shown. Casual chat and ordinary banter are cleanly excluded from deep research.
-- **Search result page retrieval & real locators:** In `lib/research-execution.ts`, search results are safely retrieved through `ingestUrlSource` (with SSRF guard and DNS checks) and saved as `pursuit_source` records. Retrieval outcomes are classified into `FULL_TEXT` (with `#sha256:` content locators), `SNIPPET`, `INACCESSIBLE`, and `TRANSCRIPT_UNAVAILABLE` (with `#media` locators).
-- **Research blocker & autonomy policy enforcement:** When research is required but unconfigured, unauthorized by user autonomy settings (`auto_execute_research === false`), or budget-exhausted, Stryde never hallucinates an unsupported substantive recommendation; it honestly sets working state to `WAITING_USER` / `WAITING_EXTERNAL`, describes the exact blocker, and transitions `next_move` to `mode: "ASK_USER"`.
-- **Pre-flight resource reservation & metering:** Research calls pre-flight check available `research_rounds` on the trusted plane via `stryde_resource_available`, and record usage via `recordResourceUsage(trustedPlane, { resource: "research_rounds", amount: 1 })`.
-- **Roadmap critical audit lifecycle:** In `lib/universal-input.ts`, preliminary pasted roadmap intake sets methods to `UNVERIFIED` before required research is completed. After evidence acquisition, critical audit updates the versioned adaptation with real citations and explicit audit statuses (`KEEP`, `CHANGE`, `REMOVE`, `MISSING`, `UNVERIFIED`, `NEEDS_EXPERIMENT`), surfaced in `work-panels.tsx`.
-- **Gemini environment variable reconciliation:** In `lib/model-provider.ts`, `configured()` accepts `GEMINI_API_KEY` and `GOOGLE_AI_STUDIO_API_KEY` alongside `STRYDE_GEMINI_API_KEY`, ensuring direct Gemini API primary configuration works seamlessly across environments with OpenRouter fallback.
-- **Comprehensive test verification:** `tests/research-first-orchestration.test.ts` (12/12 passing; 276/276 full suite passing), clean typecheck (`npx tsc --noEmit`), clean lint (`npm run lint`), clean production build (`npm run build`).
+  1. Original submitted roadmap preserved unchanged in `pursuit_source`.
+  2. Preliminary intake method statuses forced to `UNVERIFIED` before evidence acquisition.
+  3. Critical post-research adaptation re-evaluates roadmap against acquired evidence, creating version 2 with linked citations in `pursuit_source_citation` and explicit statuses (`KEEP`, `CHANGE`, `REMOVE`, `MISSING`, `UNVERIFIED`, `NEEDS_EXPERIMENT`).
+- **Real Retrieval Status & Locators:** Differentiates `FULL_TEXT`, `PARTIAL_CONTENT`, `PAYWALLED`, `SNIPPET`, `INACCESSIBLE`, and `TRANSCRIPT_UNAVAILABLE`.
 
 ## 2026-10-17 — production/security reconciliation (historical)
+=======
+## 2026-10-21 — release baseline security release (current production truth)
+
+This checkpoint records the successful authorization, squash-merge, and production release of PR #9 (`chore/release-baseline-security-2026-10-17`) into `origin/main` at commit `68f98517522ea8d50311b53aebaf3974217216c9`. Historical checkpoints below are retained as evidence.
+
+### Production repository and release baseline
+- PR #9 was squash-merged into `main` via GitHub API with head guard on `f0eeefab51e6be0091ea90a9345e578f2f5e728c`. Resulting `main` commit SHA is `68f98517522ea8d50311b53aebaf3974217216c9`.
+- Vercel production deployment `7232279533` (`U9TyZuZdtBFRAckVU7Hp7NRdbWD8`) automatically triggered, completed with state `success`, and reached `READY`. Target URL: `https://stryde-f0fiumxem-abdhaseebtech-5772s-projects.vercel.app`, aliased to production `https://stryde-topaz.vercel.app`.
+- Hosted GitHub Actions CI run `39640958877` / job `119364024415` (`verify`) PASSED on `68f98517522ea8d50311b53aebaf3974217216c9`.
+- Production dependency audit: `npm audit --omit=dev` reports 0 vulnerabilities on Next.js 16.4.2 + puppeteer-core 25.14.0 (closing all 13 production vulnerabilities including Critical App Router advisory GHSA-6gpp-xcg3-4w24).
+- Production smoke test verified live:
+  - `GET https://stryde-topaz.vercel.app`: HTTP 200 OK.
+  - `GET https://stryde-topaz.vercel.app/api/health/model`: HTTP 200 OK (`ready: true`, chain `gemini -> openrouter -> omniroute`, disabled `omniroute`).
+  - `GET https://stryde-topaz.vercel.app/api/v1/pursuits`: HTTP 401 Unauthorized (`Missing bearer token`), verifying active auth boundary.
+- Database state: PR #9 contained zero database migrations (DDL). Live Supabase project `pvijrnwdnolvnoibarrj` retains isolated test records from local pre-merge E2E testing under dedicated test user `5b1dbe29-d6b7-4c0f-86bd-f285b4465a37` (isolated by Row Level Security; no other accounts or tables touched). Records are preserved without mutation or deletion.
+- Engineering control plane incorporated at `docs/ENGINEERING_CONTROL_PLANE.md`.
+
+## 2026-10-21 (earlier) — release baseline security reconciliation (superseded by release above)
+
+This checkpoint records the reconciliation of PR #9 (`chore/release-baseline-security-2026-10-17`) and PR #12 (`docs/ENGINEERING_CONTROL_PLANE.md`) with `origin/main` (`b3680469703369fa8f27123fc0eb04f171700f49`). Historical checkpoints below are retained as evidence.
+
+### Repository and release baseline
+- Rebased PR #9 onto current main (`b3680469703369fa8f27123fc0eb04f171700f49`).
+- Production dependency audit: `npm audit --omit=dev` reports 0 vulnerabilities on Next.js 16.4.2 + puppeteer-core 25.14.0 (previously 13 vulnerabilities including 1 Critical Next.js App Router bypass advisory on 16.2.9).
+- Unit test suite: 255/255 passed.
+- TypeScript (`npx tsc --noEmit`): clean, zero errors.
+- ESLint (`npm run lint`): clean, zero errors/warnings.
+- Production build (`npm run build`): clean Turbopack compile across all 25 routes.
+- PR #12 engineering control plane incorporated at `docs/ENGINEERING_CONTROL_PLANE.md`.
+- Production deployment remains gated on user approval; PR #9 is review-ready and unmerged.
+
+## 2026-10-17 — production/security reconciliation (superseded by 2026-10-21 candidate)
+>>>>>>> origin/main
 
 This checkpoint supersedes older deployment, migration-count, and RPC-permission statements below where they conflict. Historical checkpoints are retained as evidence.
 
