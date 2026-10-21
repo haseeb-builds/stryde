@@ -9,7 +9,7 @@ import { executeWebResearch, type ResearchExecution } from "./research-execution
 import { reserveResources, ResourceExhaustedError, type ReservationGroup } from "./resource-control.ts";
 import { assembleAdaptiveSituation, type AdaptiveSituation } from "./adaptive-situation.ts";
 import { runSourceAdaptation } from "./adaptive-model.ts";
-import { buildSourceCitation } from "./source-citation.ts";
+import { findSupportingSource, validatePursuitSourceCitationRow, type PursuitSourceCitationInsert } from "./source-citation.ts";
 import { checkAutoResearch, type AutonomyPolicy } from "./autonomy-policy.ts";
 import type { WorkingState } from "./work-controller.ts";
 import type { ConversationTurn } from "./model-gateway.ts";
@@ -397,6 +397,83 @@ export type OrchestrationResult = {
 // Cleanly extracted orchestration service fulfilling the entire research-first
 // and roadmap reassessment lifecycle. Called directly by the HTTP conversation
 // route and exercised end to end in test suites.
+export async function supersedeAdaptation(
+  client: SupabaseClient,
+  params: { adaptationId: string; ownerUserId: string; pursuitId: string }
+): Promise<{ success: boolean; affectedCount: number; error: string | null }> {
+  try {
+    const tableRef = client?.from?.("pursuit_source_adaptation");
+    if (!tableRef || typeof tableRef.update !== "function") {
+      return { success: false, affectedCount: 0, error: "client.from(...).update is not a function" };
+    }
+    const query = tableRef
+      .update({ status: "SUPERSEDED" })
+      .eq("id", params.adaptationId)
+      .eq("owner_user_id", params.ownerUserId)
+      .eq("pursuit_id", params.pursuitId) as unknown as {
+        select?: (cols?: string) => Promise<{ data: unknown; error: { message: string } | null }>;
+      } & Promise<{ data: unknown; error: { message: string } | null }>;
+
+    const result = typeof query?.select === "function" ? await query.select("id") : await query;
+    if (result?.error) {
+      return { success: false, affectedCount: 0, error: result.error.message };
+    }
+    if (Array.isArray(result?.data)) {
+      if (result.data.length === 0) {
+        return { success: false, affectedCount: 0, error: "No matching adaptation found to supersede" };
+      }
+      return { success: true, affectedCount: result.data.length, error: null };
+    }
+    return { success: true, affectedCount: 1, error: null };
+  } catch (err: unknown) {
+    return { success: false, affectedCount: 0, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+export async function updateAdaptationAuditStatus(
+  client: SupabaseClient,
+  params: {
+    adaptationId: string;
+    ownerUserId: string;
+    pursuitId: string;
+    summary: string;
+    methods: unknown[];
+    provenance: Record<string, unknown>;
+  }
+): Promise<{ success: boolean; affectedCount: number; error: string | null }> {
+  try {
+    const tableRef = client?.from?.("pursuit_source_adaptation");
+    if (!tableRef || typeof tableRef.update !== "function") {
+      return { success: false, affectedCount: 0, error: "client.from(...).update is not a function" };
+    }
+    const query = tableRef
+      .update({
+        summary: params.summary,
+        methods: params.methods,
+        provenance: params.provenance,
+      })
+      .eq("id", params.adaptationId)
+      .eq("owner_user_id", params.ownerUserId)
+      .eq("pursuit_id", params.pursuitId) as unknown as {
+        select?: (cols?: string) => Promise<{ data: unknown; error: { message: string } | null }>;
+      } & Promise<{ data: unknown; error: { message: string } | null }>;
+
+    const result = typeof query?.select === "function" ? await query.select("id") : await query;
+    if (result?.error) {
+      return { success: false, affectedCount: 0, error: result.error.message };
+    }
+    if (Array.isArray(result?.data)) {
+      if (result.data.length === 0) {
+        return { success: false, affectedCount: 0, error: "No matching adaptation found to update" };
+      }
+      return { success: true, affectedCount: result.data.length, error: null };
+    }
+    return { success: true, affectedCount: 1, error: null };
+  } catch (err: unknown) {
+    return { success: false, affectedCount: 0, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
 export async function executeResearchAndRoadmapOrchestration(input: {
   supabase: SupabaseClient;
   trustedPlane: SupabaseClient;
@@ -606,16 +683,17 @@ export async function executeResearchAndRoadmapOrchestration(input: {
           });
 
           const nextVersion = (latestAdaptation.version ?? 1) + 1;
-          await input.supabase
-            .from("pursuit_source_adaptation")
-            .update({ status: "SUPERSEDED" })
-            .eq("id", latestAdaptation.id);
+          await supersedeAdaptation(input.trustedPlane, {
+            adaptationId: latestAdaptation.id,
+            ownerUserId: input.ownerUserId,
+            pursuitId: input.pursuitId,
+          });
 
           const retrievedLocators = execution.retrieved_sources
             .filter((s) => s.locator_type === "FULL_TEXT" || s.locator_type === "PARTIAL_CONTENT")
             .map((s) => s.content_locator);
 
-          const { data: newAdaptation } = await input.supabase
+          const { data: newAdaptation } = await input.trustedPlane
             .from("pursuit_source_adaptation")
             .insert({
               owner_user_id: input.ownerUserId,
@@ -636,113 +714,133 @@ export async function executeResearchAndRoadmapOrchestration(input: {
 
           if (newAdaptation) {
             const claims = Array.isArray(reAdapted.adaptation.source_claims) ? reAdapted.adaptation.source_claims : [];
+            const unverifiedMethods = (Array.isArray(newAdaptation.methods) ? newAdaptation.methods : []).map(
+              (m: Record<string, unknown>) => ({ ...m, audit_status: "UNVERIFIED" })
+            );
 
             // Link citations to actual retrieved external sources, not the pasted roadmap
             const externalSourceIds = execution.retrieved_sources
               .map((s) => s.source_id)
               .filter((id): id is string => typeof id === "string" && id.length > 0);
 
-            let externalSources: Array<{
-              id: string;
-              uri: string | null;
-              title: string | null;
-              content_text: string | null;
-              content_sha256: string | null;
-              fetch_status: string;
-            }> = [];
-
-            if (externalSourceIds.length > 0) {
-              const { data: dbSources } = await input.supabase
+            if (externalSourceIds.length === 0) {
+              await updateAdaptationAuditStatus(input.trustedPlane, {
+                adaptationId: newAdaptation.id,
+                ownerUserId: input.ownerUserId,
+                pursuitId: input.pursuitId,
+                summary: "Roadmap reassessment incomplete: no external evidence was retrieved.",
+                methods: unverifiedMethods,
+                provenance: {
+                  ...(typeof newAdaptation.provenance === "object" && newAdaptation.provenance !== null ? newAdaptation.provenance : {}),
+                  turn_key: input.turnKey,
+                  audit_status: "INCOMPLETE",
+                  error: "No external sources retrieved",
+                },
+              });
+            } else {
+              const { data: dbSources, error: sourceError } = await input.supabase
                 .from("pursuit_source")
                 .select("id, uri, title, content_text, content_sha256, fetch_status")
                 .in("id", externalSourceIds);
-              externalSources = (dbSources ?? []).filter(
-                (s): s is typeof externalSources[number] => Boolean(s.content_text && s.content_sha256)
-              );
-            }
 
-            const citations: Array<{
-              owner_user_id: string;
-              pursuit_id: string;
-              source_id: string;
-              adaptation_id: string | null;
-              source_content_sha256: string;
-              locator: {
-                type: string;
-                start?: number;
-                end?: number;
-                located?: boolean;
-                claim_text?: string;
-                [key: string]: unknown;
-              };
-              excerpt: string;
-              basis: "EXPLICIT_SOURCE" | "INFERRED";
-            }> = [];
-            if (claims.length && externalSources.length) {
-              for (const claim of claims) {
-                const statement = typeof claim.statement === "string" ? claim.statement.trim() : "";
-                if (!statement) continue;
-
-                let matchedSource = externalSources.find(
-                  (s) => s.content_text && s.content_text.toLowerCase().includes(statement.toLowerCase())
-                );
-                if (!matchedSource) {
-                  matchedSource = externalSources[0];
-                }
-
-                if (matchedSource && matchedSource.content_text && matchedSource.content_sha256) {
-                  const builtCitation = buildSourceCitation({
-                    content: matchedSource.content_text,
-                    contentSha256: matchedSource.content_sha256,
-                    statement,
-                    basis: claim.basis === "EXPLICIT_SOURCE" ? "EXPLICIT_SOURCE" : "INFERRED",
-                  });
-
-                  citations.push({
-                    owner_user_id: input.ownerUserId,
-                    pursuit_id: input.pursuitId,
-                    source_id: matchedSource.id,
-                    adaptation_id: newAdaptation.id,
-                    source_content_sha256: builtCitation.source_content_sha256,
-                    locator: {
-                      ...builtCitation.locator,
-                      claim_text: statement,
-                    },
-                    excerpt: builtCitation.excerpt,
-                    basis: builtCitation.basis,
-                  });
-                }
-              }
-            }
-
-            if (citations.length) {
-              const { error: citationError } = await input.supabase
-                .from("pursuit_source_citation")
-                .insert(citations);
-
-              if (citationError) {
-                // Do not swallow citation persistence failures!
-                // Update adaptation status and methods honestly so steps do not claim to be verified
-                const incompleteMethods = (Array.isArray(newAdaptation.methods) ? newAdaptation.methods : []).map(
-                  (m: Record<string, unknown>) => ({
-                    ...m,
-                    audit_status: "UNVERIFIED",
-                  })
+              if (sourceError) {
+                await updateAdaptationAuditStatus(input.trustedPlane, {
+                  adaptationId: newAdaptation.id,
+                  ownerUserId: input.ownerUserId,
+                  pursuitId: input.pursuitId,
+                  summary: `Roadmap reassessment incomplete: external source query failed (${sourceError.message})`,
+                  methods: unverifiedMethods,
+                  provenance: {
+                    ...(typeof newAdaptation.provenance === "object" && newAdaptation.provenance !== null ? newAdaptation.provenance : {}),
+                    turn_key: input.turnKey,
+                    audit_status: "INCOMPLETE",
+                    source_query_error: sourceError.message,
+                  },
+                });
+              } else {
+                const externalSources = (dbSources ?? []).filter(
+                  (s): s is typeof dbSources[number] & { content_text: string; content_sha256: string } =>
+                    Boolean(s.content_text && s.content_sha256)
                 );
 
-                await input.supabase
-                  .from("pursuit_source_adaptation")
-                  .update({
-                    summary: `Roadmap reassessed, but evidence citations could not be persisted: ${citationError.message}`,
-                    methods: incompleteMethods,
+                if (externalSources.length === 0) {
+                  await updateAdaptationAuditStatus(input.trustedPlane, {
+                    adaptationId: newAdaptation.id,
+                    ownerUserId: input.ownerUserId,
+                    pursuitId: input.pursuitId,
+                    summary: "Roadmap reassessment incomplete: retrieved external sources lack valid text content or SHA-256 hash.",
+                    methods: unverifiedMethods,
                     provenance: {
                       ...(typeof newAdaptation.provenance === "object" && newAdaptation.provenance !== null ? newAdaptation.provenance : {}),
                       turn_key: input.turnKey,
                       audit_status: "INCOMPLETE",
-                      citation_error: citationError.message,
+                      error: "Missing source content or hash",
                     },
-                  })
-                  .eq("id", newAdaptation.id);
+                  });
+                } else {
+                  const citations: PursuitSourceCitationInsert[] = [];
+                  for (const claim of claims) {
+                    const statement = typeof claim.statement === "string" ? claim.statement.trim() : "";
+                    if (!statement) continue;
+
+                    const match = findSupportingSource(externalSources, statement);
+                    if (!match) continue; // Never attach to unrelated source!
+
+                    const row = validatePursuitSourceCitationRow({
+                      owner_user_id: input.ownerUserId,
+                      pursuit_id: input.pursuitId,
+                      source_id: match.source.id,
+                      adaptation_id: newAdaptation.id,
+                      source_content_sha256: match.source.content_sha256,
+                      locator: {
+                        type: "CHARACTER_RANGE",
+                        start: match.passage.start,
+                        end: match.passage.end,
+                        located: true,
+                        claim_text: statement,
+                      },
+                      excerpt: match.passage.excerpt,
+                      basis: claim.basis === "EXPLICIT_SOURCE" ? "EXPLICIT_SOURCE" : "INFERRED",
+                    });
+                    citations.push(row);
+                  }
+
+                  if (claims.length > 0 && citations.length === 0) {
+                    await updateAdaptationAuditStatus(input.trustedPlane, {
+                      adaptationId: newAdaptation.id,
+                      ownerUserId: input.ownerUserId,
+                      pursuitId: input.pursuitId,
+                      summary: "Roadmap reassessed, but no claims could be substantiated by retrieved source text.",
+                      methods: unverifiedMethods,
+                      provenance: {
+                        ...(typeof newAdaptation.provenance === "object" && newAdaptation.provenance !== null ? newAdaptation.provenance : {}),
+                        turn_key: input.turnKey,
+                        audit_status: "INCOMPLETE",
+                        unsubstantiated: true,
+                      },
+                    });
+                  } else if (citations.length > 0) {
+                    const { error: citationError } = await input.trustedPlane
+                      .from("pursuit_source_citation")
+                      .insert(citations);
+
+                    if (citationError) {
+                      await updateAdaptationAuditStatus(input.trustedPlane, {
+                        adaptationId: newAdaptation.id,
+                        ownerUserId: input.ownerUserId,
+                        pursuitId: input.pursuitId,
+                        summary: `Roadmap reassessed, but evidence citations could not be persisted: ${citationError.message}`,
+                        methods: unverifiedMethods,
+                        provenance: {
+                          ...(typeof newAdaptation.provenance === "object" && newAdaptation.provenance !== null ? newAdaptation.provenance : {}),
+                          turn_key: input.turnKey,
+                          audit_status: "INCOMPLETE",
+                          citation_error: citationError.message,
+                        },
+                      });
+                    }
+                  }
+                }
               }
             }
 
@@ -752,12 +850,12 @@ export async function executeResearchAndRoadmapOrchestration(input: {
             }
           }
         } catch (reAdaptError) {
-          // If post-research reassessment fails, label incomplete rather than verified
           const nextVersion = (latestAdaptation.version ?? 1) + 1;
-          await input.supabase
-            .from("pursuit_source_adaptation")
-            .update({ status: "SUPERSEDED" })
-            .eq("id", latestAdaptation.id);
+          await supersedeAdaptation(input.trustedPlane, {
+            adaptationId: latestAdaptation.id,
+            ownerUserId: input.ownerUserId,
+            pursuitId: input.pursuitId,
+          });
 
           const incompleteMethods = (Array.isArray(latestAdaptation.methods) ? latestAdaptation.methods : []).map(
             (m: Record<string, unknown>) => ({
@@ -766,7 +864,7 @@ export async function executeResearchAndRoadmapOrchestration(input: {
             })
           );
 
-          await input.supabase
+          await input.trustedPlane
             .from("pursuit_source_adaptation")
             .insert({
               owner_user_id: input.ownerUserId,
@@ -795,8 +893,7 @@ export async function executeResearchAndRoadmapOrchestration(input: {
                 error: reAdaptError instanceof Error ? reAdaptError.message : String(reAdaptError),
               },
             });
-
-          const finalRefreshed = await assembleAdaptiveSituation(input.supabase, input.ownerUserId, input.pursuitId);
+const finalRefreshed = await assembleAdaptiveSituation(input.supabase, input.ownerUserId, input.pursuitId);
           if (!finalRefreshed.error && finalRefreshed.situation) {
             refreshedSituation = finalRefreshed.situation;
           }

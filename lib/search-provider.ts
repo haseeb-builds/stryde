@@ -42,8 +42,8 @@ export function createExaSearchProvider(input: { apiKey: string; baseUrl?: strin
 }
 
 export function getExaSearchProvider(): SearchProvider {
-  const configuredProvider = (process.env.STRYDE_SEARCH_PROVIDER ?? "exa").trim().toLowerCase();
-  if (configuredProvider !== "exa") throw new Error(`Unsupported STRYDE_SEARCH_PROVIDER: ${configuredProvider}`);
+  const configuredProvider = (process.env.STRYDE_SEARCH_PROVIDER ?? "auto").trim().toLowerCase();
+  if (configuredProvider !== "exa" && configuredProvider !== "auto") throw new Error(`Unsupported STRYDE_SEARCH_PROVIDER: ${configuredProvider}`);
   const apiKey = process.env.EXA_API_KEY?.trim();
   if (!apiKey) throw new Error("Missing research configuration: EXA_API_KEY");
   return createExaSearchProvider({ apiKey });
@@ -92,8 +92,8 @@ export function createFirecrawlSearchProvider(input: { apiKey: string; baseUrl?:
 // present the chain holds exactly one entry, which is the previous
 // single-provider behavior unchanged.
 export function getSearchProviderChain(): SearchProvider[] {
-  const preferred = (process.env.STRYDE_SEARCH_PROVIDER ?? "exa").trim().toLowerCase();
-  if (preferred !== "exa" && preferred !== "firecrawl") throw new Error(`Unsupported STRYDE_SEARCH_PROVIDER: ${preferred}`);
+  const preferred = (process.env.STRYDE_SEARCH_PROVIDER ?? "auto").trim().toLowerCase();
+  if (preferred !== "exa" && preferred !== "firecrawl" && preferred !== "auto") throw new Error(`Unsupported STRYDE_SEARCH_PROVIDER: ${preferred}`);
   const exaKey = process.env.EXA_API_KEY?.trim();
   const firecrawlKey = process.env.FIRECRAWL_API_KEY?.trim();
   const exa = exaKey ? createExaSearchProvider({ apiKey: exaKey }) : null;

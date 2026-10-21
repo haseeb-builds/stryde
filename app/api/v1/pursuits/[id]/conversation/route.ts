@@ -248,6 +248,14 @@ export async function POST(request: Request, context: RouteContext) {
 
             await commit(blocked.turn, blocked.work);
 
+            void recordResourceUsage(trustedPlane, {
+              ownerUserId: user.id,
+              pursuitId: id,
+              resource: "model_turns",
+              amount: 1,
+              capabilityKey: "conversation.turn",
+            }).catch(() => {});
+
             controller.enqueue(encoder.encode(streamEvent({
               type: "complete",
               turn: blocked.turn,

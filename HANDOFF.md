@@ -1,3 +1,45 @@
+## 2026-10-21 — Core release-hardening defects closed & verified: R-1, R-2, R-3, R-6, R-7, R-8 (`fix/conversation-turn-reliability`)
+
+### Branch status
+- Branch: `fix/conversation-turn-reliability` on PR #13, base `main` at `5259e7d0004000b3459e2a7ce7f9d6371a6feecc`.
+- **All Core Release-Hardening Defects Closed & Verified (TDD):**
+  - **R-1 (Citation Integrity & Schema):**
+    - Enforced exact source text slicing for citation `excerpt` and exact character range `locator` matching.
+    - Exported and integrated `findSupportingSource` and `validatePursuitSourceCitationRow`.
+    - Eliminated arbitrary fallback to unrelated sources.
+    - On citation insertion failure or missing evidence, marks adaptation `INCOMPLETE` with `UNVERIFIED` methods and logs `citation_error` via `trustedPlane`.
+    - Verified by `tests/source-citation.test.ts` (8/8), `tests/research-citation-persistence.test.ts` (4/4), and `tests/research-citation-integrity.test.ts` (3/3).
+  - **R-2 (Adaptation Supersession & RLS):**
+    - Supersedes v1 adaptation and updates audit status strictly through `trustedPlane` (`service_role`), overcoming missing `UPDATE` policy on `public.pursuit_source_adaptation`.
+    - Strictly scoped to `owner_user_id` and `pursuit_id` with affected row count assertions.
+    - Verified by `tests/adaptation-supersession.test.ts` (5/5).
+  - **R-3 (Search Observations Situation Assembly):**
+    - Preserves source-less `WEB_SEARCH_RESULT` observations tagged with `pursuit_id` in `assembleAdaptiveSituation`.
+    - Ensures search observations reach context compiler and prompt context.
+    - Verified by `tests/search-observations-situation.test.ts` (1/1).
+  - **R-4 (Blocked Research Ungrounded Output Prevention):**
+    - Verified pre-stream interceptor in `/conversation` route prevents ungrounded model output when research is blocked, streaming honest SSE blocker messages.
+    - Verified by `tests/research-blocked-ungrounded-guard.test.ts` (6/6).
+  - **R-6 (Resource & Autonomy Controls):**
+    - Enforced `checkAutoResearch(userPolicy)` in `/work` and guarded research execution with `research_rounds` reservation and release/reconciliation.
+    - Added `source_extractions` quota enforcement and usage recording in `/sources`.
+    - Metered `model_turns` usage in `/conversation` blocker path.
+    - Verified by `tests/resource-autonomy-controls.test.ts` (4/4).
+  - **R-7 (Context Compiler Roadmap Integrity):**
+    - Preserves full roadmap audit fields in `lib/context-compiler.ts`: `methods` (with `audit_status`), `assumptions`, `prerequisites`, `expected_outcomes`, `unknowns`, `fit`, `gaps`, `conflicts`, `adapted_strategy`, `goal_candidates`, `source_claims`, and `provenance`.
+    - Verified by `tests/context-compiler-roadmap-integrity.test.ts` (1/1).
+  - **R-8 (Provider Configuration Mismatch):**
+    - Implemented `STRYDE_SEARCH_PROVIDER=auto` in `lib/search-provider.ts` with provider chain fallback (Exa -> SearXNG).
+    - Verified by `tests/search-provider-auto.test.ts` (3/3).
+  - **R-5 (Ledger Verification):**
+    - Confirmed no independent R-5 defect exists; ledgering and atomic reservations are handled via `stryde_record_resource_usage` and `stryde_reserve_resources`.
+- **Full Verification Suite:**
+  - `npm test`: **317/317 tests passing**.
+  - `npx tsc --noEmit`: **0 errors**.
+  - `npm run lint`: **0 errors, 0 warnings**.
+  - `npm run build`: **Clean Turbopack compile across all 25 routes in 3.0s**.
+  - `npm audit --omit=dev`: **0 vulnerabilities**.
+
 # Stryde Handoff
 
 ## 2026-10-21 — R-1 implemented & verified: citation persistence and schema reconciliation (`fix/conversation-turn-reliability`)

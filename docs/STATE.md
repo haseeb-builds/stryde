@@ -1,3 +1,16 @@
+## 2026-10-21 — Core release-hardening defects closed & verified: R-1, R-2, R-3, R-6, R-7, R-8 (`fix/conversation-turn-reliability`)
+
+- Branch `fix/conversation-turn-reliability` on PR #13, base `main` at `5259e7d0004000b3459e2a7ce7f9d6371a6feecc`.
+- **Defects Resolved & Verified:**
+  - **R-1 (Citation Integrity & Schema):** Exact text excerpts sliced from source content, semantic evidence locator matching, honest `INCOMPLETE` status with `UNVERIFIED` methods on citation insertion failure or missing evidence. Tested in `tests/source-citation.test.ts`, `tests/research-citation-persistence.test.ts`, and `tests/research-citation-integrity.test.ts`.
+  - **R-2 (Adaptation Supersession & RLS):** `supersedeAdaptation` and `updateAdaptationAuditStatus` executed via `trustedPlane` (`service_role`) scoped to `owner_user_id` and `pursuit_id`, validating affected rows to resolve missing RLS UPDATE policy. Tested in `tests/adaptation-supersession.test.ts`.
+  - **R-3 (Search Observations Situation Assembly):** Source-less `WEB_SEARCH_RESULT` observations tagged with `pursuit_id` are preserved during situation assembly. Tested in `tests/search-observations-situation.test.ts`.
+  - **R-4 (Blocked Research Ungrounded Guard):** Verified pre-stream interceptor in `/conversation` route prevents ungrounded model output when research is blocked, streaming honest SSE blocker messages. Tested in `tests/research-blocked-ungrounded-guard.test.ts`.
+  - **R-6 (Resource & Autonomy Controls):** Enforces `checkAutoResearch(userPolicy)` in `/work`, reserves and reconciles `research_rounds`, checks and records `source_extractions` in `/sources`, and meters `model_turns` in `/conversation`. Tested in `tests/resource-autonomy-controls.test.ts`.
+  - **R-7 (Context Compiler Roadmap Integrity):** Retains full roadmap audit fields (`methods` with `audit_status`, `assumptions`, `prerequisites`, `expected_outcomes`, `unknowns`, `fit`, `gaps`, `conflicts`, `adapted_strategy`, `goal_candidates`, `source_claims`, and `provenance`) in compiled context packets. Tested in `tests/context-compiler-roadmap-integrity.test.ts`.
+  - **R-8 (Search Provider Auto Mode):** Supports `STRYDE_SEARCH_PROVIDER=auto` with provider fallback. Tested in `tests/search-provider-auto.test.ts`.
+- Full test suite: 317/317 passing. TypeScript: 0 errors. Lint: 0 errors. Build: Turbopack production build clean in 3.0s. Production audit: 0 vulnerabilities.
+
 ## 2026-10-21 — R-1 implemented & verified: citation persistence and schema reconciliation (`fix/conversation-turn-reliability`)
 
 - Branch `fix/conversation-turn-reliability` on PR #13, base `main` at `5259e7d0004000b3459e2a7ce7f9d6371a6feecc`.

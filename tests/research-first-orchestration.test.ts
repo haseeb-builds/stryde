@@ -1172,30 +1172,45 @@ test("roadmap audit correctness: post-research reassessment increments version, 
   });
 
   try {
+    const insertedRows: Array<{ table: string; data: unknown }> = [];
+    const updatedRows: Array<{ table: string; data: unknown }> = [];
+
     const mockTrustedPlane = {
       rpc: async (method: string) => {
         if (method === "stryde_reserve_resources") return { data: "grp-roadmap-1", error: null };
         return { data: null, error: null };
       },
-      from: () => ({
+      from: (table: string) => ({
         select: () => ({
           eq: () => ({
             eq: () => Promise.resolve({ data: [], error: null }),
           }),
         }),
-        insert: (data: unknown) => ({
-          select: () => ({
-            single: async () => ({
-              data: { id: "obs-roadmap-new", ...(typeof data === "object" && data !== null ? data : {}) },
-              error: null,
+        insert: (data: unknown) => {
+          insertedRows.push({ table, data });
+          return {
+            select: () => ({
+              single: async () => ({
+                data: { id: "obs-roadmap-new", ...(typeof data === "object" && data !== null ? data : {}) },
+                error: null,
+              }),
             }),
-          }),
-        }),
+          };
+        },
+        update: (data: unknown) => {
+          updatedRows.push({ table, data });
+          return {
+            eq: () => ({
+              eq: () => ({
+                eq: () => ({
+                  select: () => Promise.resolve({ data: [{ id: "adapt-v1-uuid" }], error: null }),
+                }),
+              }),
+            }),
+          };
+        },
       }),
     } as unknown as SupabaseClient;
-
-    const insertedRows: Array<{ table: string; data: unknown }> = [];
-    const updatedRows: Array<{ table: string; data: unknown }> = [];
 
     const existingV1Adaptation = {
       id: "adapt-v1-uuid",

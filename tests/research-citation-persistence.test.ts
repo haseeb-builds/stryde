@@ -208,12 +208,13 @@ test("R-1 post-research roadmap reassessment: persists valid schema-conforming c
   });
 
   try {
+    // mockSupabase declared below
     const mockTrustedPlane = {
       rpc: async (method: string) => {
         if (method === "stryde_reserve_resources") return { data: "grp-r1-test", error: null };
         return { data: null, error: null };
       },
-      from: () => createChainableBuilder({ data: [], error: null }),
+      from: (table: string) => mockSupabase.from(table),
     } as unknown as SupabaseClient;
 
     const insertedCitations: PursuitSourceCitationInsert[] = [];
@@ -532,12 +533,13 @@ test("R-1 multiple citations: accurately maps multiple claims to retrieved sourc
   });
 
   try {
+    // mockSupabase declared below
     const mockTrustedPlane = {
       rpc: async (method: string) => {
         if (method === "stryde_reserve_resources") return { data: "grp-multi-test", error: null };
         return { data: null, error: null };
       },
-      from: () => createChainableBuilder({ data: [], error: null }),
+      from: (table: string) => mockSupabase.from(table),
     } as unknown as SupabaseClient;
 
     const insertedCitations: PursuitSourceCitationInsert[] = [];
@@ -731,7 +733,7 @@ test("R-1 insert failure handling: does not swallow citation failure, updates ad
     STRYDE_MODEL_API_KEY: "mock-gemini-key",
   });
 
-  const externalArticleContent = "Research paper content.";
+  const externalArticleContent = "Research paper content with research findings.";
   const externalSha256 = "ext-sha256-failure-test";
   const externalSourceId = "ext-src-fail-1";
 
@@ -788,12 +790,13 @@ test("R-1 insert failure handling: does not swallow citation failure, updates ad
   });
 
   try {
+    // mockSupabase declared below
     const mockTrustedPlane = {
       rpc: async (method: string) => {
         if (method === "stryde_reserve_resources") return { data: "grp-fail-test", error: null };
         return { data: null, error: null };
       },
-      from: () => createChainableBuilder({ data: [], error: null }),
+      from: (table: string) => mockSupabase.from(table),
     } as unknown as SupabaseClient;
 
     const updatedAdaptations: Array<Record<string, unknown>> = [];

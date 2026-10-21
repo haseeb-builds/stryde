@@ -1,3 +1,15 @@
+## Runtime checkpoint — 2026-10-21 (R-1, R-2, R-3, R-6, R-7, R-8 closed on fix/conversation-turn-reliability)
+
+- Branch `fix/conversation-turn-reliability` implements and verifies all core release-hardening defects:
+  - **R-1:** Exact text excerpt and locator match against actual external source; no arbitrary fallback; honest `INCOMPLETE` marking on persistence failure.
+  - **R-2:** `supersedeAdaptation` and `updateAdaptationAuditStatus` executed via `trustedPlane` with owner and pursuit scoping.
+  - **R-3:** Pursuit-scoped search observations preserved in `assembleAdaptiveSituation`.
+  - **R-4:** Pre-stream research blocker guard avoids ungrounded model hallucination.
+  - **R-6:** `checkAutoResearch` enforced in `/work`, `research_rounds` reservation/reconciliation lifecycle in background worker, `source_extractions` metered in `/sources`, `model_turns` metered on blocker turn.
+  - **R-7:** Context compiler preserves all adaptation audit metadata.
+  - **R-8:** Provider configuration supports `STRYDE_SEARCH_PROVIDER=auto`.
+- All 317 tests pass. Next.js Turbopack production build succeeds with 0 errors. Production audit reports 0 vulnerabilities.
+
 ## Runtime checkpoint — 2026-10-21 (R-1 & R-4 verified on fix/conversation-turn-reliability)
 
 - Branch `fix/conversation-turn-reliability` implements schema-conforming citation persistence for defect R-1:

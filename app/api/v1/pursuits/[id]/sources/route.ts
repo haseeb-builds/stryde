@@ -5,6 +5,8 @@ import { ingestPastedSource, ingestUrlSource, type IngestedSource } from "@/lib/
 import { extractFileSourceText, type FileSourceExtraction } from "@/lib/file-source-extraction";
 import { requireAuthenticatedSupabase } from "@/lib/supabase/server";
 import { buildSourceCitation } from "@/lib/source-citation";
+import { getSupabaseServiceClient } from "@/lib/supabase/service";
+import { recordResourceUsage } from "@/lib/resource-control";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -179,9 +181,29 @@ export async function POST(request: Request, context: RouteContext) {
         return errorResponse("Provide exactly one of url or content", 400);
       }
 
-      ingested = url
-        ? await ingestUrlSource(url)
-        : await ingestPastedSource({ content: content!, title, uri: pastedUri });
+      if (url) {
+        const service = getSupabaseServiceClient();
+        const { data: available, error: availError } = await service.rpc("stryde_resource_available", {
+          p_owner: user.id,
+          p_resource: "source_extraction",
+        });
+        if (availError) {
+          return errorResponse("Resource control is unavailable; source extraction is refused rather than unmetered", 503);
+        }
+        if (available === 0) {
+          return errorResponse("Daily plan limit reached for source extractions. Your plan resets tomorrow.", 429);
+        }
+        ingested = await ingestUrlSource(url);
+        void recordResourceUsage(service, {
+          ownerUserId: user.id,
+          pursuitId: id,
+          resource: "source_extraction",
+          amount: 1,
+          capabilityKey: "sources.url_ingest",
+        }).catch(() => {});
+      } else {
+        ingested = await ingestPastedSource({ content: content!, title, uri: pastedUri });
+      }
     }
 
     const { data: pursuit, error: pursuitError } = await supabase

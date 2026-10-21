@@ -160,8 +160,27 @@ export async function assembleAdaptiveSituation(
   const actionIds = new Set((actionsResult.data ?? []).map((action) => action.id as string));
   const observations = (observationsResult.data ?? []).filter((observation) => {
     const content = observation.content;
-    if (typeof content === "object" && content !== null && "action_id" in content) {
-      return typeof content.action_id === "string" && actionIds.has(content.action_id);
+    if (typeof content === "object" && content !== null) {
+      if ("action_id" in content && typeof content.action_id === "string" && actionIds.has(content.action_id)) {
+        return true;
+      }
+      if ("pursuit_id" in content && content.pursuit_id === pursuitId) {
+        return true;
+      }
+      if (observation.observation_kind === "WEB_SEARCH_RESULT") {
+        const meta = observation.source_metadata as Record<string, unknown> | null;
+        if (meta?.pursuit_id === pursuitId) return true;
+        if (Array.isArray(content.results) && content.results.some((r: Record<string, unknown>) => typeof r.url === "string" && sourceUris.has(r.url))) {
+          return true;
+        }
+        if (Array.isArray(content.retrieved_sources) && content.retrieved_sources.some((s: Record<string, unknown>) => typeof s.content_locator === "string" && sourceUris.has(s.content_locator))) {
+          return true;
+        }
+      }
+    }
+    const meta = observation.source_metadata as Record<string, unknown> | null;
+    if (meta && typeof meta === "object" && meta.pursuit_id === pursuitId) {
+      return true;
     }
     return typeof observation.source_uri === "string" && sourceUris.has(observation.source_uri);
   });
