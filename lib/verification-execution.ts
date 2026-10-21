@@ -80,6 +80,7 @@ export async function executeMechanicalVerification(input: {
 
     const checkedAt = new Date().toISOString();
     const observationPayload = {
+      pursuit_id: pursuitId,
       claim_id: verify.claim_id,
       url: verify.url,
       expect_text: verify.expect_text,
@@ -107,6 +108,7 @@ export async function executeMechanicalVerification(input: {
         source_type: "URL_CHECK",
         source_uri: verify.url,
         source_metadata: {
+          pursuit_id: pursuitId,
           claim_id: verify.claim_id,
           outcome: check.outcome,
           http_status: check.httpStatus,

@@ -25,7 +25,7 @@
     - Prevents race conditions and double reservations under concurrent load.
     - Verified by `tests/source-extraction-concurrency.test.ts` (5/5) and `tests/resource-autonomy-controls.test.ts`.
 - **Full Verification Suite:**
-  - `npm test`: **328/328 tests passing** (all 45 test files passing).
+  - `npm test`: **332/332 tests passing** (all 47 test files passing).
   - `npx tsc --noEmit`: **0 errors**.
   - `npm run lint`: **0 errors, 0 warnings**.
   - `npm run build`: **Clean Turbopack compile across all 25 routes in 2.4s**.
@@ -62,15 +62,15 @@
     - Preserves full roadmap audit fields in `lib/context-compiler.ts`: `methods` (with `audit_status`), `assumptions`, `prerequisites`, `expected_outcomes`, `unknowns`, `fit`, `gaps`, `conflicts`, `adapted_strategy`, `goal_candidates`, `source_claims`, and `provenance`.
     - Verified by `tests/context-compiler-roadmap-integrity.test.ts` (1/1).
   - **R-8 (Provider Configuration Mismatch):**
-    - Implemented `STRYDE_SEARCH_PROVIDER=auto` in `lib/search-provider.ts` with provider chain fallback (Exa -> SearXNG).
+    - Implemented `STRYDE_SEARCH_PROVIDER=auto` in `lib/search-provider.ts` with provider chain fallback (Exa -> Firecrawl).
     - Verified by `tests/search-provider-auto.test.ts` (3/3).
   - **R-5 (Ledger Verification):**
     - Confirmed no independent R-5 defect exists; ledgering and atomic reservations are handled via `stryde_record_resource_usage` and `stryde_reserve_resources`.
 - **Full Verification Suite:**
-  - `npm test`: **317/317 tests passing**.
+  - `npm test`: **332/332 tests passing** across all 47 test files.
   - `npx tsc --noEmit`: **0 errors**.
   - `npm run lint`: **0 errors, 0 warnings**.
-  - `npm run build`: **Clean Turbopack compile across all 25 routes in 3.0s**.
+  - `npm run build`: **Clean Turbopack compile across all 25 routes in 3.2s**.
   - `npm audit --omit=dev`: **0 vulnerabilities**.
 
 # Stryde Handoff

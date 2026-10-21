@@ -1,3 +1,17 @@
+## Reconciliation update — 2026-10-22 (release blockers closed & verified across all integration boundaries: R-1, R-2, R-3, R-6)
+
+| Area | Implemented | Tested | Deployed / Live | Remaining evidence |
+|---|---|---|---|---|
+| R-1: Citation Semantics & Schema Integrity across all paths | YES (`lib/source-citation.ts`, `lib/research-orchestration.ts`, `app/api/v1/pursuits/[id]/sources/route.ts`) | `tests/source-citation.test.ts` (8/8), `tests/research-citation-persistence.test.ts` (4/4), `tests/research-citation-integrity.test.ts` (5/5) | Preview deployment `7238293233` (commit `833f057`) | Authenticated live E2E test on isolated staging |
+| R-2: Adaptation Supersession & Audit Status Persistence | YES (`lib/research-orchestration.ts`) | `tests/adaptation-supersession.test.ts` (7/7); fails closed (`affectedCount: 0`) and aborts insertion | Preview deployment `7238293233` (commit `833f057`) | Authenticated live E2E test |
+| R-3: Search Observation Contract & Cross-Pursuit Isolation | YES (`lib/research-execution.ts`, `lib/adaptive-situation.ts`) | `tests/search-observations-situation.test.ts` (3/3); strict cross-pursuit guard & source-less observation preservation | Preview deployment `7238293233` (commit `833f057`) | Live search observation retrieval |
+| R-4: Blocked Research Ungrounded Advice Prevention | YES (`lib/research-orchestration.ts`, `app/api/v1/pursuits/[id]/conversation/route.ts`) | `tests/research-blocked-ungrounded-guard.test.ts` (6/6); pre-stream blocker returns honest SSE message without LLM invocation | Preview deployment `7238293233` (commit `833f057`) | Live conversation turn with disabled research |
+| R-6: Source Extraction Atomic Quota & Concurrency Safety | YES (`app/api/v1/pursuits/[id]/sources/route.ts`, `lib/resource-control.ts`) | `tests/source-extraction-concurrency.test.ts` (5/5), `tests/resource-autonomy-controls.test.ts` (4/4); atomic reservation, reconciliation, and release | Preview deployment `7238293233` (commit `833f057`) | Concurrent load test |
+| R-7: Context Compiler Roadmap Integrity | YES (`lib/context-compiler.ts`) | `tests/context-compiler-roadmap-integrity.test.ts` (1/1); retains full adaptation audit metadata | Preview deployment `7238293233` (commit `833f057`) | Model prompt inspection |
+| R-8: Search Provider Fallback (Exa -> Firecrawl) | YES (`lib/search-provider.ts`) | `tests/search-provider-auto.test.ts` (3/3); auto mode seamlessly cascades through configured provider chain | Preview deployment `7238293233` (commit `833f057`) | Live search provider key provisioning |
+| R-5: Resource Ledger Verification | YES (`stryde_record_resource_usage`, `stryde_reserve_resources`) | Verified no separate defect; atomic ledgering confirmed | YES (DB functions live) | Production DB quota check |
+| Full Suite Verification | YES | `npm test` (332/332 passing), `npx tsc --noEmit` (0 errors), `npm run lint` (0 errors), `npm run build` (clean Turbopack), `npm audit --omit=dev` (0 vulnerabilities) | Hosted CI PASSED (run `39682919479`) | Production deployment authorization |
+
 ## Reconciliation update — 2026-10-21 (current branch synchronized with main 5259e7d)
 
 | Area | Implemented | Tested | Deployed / Live | Remaining evidence |

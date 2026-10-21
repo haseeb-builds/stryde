@@ -99,6 +99,8 @@ export async function GET(request: Request, context: RouteContext) {
     const { supabase, user } = await requireAuthenticatedSupabase(request.headers.get("authorization"));
     const { id } = await context.params;
 
+
+
     const { data: pursuit, error: pursuitError } = await supabase
       .from("pursuit")
       .select("id")

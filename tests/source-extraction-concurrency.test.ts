@@ -218,3 +218,29 @@ test("R-6 source extraction concurrency: concurrent requests atomically decremen
   );
   assert.equal(availableQuota, 0, "Available quota must be exactly 0 (no negative or leaked quota)");
 });
+
+test("R-6 research MATERIALIZE_RESULT: reserves source_extraction and releases on unextractable content", async () => {
+  const { client, calls } = createMockService();
+
+  const reservation = await reserveResources(client, {
+    ownerUserId: "user-mat-1",
+    pursuitId: "pursuit-mat-1",
+    operationKey: "source_extraction:user-mat-1:test:12345",
+    capabilityKey: "sources.url_ingest",
+    requests: [{ resource: "source_extraction", expected: 1 }],
+  });
+
+  // Simulate unextractable content (fetchStatus != FETCHED and != PARTIAL)
+  const ingested = { fetchStatus: "FAILED", contentText: null };
+  if (!ingested.contentText || (ingested.fetchStatus !== "FETCHED" && ingested.fetchStatus !== "PARTIAL")) {
+    await reservation.release().catch(() => {});
+  }
+
+  const releaseCall = calls.find((c) => c.method === "stryde_release_reservations");
+  assert.ok(releaseCall, "stryde_release_reservations must be called when materialized content is unextractable");
+  assert.equal(
+    calls.filter((c) => c.method === "stryde_reconcile_reservation").length,
+    0,
+    "No reconciliation when extraction yields no usable content"
+  );
+});

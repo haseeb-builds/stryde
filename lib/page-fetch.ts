@@ -1,3 +1,4 @@
+import { assertPublicHttpUrl } from "./ssrf.ts";
 // Mechanical page text observation, shared by VERIFY_WEB checks and URL
 // source ingestion.
 //
@@ -71,24 +72,50 @@ export function htmlToText(body: string): string {
 
 type DirectOutcome = { body: string | null; status: number | null; error: string | null };
 
-async function fetchDirect(url: string, fetchImpl: typeof fetch): Promise<DirectOutcome> {
+async function fetchDirect(initialUrl: string, fetchImpl: typeof fetch): Promise<DirectOutcome> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  let currentUrl = initialUrl;
+  const maxRedirects = 5;
+
   try {
-    const response = await fetchImpl(url, {
-      method: "GET",
-      redirect: "follow",
-      signal: controller.signal,
-      headers: { ...DIRECT_HEADERS },
-    });
-    // Only a 2xx body is page content. A 4xx/5xx is the origin's definitive
-    // answer: report the status, never read an error page as content.
-    if (response.status < 200 || response.status >= 300) {
-      return { body: null, status: response.status, error: `HTTP ${response.status}` };
+    for (let hop = 0; hop <= maxRedirects; hop++) {
+      const response = await fetchImpl(currentUrl, {
+        method: "GET",
+        redirect: "manual",
+        signal: controller.signal,
+        headers: { ...DIRECT_HEADERS },
+      });
+
+      if (response.status >= 300 && response.status < 400) {
+        const location = response.headers.get("location");
+        if (!location) {
+          return { body: null, status: response.status, error: `HTTP ${response.status} redirect without location header` };
+        }
+        if (hop === maxRedirects) {
+          return { body: null, status: response.status, error: "Too many redirects" };
+        }
+        const resolved = new URL(location, currentUrl).toString();
+        try {
+          await assertPublicHttpUrl(resolved);
+        } catch (ssrfError) {
+          return {
+            body: null,
+            status: response.status,
+            error: ssrfError instanceof Error ? ssrfError.message : "Redirect destination is forbidden",
+          };
+        }
+        currentUrl = resolved;
+        continue;
+      }
+
+      if (response.status < 200 || response.status >= 300) {
+        return { body: null, status: response.status, error: `HTTP ${response.status}` };
+      }
+      return { body: (await response.text()).slice(0, MAX_BODY_CHARS), status: response.status, error: null };
     }
-    // The body is capped after reading; content beyond the cap is never read
-    // unbounded (same semantics the verification check has always had).
-    return { body: (await response.text()).slice(0, MAX_BODY_CHARS), status: response.status, error: null };
+
+    return { body: null, status: null, error: "Too many redirects" };
   } catch (error) {
     const aborted = error instanceof Error && (error.name === "AbortError" || error.name === "TimeoutError");
     return {

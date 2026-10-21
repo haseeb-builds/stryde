@@ -5,7 +5,7 @@
   - **R-2:** `supersedeAdaptation` and `updateAdaptationAuditStatus` fail closed on empty update results (`affectedCount: 0`). Orchestration aborts inserting new adaptation on both the normal try path and error catch path if supersession fails.
   - **R-3:** `executeWebResearch` writes `pursuit_id` to observation `content`, `raw_payload`, and `source_metadata`. `assembleAdaptiveSituation` enforces a strict cross-pursuit guard: drops observations whose explicit `pursuit_id` belongs to another pursuit, even when sharing a `source_uri`, while preserving source-less observations for the active pursuit.
   - **R-6:** Direct `/sources` URL extraction uses atomic `reserveResources` + `reconcile` / `release` on `source_extraction` quota, returning HTTP 429 on exhaustion and HTTP 503 on reconciliation failure, eliminating concurrency races.
-- All 328 tests pass (`npm test`). `npx tsc --noEmit` clean. ESLint 0 errors, 0 warnings. Next.js Turbopack production build clean across all routes. Production audit 0 vulnerabilities.
+- All 332 tests pass (`npm test`). `npx tsc --noEmit` clean. ESLint 0 errors, 0 warnings. Next.js Turbopack production build clean across all routes. Production audit 0 vulnerabilities.
 
 ## Runtime checkpoint — 2026-10-21 (R-1, R-2, R-3, R-6, R-7, R-8 closed on fix/conversation-turn-reliability)
 

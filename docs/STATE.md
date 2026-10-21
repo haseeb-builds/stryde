@@ -23,7 +23,7 @@
     - Ingestion failures or reconciliation failures release reservations and fail closed (HTTP 503).
     - Prevents race conditions and double reservations under concurrent load.
     - Verified by `tests/source-extraction-concurrency.test.ts` (5/5) and `tests/resource-autonomy-controls.test.ts`.
-- Full verification suite: 328/328 tests pass. TypeScript: 0 errors (`npx tsc --noEmit`). ESLint: 0 errors, 0 warnings (`npm run lint`). Turbopack production build clean across all routes. Production audit: 0 vulnerabilities (`npm audit --omit=dev`).
+- Full verification suite: 332/332 tests pass. TypeScript: 0 errors (`npx tsc --noEmit`). ESLint: 0 errors, 0 warnings (`npm run lint`). Turbopack production build clean across all routes. Production audit: 0 vulnerabilities (`npm audit --omit=dev`).
 
 ## 2026-10-21 — Core release-hardening defects closed & verified: R-1, R-2, R-3, R-6, R-7, R-8 (`fix/conversation-turn-reliability`)
 

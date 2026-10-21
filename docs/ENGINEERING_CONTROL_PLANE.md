@@ -46,7 +46,7 @@ Argon reported local branch `fix/conversation-turn-reliability` at `ecb38379fe15
 ### Priority 1 — policy and quota enforcement
 
 5. **[COMPLETED] R-6 — Resource and autonomy controls & source extraction concurrency:** Enforced `checkAutoResearch(userPolicy)` in `/work` before automated research execution; wrapped background research with `research_rounds` reservation and release/reconciliation. Direct `/sources` URL extraction uses atomic `reserveResources` + `reconcile` / `release` on `source_extraction` quota, returning HTTP 429 on exhaustion and HTTP 503 on reconciliation failure, eliminating concurrency races. Metered `model_turns` usage in `/conversation` pre-stream blocker path. Verified by `tests/source-extraction-concurrency.test.ts` (5/5) and `tests/resource-autonomy-controls.test.ts`.
-6. **[COMPLETED] R-8 — Provider configuration mismatch:** Supported `STRYDE_SEARCH_PROVIDER=auto` in `lib/search-provider.ts` with seamless provider chain fallback from Exa to SearXNG. Verified by `tests/search-provider-auto.test.ts` (3/3 passed).
+6. **[COMPLETED] R-8 — Provider configuration mismatch:** Supported `STRYDE_SEARCH_PROVIDER=auto` in `lib/search-provider.ts` with seamless provider chain fallback between Exa and Firecrawl. Verified by `tests/search-provider-auto.test.ts` (3/3 passed).
 7. **[AUDITED / RESOLVED] R-5 — Ledger verification:** Confirmed no distinct defect was defined under R-5 in defect registers; resource ledgering and reservation lifecycle are verified through `stryde_record_resource_usage` and `stryde_reserve_resources`.
 7. Audit initial pursuit/source intake so preliminary roadmap steps remain `UNVERIFIED` until research-backed audit is complete.
 

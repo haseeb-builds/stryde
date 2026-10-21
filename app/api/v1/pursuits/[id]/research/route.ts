@@ -39,8 +39,50 @@ export async function POST(request: Request, context: RouteContext) {
       const highlights = Array.isArray(body.highlights) ? body.highlights.filter((value): value is string => typeof value === "string").slice(0, 5) : [];
       const { data: existing } = await supabase.from("pursuit_source").select("id, source_kind, uri, title, content_type, fetch_status, content_sha256, source_metadata, created_at, updated_at").eq("pursuit_id", id).eq("owner_user_id", user.id).eq("uri", url).maybeSingle();
       if (existing) return NextResponse.json({ source: existing, materialized: false });
-      const ingested = await ingestUrlSource(url);
-      if (!ingested.contentText || (ingested.fetchStatus !== "FETCHED" && ingested.fetchStatus !== "PARTIAL")) return NextResponse.json({ error: "Selected result could not be extracted into usable source content", status: ingested.fetchStatus }, { status: 502 });
+
+      const service = getSupabaseServiceClient();
+      const operationKey = `source_extraction:${user.id}:${Buffer.from(url).toString("base64").slice(0, 32)}:${Date.now()}`;
+      let reservation: ReservationGroup;
+      try {
+        reservation = await reserveResources(service, {
+          ownerUserId: user.id,
+          pursuitId: id,
+          operationKey,
+          capabilityKey: "sources.url_ingest",
+          requests: [{ resource: "source_extraction", expected: 1 }],
+        });
+      } catch (resError) {
+        if (resError instanceof ResourceExhaustedError) {
+          return NextResponse.json(
+            { error: "Daily plan limit reached for source extractions. Your plan resets tomorrow." },
+            { status: 429 },
+          );
+        }
+        return NextResponse.json(
+          { error: "Resource control is unavailable; source extraction is refused rather than unmetered" },
+          { status: 503 },
+        );
+      }
+
+      let ingested;
+      try {
+        ingested = await ingestUrlSource(url);
+      } catch (ingestError) {
+        await reservation.release().catch(() => {});
+        throw ingestError;
+      }
+
+      if (!ingested.contentText || (ingested.fetchStatus !== "FETCHED" && ingested.fetchStatus !== "PARTIAL")) {
+        await reservation.release().catch(() => {});
+        return NextResponse.json({ error: "Selected result could not be extracted into usable source content", status: ingested.fetchStatus }, { status: 502 });
+      }
+
+      try {
+        await reservation.reconcile([{ resource: "source_extraction", expected: 1 }]);
+      } catch {
+        await reservation.release().catch(() => {});
+        return NextResponse.json({ error: "Resource reconciliation failed; extraction cannot be confirmed" }, { status: 503 });
+      }
       // Syndication record: identical content under a different URI is a
       // shared primary source, not independent corroboration (Phase 8).
       const { data: shaTwin } = ingested.contentSha256
