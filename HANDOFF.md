@@ -1,14 +1,19 @@
 # Stryde Handoff
 
 
-## 2026-10-21 — security baseline & control plane reconciliation (current candidate)
+## 2026-10-21 — security baseline released to production (current truth)
 
 ### What just changed
-- Rebased PR #9 (`chore/release-baseline-security-2026-10-17`) onto `origin/main` (`b3680469703369fa8f27123fc0eb04f171700f49`).
-- Pinned Next.js and `eslint-config-next` to `16.4.2` and `puppeteer-core` to `25.14.0`, closing all 13 production vulnerabilities (including Critical advisory GHSA-6gpp-xcg3-4w24). `npm audit --omit=dev` verified locally with 0 vulnerabilities.
-- Portable module path helper (`scripts/repo-root.mjs`) and regression test (`tests/repo-root.test.ts`) verified clean across all 255 tests.
-- Reconciled PR #12 by incorporating `docs/ENGINEERING_CONTROL_PLANE.md` into the canonical repository record.
-- Historical checkpoints are preserved below. Production remains gated for user approval; PR #9 is unmerged.
+- **PR #9 squash-merged to main:** commit `68f98517522ea8d50311b53aebaf3974217216c9` merged with head guard on `f0eeefa`.
+- **Production deployment READY:** Vercel deployment `7232279533` (`U9TyZuZdtBFRAckVU7Hp7NRdbWD8`) on `68f9851` is live at `https://stryde-topaz.vercel.app`.
+- **CI green on main:** GitHub Actions run `39640958877` (`verify`) passed all unit tests, typecheck, lint, audit, and build.
+- **Production audit clean:** Next.js 16.4.2 + puppeteer-core 25.14.0 live with 0 production vulnerabilities.
+- **Safe production smoke test passed:** HTTP 200 on landing, HTTP 200 on `/api/health/model`, HTTP 401 on unauthenticated `/api/v1/pursuits`.
+- **Database disclosure:** PR #9 contained 0 DDL migrations. Isolated test records from local pre-merge E2E runs are preserved in Supabase project `pvijrnwdnolvnoibarrj` under test user `5b1dbe29-d6b7-4c0f-86bd-f285b4465a37` (protected by RLS).
+
+### Immediate next action
+- Rebase feature branch `fix/conversation-turn-reliability` (`ecb38379fe15abc8d8c6901844af26074d316daf`) onto the updated `origin/main` (`68f98517522ea8d50311b53aebaf3974217216c9`).
+- Implement and verify the research-first and roadmap-audit tasks (R-1 through R-8) per `docs/ENGINEERING_CONTROL_PLANE.md`.
 
 ## 2026-10-17 — prior engineering handoff (superseded)
 

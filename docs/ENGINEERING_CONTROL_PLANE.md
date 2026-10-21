@@ -19,7 +19,7 @@
 ### Independently checked through GitHub connector on 2026-10-21
 
 - Repository: [haseeb-builds/stryde](https://github.com/haseeb-builds/stryde), default branch `main`; connector reports the account has push/admin permissions.
-- PR #9, [Release baseline: harden dependencies and verify clean build](https://github.com/haseeb-builds/stryde/pull/9), is open and unmerged.
+- PR #9, [Release baseline: harden dependencies and verify clean build](https://github.com/haseeb-builds/stryde/pull/9), is squash-merged into `main` as commit `68f98517522ea8d50311b53aebaf3974217216c9` and deployed to production (Vercel deployment `7232279533`, READY).
 - PR #9 head is `5cb0ba90c2523fdd60f0517f6e4acd85e73b6c19`; its recorded base SHA is `319ae0fd2faba19e59db3424a513e4f4ca11cce5`, which is stale relative to the reported current main head. GitHub reports the PR as mergeable at the time checked; this does not establish that it is current, safe, or release-ready.
 - The feature branch's commit `ecb38379fe15abc8d8c6901844af26074d316daf` has a Vercel status context marked success with a preview URL. This connector status result alone does not independently prove the full GitHub Actions run or the live user journey.
 - The current `main` version of `docs/STATE.md` still records production as commit `1df79487da20bd4066e7ff492f6851c0960e6141` and deployment `dpl_HxMc5YPcdgndAT9KnvaEHYNQKm2G`. The user-provided Argon report says actual production is `b3680469703369fa8f27123fc0eb04f171700f49` / `dpl_2LtLW5PZGgEh1EBVWpbX4X5GPvQn`. **This discrepancy needs direct Vercel reconciliation before canonical deployment records are changed.**
@@ -33,7 +33,7 @@ Argon reported local branch `fix/conversation-turn-reliability` at `ecb38379fe15
 
 ### Priority 0 — security baseline and research correctness
 
-1. **Reconcile PR #9 against the current `main`.** Verify current security advisories and exact lockfile resolution; update/rebase the PR onto the real current main; resolve documentation conflicts without overwriting newer evidence; run clean install, `npm audit --omit=dev`, tests, typecheck, lint, build, hosted CI, and preview checks. Do not merge until gates pass and the user approves the production-affecting step.
+1. **[COMPLETED] Reconcile PR #9 against current main and release to production.** Next.js 16.4.2 + puppeteer-core 25.14.0 squash-merged as commit `68f98517522ea8d50311b53aebaf3974217216c9`. Hosted CI run `39640958877` passed. Production deployment `7232279533` is READY. Live smoke test confirmed HTTP 200 on landing and health check.
 2. **Fix research-first/roadmap-audit defects on `fix/conversation-turn-reliability` after rebasing onto the accepted security baseline:**
    - **R-1 — Citation persistence/schema:** reported wrong `pursuit_source_citation` columns, missing NOT NULL fields, incorrect source linkage, and ignored insert errors. Confirm migration/schema and use the canonical citation builder/real retrieved source rows.
    - **R-2 — Adaptation supersession/RLS:** reported v1 `SUPERSEDED` update silently blocked by RLS. Use the approved trusted-plane boundary scoped to owner and row, or an appropriately secured policy/RPC; assert affected-row/error behavior.

@@ -1,12 +1,17 @@
 ## Runtime checkpoint — 2026-10-06 post-GLM (current)
 
 
-## Runtime checkpoint — 2026-10-21 (security candidate)
+## Runtime checkpoint — 2026-10-21 (production release truth)
 
-- Production remains on `main` at `b3680469703369fa8f27123fc0eb04f171700f49` (deployment `dpl_2LtLW5PZGgEh1EBVWpbX4X5GPvQn`, READY).
-- PR #9 (`chore/release-baseline-security-2026-10-17`) is rebased onto `main` and verified locally (`npm audit --omit=dev` passes with 0 vulnerabilities; all 255 tests pass; build clean).
-- PR #9 is gated for user approval; production deployment is NOT yet updated with Next.js 16.4.2 until PR #9 is merged.
-- PR #12 engineering control plane recorded at `docs/ENGINEERING_CONTROL_PLANE.md`.
+- Production is live on `main` at `68f98517522ea8d50311b53aebaf3974217216c9` (Vercel deployment `7232279533` / `U9TyZuZdtBFRAckVU7Hp7NRdbWD8`, READY), aliased to `https://stryde-topaz.vercel.app`.
+- Next.js 16.4.2 + puppeteer-core 25.14.0 live in production; `npm audit --omit=dev` verified clean with 0 vulnerabilities.
+- GitHub Actions CI run `39640958877` (`verify`) PASSED on merge commit `68f9851`.
+- Live smoke test results:
+  - `/`: HTTP 200 (Turbopack SSR / static shell rendered).
+  - `/api/health/model`: HTTP 200 (OpenRouter / Gemini chain configured, `ready: true`).
+  - `/api/v1/pursuits`: HTTP 401 Unauthorized (auth boundary verified).
+- Single Supabase instance: `pvijrnwdnolvnoibarrj` remains active with 41 migrations; no DDL in this release. Test records from pre-merge verification are isolated under test user `5b1dbe29-d6b7-4c0f-86bd-f285b4465a37` by RLS.
+- Engineering control plane recorded at `docs/ENGINEERING_CONTROL_PLANE.md`.
 
 ## Runtime checkpoint — 2026-10-17 (superseded)
 

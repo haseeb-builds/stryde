@@ -1,7 +1,23 @@
 ## 2026-10-06 (later) — capability-composition platform (Issue #8) checkpoint (current)
 
 
-## 2026-10-21 — release baseline security reconciliation (current candidate)
+## 2026-10-21 — release baseline security release (current production truth)
+
+This checkpoint records the successful authorization, squash-merge, and production release of PR #9 (`chore/release-baseline-security-2026-10-17`) into `origin/main` at commit `68f98517522ea8d50311b53aebaf3974217216c9`. Historical checkpoints below are retained as evidence.
+
+### Production repository and release baseline
+- PR #9 was squash-merged into `main` via GitHub API with head guard on `f0eeefab51e6be0091ea90a9345e578f2f5e728c`. Resulting `main` commit SHA is `68f98517522ea8d50311b53aebaf3974217216c9`.
+- Vercel production deployment `7232279533` (`U9TyZuZdtBFRAckVU7Hp7NRdbWD8`) automatically triggered, completed with state `success`, and reached `READY`. Target URL: `https://stryde-f0fiumxem-abdhaseebtech-5772s-projects.vercel.app`, aliased to production `https://stryde-topaz.vercel.app`.
+- Hosted GitHub Actions CI run `39640958877` / job `119364024415` (`verify`) PASSED on `68f98517522ea8d50311b53aebaf3974217216c9`.
+- Production dependency audit: `npm audit --omit=dev` reports 0 vulnerabilities on Next.js 16.4.2 + puppeteer-core 25.14.0 (closing all 13 production vulnerabilities including Critical App Router advisory GHSA-6gpp-xcg3-4w24).
+- Production smoke test verified live:
+  - `GET https://stryde-topaz.vercel.app`: HTTP 200 OK.
+  - `GET https://stryde-topaz.vercel.app/api/health/model`: HTTP 200 OK (`ready: true`, chain `gemini -> openrouter -> omniroute`, disabled `omniroute`).
+  - `GET https://stryde-topaz.vercel.app/api/v1/pursuits`: HTTP 401 Unauthorized (`Missing bearer token`), verifying active auth boundary.
+- Database state: PR #9 contained zero database migrations (DDL). Live Supabase project `pvijrnwdnolvnoibarrj` retains isolated test records from local pre-merge E2E testing under dedicated test user `5b1dbe29-d6b7-4c0f-86bd-f285b4465a37` (isolated by Row Level Security; no other accounts or tables touched). Records are preserved without mutation or deletion.
+- Engineering control plane incorporated at `docs/ENGINEERING_CONTROL_PLANE.md`.
+
+## 2026-10-21 (earlier) — release baseline security reconciliation (superseded by release above)
 
 This checkpoint records the reconciliation of PR #9 (`chore/release-baseline-security-2026-10-17`) and PR #12 (`docs/ENGINEERING_CONTROL_PLANE.md`) with `origin/main` (`b3680469703369fa8f27123fc0eb04f171700f49`). Historical checkpoints below are retained as evidence.
 
