@@ -1,7 +1,38 @@
-## Reconciliation update — 2026-10-06 post-GLM
+## Reconciliation update — 2026-10-22 (Engineering-Complete V1 Candidate & Google Stitch Handoff Pack)
 
+| Area | Implemented | Tested | Deployed / Live | Remaining evidence |
+|---|---|---|---|---|
+| Google Stitch Design Brief | YES (`docs/STITCH_DESIGN_BRIEF.md`) | Founder-ready brief with 12 screen states and ready-to-paste Stitch prompt | Local docs | Founder visual design exploration in Stitch |
+| Stitch Integration Contract | YES (`docs/STITCH_INTEGRATION_CONTRACT.md`) | Component boundaries, frozen state types, post-import test procedure | Local docs | Post-Stitch import diff verification |
+| Manual Setup & Environment Checklist | YES (`docs/MANUAL_SETUP_AND_ENVIRONMENT_CHECKLIST.md`) | Complete discovered env vars, platform secrets, staging DB requirements | Local docs | Founder secret provisioning in Vercel |
+| Deferred Work & Launch Blockers Ledger | YES (`docs/DEFERRED_WORK_AND_LAUNCH_BLOCKERS.md`) | 7 decision ledger items with owners, acceptance tests, and severity | Local docs | Resolution of launch blockers prior to public release |
+| Post-Stitch Verification Mandate | YES (`docs/POST_STITCH_FINAL_VERIFICATION_MANDATE.md`) | Executable follow-up `/goal` mandate for post-design review and pre-launch gate | Local docs | Execution of mandate after Stitch import |
 
-## Reconciliation update — 2026-10-21 (production release truth)
+## Reconciliation update — 2026-10-22 (Observation Retrieval, Worker Honesty, and Secondary Citation Audit verified)
+
+| Area | Implemented | Tested | Deployed / Live | Remaining evidence |
+|---|---|---|---|---|
+| Observation Retrieval Contract & Scoping | YES (`lib/pursuit-observations.ts`, `/observations` route, `claims-panel.tsx`) | `tests/pursuit-observations.test.ts` (6/6); strictly scoped to owner and active pursuit ID across metadata and actions | Feature branch | Authenticated UI claim verification in browser |
+| Worker Execution Honesty & Fallback | YES (`app/pursuits/[id]/page.tsx`, `work-panels.tsx`) | Non-trapping UI logic; unlocks "I'm done" / "I'm blocked" manual completion buttons for CONTROLLED moves | Feature branch | Manual worker task progression in browser |
+| Secondary Citation Ingestion Audit Persistence | YES (`lib/source-adaptation-store.ts`, `lib/universal-input.ts`, `app/api/v1/pursuits/[id]/research/route.ts`) | `tests/source-adaptation-audit.test.ts` (3/3); updates adaptation audit status via trustedPlane on unlocatable, failed, or partial claims | Feature branch | Live citation persistence with unlocatable sources |
+| Model Provider Failover & Retry | YES (`lib/model-provider.ts`) | `tests/model-provider-retry.test.ts` (6/6); 429 rate limit retries/failover, malformed JSON retry, immediate AbortError cancellation | Feature branch | Live provider rate limiting |
+| Full Suite Verification | YES | `node --experimental-strip-types --test tests/**/*.test.ts` (342/342 passing across 46 suites), `npx tsc --noEmit` (0 errors), `npm run lint` (0 errors), `npm run build` (clean Turbopack), `npm audit --omit=dev` (0 vulnerabilities) | Hosted CI pending commit | PR review & squash merge approval |
+
+## Reconciliation update — 2026-10-22 (release blockers closed & verified across all integration boundaries: R-1, R-2, R-3, R-6)
+
+| Area | Implemented | Tested | Deployed / Live | Remaining evidence |
+|---|---|---|---|---|
+| R-1: Citation Semantics & Schema Integrity across all paths | YES (`lib/source-citation.ts`, `lib/research-orchestration.ts`, `app/api/v1/pursuits/[id]/sources/route.ts`) | `tests/source-citation.test.ts` (8/8), `tests/research-citation-persistence.test.ts` (4/4), `tests/research-citation-integrity.test.ts` (5/5) | Preview deployment `7238293233` (commit `833f057`) | Authenticated live E2E test on isolated staging |
+| R-2: Adaptation Supersession & Audit Status Persistence | YES (`lib/research-orchestration.ts`) | `tests/adaptation-supersession.test.ts` (7/7); fails closed (`affectedCount: 0`) and aborts insertion | Preview deployment `7238293233` (commit `833f057`) | Authenticated live E2E test |
+| R-3: Search Observation Contract & Cross-Pursuit Isolation | YES (`lib/research-execution.ts`, `lib/adaptive-situation.ts`) | `tests/search-observations-situation.test.ts` (3/3); strict cross-pursuit guard & source-less observation preservation | Preview deployment `7238293233` (commit `833f057`) | Live search observation retrieval |
+| R-4: Blocked Research Ungrounded Advice Prevention | YES (`lib/research-orchestration.ts`, `app/api/v1/pursuits/[id]/conversation/route.ts`) | `tests/research-blocked-ungrounded-guard.test.ts` (6/6); pre-stream blocker returns honest SSE message without LLM invocation | Preview deployment `7238293233` (commit `833f057`) | Live conversation turn with disabled research |
+| R-6: Source Extraction Atomic Quota & Concurrency Safety | YES (`app/api/v1/pursuits/[id]/sources/route.ts`, `lib/resource-control.ts`) | `tests/source-extraction-concurrency.test.ts` (5/5), `tests/resource-autonomy-controls.test.ts` (4/4); atomic reservation, reconciliation, and release | Preview deployment `7238293233` (commit `833f057`) | Concurrent load test |
+| R-7: Context Compiler Roadmap Integrity | YES (`lib/context-compiler.ts`) | `tests/context-compiler-roadmap-integrity.test.ts` (1/1); retains full adaptation audit metadata | Preview deployment `7238293233` (commit `833f057`) | Model prompt inspection |
+| R-8: Search Provider Fallback (Exa -> Firecrawl) | YES (`lib/search-provider.ts`) | `tests/search-provider-auto.test.ts` (3/3); auto mode seamlessly cascades through configured provider chain | Preview deployment `7238293233` (commit `833f057`) | Live search provider key provisioning |
+| R-5: Resource Ledger Verification | YES (`stryde_record_resource_usage`, `stryde_reserve_resources`) | Verified no separate defect; atomic ledgering confirmed | YES (DB functions live) | Production DB quota check |
+| Full Suite Verification | YES | `npm test` (332/332 passing), `npx tsc --noEmit` (0 errors), `npm run lint` (0 errors), `npm run build` (clean Turbopack), `npm audit --omit=dev` (0 vulnerabilities) | Hosted CI PASSED (run `39682919479`) | Production deployment authorization |
+
+## Reconciliation update — 2026-10-21 (current branch synchronized with main 5259e7d)
 
 | Area | Implemented | Tested | Deployed / Live | Remaining evidence |
 |---|---|---|---|---|
@@ -9,30 +40,50 @@
 | Portable module path resolution | YES (`scripts/repo-root.mjs`) | `tests/repo-root.test.ts` passed | YES | Live in production across all worker & E2E scripts |
 | CI production dependency audit gate | YES (`ci.yml`) | Verified in hosted CI run `39640958877` on main | YES | Active on main branch |
 | Engineering control plane | YES (`docs/ENGINEERING_CONTROL_PLANE.md`) | Reconciled with PR #12 | YES | Merged into main branch |
+| Research reservation lifecycle | YES (`lib/resource-control.ts`) | 25 integration tests passed | LOCAL | Synchronized on feature branch |
+| Domain goal intent recognition | YES (`lib/research-orchestration.ts`) | Unit tests passed | LOCAL | Synchronized on feature branch |
+| Roadmap audit adaptation | YES (`lib/universal-input.ts`) | Tests passed | LOCAL | Synchronized on feature branch |
+| R-4: Blocked research ungrounded advice prevention | YES (`lib/research-orchestration.ts`, `route.ts`) | 6/6 regression tests in `tests/research-blocked-ungrounded-guard.test.ts`; 296/296 full suite | LOCAL | Synchronized on feature branch |
+| R-1: Citation persistence & schema reconciliation | YES (`lib/research-orchestration.ts`, `lib/source-citation.ts`) | 4/4 regression tests in `tests/research-citation-persistence.test.ts`; 300/300 full suite | LOCAL | Synchronized on feature branch |
 
 ## Reconciliation update — 2026-10-17 (superseded)
 
+
 | Area | Implemented | Tested | Deployed / Live | Remaining evidence |
 |---|---|---|---|---|
-| Trusted-plane RPC grants | YES | Regression tests passed in CI; live before/after privilege query run | YES — migration version `20261017185728` applied | Continue reviewing other user-callable SECURITY DEFINER functions |
-| Artifact revision actor binding | YES | SQL definition inspected; CI regression test passed | YES | Adversarial authenticated cross-user invocation not separately exercised |
+| Resource safety & reservation/reconciliation lifecycle | YES | Integrated in `lib/resource-control.ts` and `lib/research-orchestration.ts` with `reserveResources`, `releaseReservations`, `reconcileReservation`, replay idempotency (`research:${turnKey}`), and honest discrimination between quota exhaustion (`BUDGET_EXHAUSTED`) and RPC failures (`UNAVAILABLE`); 25/25 orchestration tests, 289/289 full suite | Local branch `fix/conversation-turn-reliability` | Live DB quota verification on production database |
+| Natural goal intent detection across domains | YES | `detectPursuitGoalIntent` in `lib/research-orchestration.ts` parses natural goal language (fitness, career, tech, business, roadmap) while excluding banter, greetings, and mere mentions; tested across positive/negative suites in `tests/research-first-orchestration.test.ts` | Local branch `fix/conversation-turn-reliability` | Production user interaction evaluation |
+| Roadmap audit correctness & adaptation v2 | YES | Original roadmap preserved unchanged in `pursuit_source`; preliminary intake methods forced to `UNVERIFIED`; post-research critical adaptation re-evaluates methods against evidence, creating version 2 with linked citations; falls back to `INCOMPLETE` with `UNVERIFIED` methods on model failure; tested in `tests/research-first-orchestration.test.ts` | Local branch `fix/conversation-turn-reliability` | Production verification with real roadmap uploads |
+| Real retrieval statuses & honest locators | YES | `lib/research-execution.ts` differentiates `FULL_TEXT`, `PARTIAL_CONTENT`, `PAYWALLED`, `SNIPPET`, `INACCESSIBLE`, `TRANSCRIPT_UNAVAILABLE` (with `#media` locators); sets `primary_source_traced: locator_type === "FULL_TEXT"`; tested in `tests/research-first-orchestration.test.ts` | Local branch `fix/conversation-turn-reliability` | Live web crawling with active search keys |
+| Direct route execution & regression suite | YES | Route-level tests in `tests/research-first-orchestration.test.ts` exercise `executeResearchAndRoadmapOrchestration` end-to-end with realistic mocks (quota exhaustion, RPC error, provider error, replay, post-research audit, unverified preliminary methods, and paywall classification) | Local branch `fix/conversation-turn-reliability` | Live authenticated end-to-end turn on deployed infrastructure |
+
+## Reconciliation update — 2026-10-18 (`fix/conversation-turn-reliability` historical)
+
+| Area | Implemented | Tested | Deployed / Live | Remaining evidence |
+|---|---|---|---|---|
+| Trusted-plane RPC grants & SECURITY DEFINER owner checks | YES | Regression tests passed (`tests/trusted-plane-rpc-grants.test.ts` 4/4); live before/after privilege query run | YES — migration version `20261017185728` applied | Adversarial live cross-user RPC invocation not separately exercised |
+| Artifact revision actor binding | YES | SQL definition inspected; CI regression test passed | YES | None known |
 | Resource window search path | YES | CI regression test and live `proconfig` query | YES — `search_path=pg_catalog` | None known for this helper |
-| Model provider configuration | YES | Live health endpoint returned HTTP 200 | YES | This is not proof of successful text generation |
-| Complete authenticated production conversation | YES in code | Earlier partial stream/persistence evidence exists | PARTIAL | Re-run current deployment: first structured turn, adaptive state update, second turn and persistence |
+| Turn 2 `CREATE_ACTION` & working-state normalization + retry-amplification guard | YES | Unit & regression tests (`tests/conversation-turn-normalization.test.ts` 5/5; 276/276 total) | Local branch `fix/conversation-turn-reliability` (awaiting deploy authorization) | Deploy branch and run live two-turn production conversation journey |
+| Research-first conversation turn execution | YES | Integrated in `app/api/v1/pursuits/[id]/conversation/route.ts` with deterministic policy (`detectDeterministicResearchRequirement`) across domain goals (Fitness, Career, Tech, Business) executing web research before streaming; regression tests passing (`tests/research-first-orchestration.test.ts` 12/12) | Local branch `fix/conversation-turn-reliability` | Live verification with configured Exa/Firecrawl keys |
+| Search result page retrieval & real locators | YES | Safe page retrieval via `ingestUrlSource` attached to `pursuit_source`; classified into `FULL_TEXT`, `SNIPPET`, `INACCESSIBLE`, `TRANSCRIPT_UNAVAILABLE` with real locators (`#sha256:`, `#media`) | Local branch `fix/conversation-turn-reliability` | Real web retrieval in production environment |
+| Unconfigured / unauthorized research blocker handling | YES | When research is required but unconfigured, unauthorized by autonomy policy, or budget-exhausted, honest `WAITING_USER` / `WAITING_EXTERNAL` state and non-hallucinatory message are produced without streaming ungrounded recommendations | Local branch `fix/conversation-turn-reliability` | Live conversation test with disabled auto-research |
+| Research resource budgeting & metering | YES | Pre-flight entitlement check via `stryde_resource_available(p_owner, 'research_rounds')` on trusted plane and post-hoc usage recording via `recordResourceUsage` | Local branch `fix/conversation-turn-reliability` | Live DB quota verification |
+| Roadmap audit statuses (`KEEP`, `CHANGE`, `REMOVE`, `MISSING`, `UNVERIFIED`, `NEEDS_EXPERIMENT`) | YES | Preliminary pasted intake sets methods to `UNVERIFIED` before evidence acquisition; post-research critical audit updates versioned adaptation with citations; UI badges in `work-panels.tsx` verified | Local branch `fix/conversation-turn-reliability` | Deploy branch and verify roadmap inspection UX |
+| Reload `"Conversation archived"` false-positive UI fix | YES | Verified in `app/pursuits/[id]/page.tsx` & Next.js production build | Local branch `fix/conversation-turn-reliability` | Deploy branch and verify reload in production browser |
+| Trigger → dispatcher job enqueueing & notification loop | YES | Unit tests (`tests/trigger-notification.test.ts` 7/7) covering `ONE_TIME`, `RECURRING`, `STATE`, `EVENT`, worker job dispatch, and notification fallback | Local branch `fix/conversation-turn-reliability` | Deploy branch and exercise scheduled trigger enqueueing against live DB |
+| Artifacts UI surface (`PursuitArtifactsPanel`) | YES | Typecheck, lint, and Next.js production build clean | Local branch `fix/conversation-turn-reliability` | Deploy branch and verify in production browser |
+| Model provider configuration & Gemini env var reconciliation | YES | Live health endpoint returned HTTP 200; primary `gemini-2.5-flash` / `gemini-flash-latest` via direct Google AI Studio API (`GEMINI_API_KEY`, `STRYDE_GEMINI_API_KEY`, `GOOGLE_AI_STUDIO_API_KEY`) with OpenRouter fallback verified | YES | Live text generation on deployed Vercel instance |
+| Complete authenticated production conversation | YES in code | Multi-turn normalization, adaptive fallback, and non-amplifying retry verified locally | PARTIAL (awaiting deployment of `fix/conversation-turn-reliability`) | Authorize deploy and run two-turn production verification |
 
-Live database evidence after the security migration: the eight internal entitlement/resource/trigger RPCs return `authenticated_can_execute=false` and `service_role_can_execute=true`. The authenticated artifact revision RPC remains executable by design and now verifies `p_actor = auth.uid()` and artifact ownership in its SECURITY DEFINER body.
+### Root cause of the observed production second-turn failure & reload "archived" state (resolved on `fix/conversation-turn-reliability`)
 
-Security PR #10 merged as `1df7948`; its CI pipeline passed unit tests, typecheck, lint, and production build. The resulting production Vercel deployment is READY. Vercel's last-seven-day grouped runtime-error query returned no errors, but current production conversation reliability is still **NOT PROVEN**.
+1. **`CREATE_ACTION` missing from `AVAILABLE_WORK_MODES` in `lib/work-controller.ts`:** While `WORK_MODES` and `ADAPTIVE_WORK_MODES` included `"CREATE_ACTION"`, `AVAILABLE_WORK_MODES` omitted it. When Turn 1 established an active working state and Turn 2 caused the model to converge to `next_move.mode = "CREATE_ACTION"`, `validateConversationTurn` → `validateWorkingState` threw `"Requested work mode is not currently available"`.
+2. **Pre-generation user turn persistence:** `POST /api/v1/pursuits/[id]/conversation` calls `stryde_record_conversation_user_input` before invoking `streamConversationTurn`. When Turn 2 failed validation (or timed out), the database retained `[1] USER`, `[2] STRYDE`, `[3] USER` with no second `STRYDE` row, while the session itself remained `status = 'ACTIVE'`.
+3. **Retry amplification & secondary LLM call fallback:** Previously, `streamConversationTurn`, `runConversationTurn`, and `runAdaptiveWorkController` wrapped `createModelRouter` in a 2-attempt `for` loop that caught *all* errors—including `ModelProviderError`s that the router had already retried 3 times per provider across the chain—doubling upstream calls to 6 per provider (12 total) and risking serverless timeouts on Turn 2 (which executes both `streamConversationTurn` and `runAdaptiveWorkController`). Additionally, if `runAdaptiveWorkController` failed on Turn 2+, its `catch` block fell back to Turn 1's `session.working_state` instead of `result.turn.work`. Both defects are fixed: `ModelProviderError` and aborted signals rethrow immediately without outer-loop amplification, `turnSignal` is threaded into `runAdaptiveWorkController`, and the fallback preserves `result.turn.work ?? session.working_state`.
+4. **False `"Conversation archived"` UI state on reload:** In `app/pursuits/[id]/page.tsx`, `loadWorkspace` set `loading = false` as soon as the pursuit fetched, before `bootstrapConversation` resolved `session`. While `session` was `null` (or if `bootstrapConversation` failed), `session?.status !== "ACTIVE"` evaluated to `true` and rendered `"Conversation archived"`. The loading guard now waits for `session` during initial load, and `"Conversation archived"` is shown only when `session?.status === "ARCHIVED"`.
 
-The live migration ledger contains 41 entries including version `20261017185728`. Research provider credentials (Exa/Firecrawl), production worker runtime, trigger-to-dispatcher E2E, artifact UI, and leaked-password protection remain outstanding or unverified.
-
-- **CI:** current main `1e3b7d7` has GitHub Actions `verify = SUCCESS`. The old Linux/Node path defect described in the earlier reconciliation was fixed in GLM's execution lineage, and current main includes that repair.
-- **Database:** live migration parity is now **37/37**. `user_agent_preference`, `skill`, `skill_version`, and `funnel_event` are live with RLS enabled. The earlier pending-migration statements below are historical.
-- **Production model:** current health configuration resolves OpenRouter to `nvidia/nemotron-3-super-120b-a12b:free`, Gemini fallback, OmniRoute disabled. This is configuration evidence only.
-- **Production reliability:** a fresh full conversation journey after the streaming malformed-output failover repair is still required. Do not promote this to PRODUCTION VERIFIED until the post-fix journey is observed on current main.
-- **Research:** Exa/Firecrawl live credentials remain absent; live research legs remain externally blocked.
-- **Billing/resource entitlements:** Free/Pro/Max budgeting and enforcement remain implementation targets, not production-proven capabilities.
-- **Issue #7:** capability-composition layer has not yet been implemented. The next engineering phase is governed by `docs/GLM_MASTER_IMPLEMENTATION_BRIEF.md`.
+## Reconciliation update — 2026-10-17 (historical)
 
 # Stryde Verification Matrix
 

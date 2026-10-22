@@ -47,12 +47,12 @@ test("provider output is extraction data only", async () => {
 
 test("citations preserve snapshot identity, exact locator, and basis", () => {
   const citation = buildSourceCitation({ content: "alpha\nbeta", contentSha256: "hash-1", statement: "alpha", basis: "EXPLICIT_SOURCE" });
-  assert.deepEqual(citation.locator, { type: "CHARACTER_RANGE", start: 0, end: 5, located: true });
-  assert.equal(citation.source_content_sha256, "hash-1");
-  assert.equal(citation.basis, "EXPLICIT_SOURCE");
-  const inferred = buildSourceCitation({ content: "same", contentSha256: "hash-2", statement: "inferred conflict", basis: "INFERRED" });
-  assert.notEqual(citation.source_content_sha256, inferred.source_content_sha256);
-  assert.equal(inferred.basis, "INFERRED");
+  assert.deepEqual(citation!.locator, { type: "CHARACTER_RANGE", start: 0, end: 5, located: true });
+  assert.equal(citation!.source_content_sha256, "hash-1");
+  assert.equal(citation!.basis, "EXPLICIT_SOURCE");
+  const inferred = buildSourceCitation({ content: "same with inferred conflict", contentSha256: "hash-2", statement: "inferred conflict", basis: "INFERRED" });
+  assert.notEqual(citation!.source_content_sha256, inferred!.source_content_sha256);
+  assert.equal(inferred!.basis, "INFERRED");
 });
 
 // --- URL ingestion through the page-fetch renderers ---

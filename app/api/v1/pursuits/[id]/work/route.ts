@@ -6,6 +6,8 @@ import { requireAuthenticatedSupabase } from "@/lib/supabase/server";
 import { getSupabaseServiceClient } from "@/lib/supabase/service";
 import { executeWebResearch } from "@/lib/research-execution";
 import { executeMechanicalVerification } from "@/lib/verification-execution";
+import { checkAutoResearch } from "@/lib/autonomy-policy";
+import { reserveResources, ResourceExhaustedError, type ReservationGroup } from "@/lib/resource-control";
 import type { WorkingState } from "@/lib/work-controller";
 
 export const runtime = "nodejs";
@@ -105,53 +107,104 @@ export async function POST(request: Request, context: RouteContext) {
       researchMove.actor === "STRYDE" &&
       situationResult.situation.capabilities.web_search
     ) {
-      try {
-        const execution = await executeWebResearch(
-          supabase,
-          user.id,
-          id,
-          researchMove.title,
-          getSupabaseServiceClient(),
-        );
-        autonomousResearch = execution;
+      const { data: userPolicy } = await supabase
+        .from("user_autonomy_policy")
+        .select("allow_worker_delegation, allowed_worker_types, auto_execute_research")
+        .eq("owner_user_id", user.id)
+        .maybeSingle();
 
-        const refreshedSituation = await assembleAdaptiveSituation(supabase, user.id, id);
-        if (!refreshedSituation.error && refreshedSituation.situation) {
-          result = await runAdaptiveWorkController({
-            pursuitTitle: pursuit.title ?? "Untitled pursuit",
-            contextPacket: compileForSituation(refreshedSituation.situation, { userMessage: conversation[conversation.length - 1]?.content ?? "" }).packet,
-            conversation,
-            previousWorkingState: result.workingState,
-          });
-        }
-      } catch (error) {
-        autonomousResearch = {
-          query: researchMove.title,
-          provider: "unavailable",
-          results: [],
-          observation_id: null,
-        };
+      if (!checkAutoResearch(userPolicy)) {
         result = {
           ...result,
           workingState: {
             ...result.workingState,
-            status: "STALLED",
-            understanding: "Stryde identified a research bottleneck but could not complete the research pass.",
-            bottleneck: error instanceof Error ? error.message : "Web research is temporarily unavailable.",
+            status: "WAITING_USER",
+            understanding: "Stryde identified a research need, but automated research is disabled by your autonomy policy.",
+            bottleneck: "Autonomous research requires user authorization.",
             next_move: {
               ...researchMove,
               mode: "ASK_USER",
               actor: "HUMAN",
               worker_type: null,
-              title: "Choose whether to provide a source or continue later.",
-              why: "The needed research capability was unavailable.",
-              expected_change: "Provide evidence manually or retry when research is available.",
-              stryde_can_do: "Retry the research when the capability is available.",
-              user_needs_to_do: "Provide a source only if you already have one; otherwise you can return later.",
-              completion_condition: "The research question is resolved or intentionally deferred.",
+              title: `Authorize research: "${researchMove.title}"`,
+              why: "Automated research execution is disabled by user policy.",
+              expected_change: "User approves or provides source directly.",
+              stryde_can_do: "Run web research once authorized.",
+              user_needs_to_do: "Confirm research execution or provide information manually.",
+              completion_condition: "Research authorization decision recorded.",
             },
           },
         };
+      } else {
+        const serviceClient = getSupabaseServiceClient();
+        const operationKey = `work_research:${id}:${Date.now()}`;
+        let reservation: ReservationGroup | null = null;
+        try {
+          reservation = await reserveResources(serviceClient, {
+            ownerUserId: user.id,
+            pursuitId: id,
+            operationKey,
+            capabilityKey: "research.web",
+            requests: [{ resource: "research_rounds", expected: 1 }],
+            ttlSeconds: 900,
+          });
+
+          const execution = await executeWebResearch(
+            supabase,
+            user.id,
+            id,
+            researchMove.title,
+            serviceClient,
+          );
+          autonomousResearch = execution;
+          await reservation.reconcile([{ resource: "research_rounds", expected: 1 }]);
+
+          const refreshedSituation = await assembleAdaptiveSituation(supabase, user.id, id);
+          if (!refreshedSituation.error && refreshedSituation.situation) {
+            result = await runAdaptiveWorkController({
+              pursuitTitle: pursuit.title ?? "Untitled pursuit",
+              contextPacket: compileForSituation(refreshedSituation.situation, { userMessage: conversation[conversation.length - 1]?.content ?? "" }).packet,
+              conversation,
+              previousWorkingState: result.workingState,
+            });
+          }
+        } catch (error) {
+          if (reservation) {
+            await reservation.release().catch(() => {});
+          }
+          const isExhausted = error instanceof ResourceExhaustedError;
+          autonomousResearch = {
+            query: researchMove.title,
+            provider: isExhausted ? "budget_exhausted" : "unavailable",
+            results: [],
+            observation_id: null,
+          };
+          result = {
+            ...result,
+            workingState: {
+              ...result.workingState,
+              status: isExhausted ? "WAITING_USER" : "STALLED",
+              understanding: isExhausted
+                ? "Daily research budget has been exhausted."
+                : "Stryde identified a research bottleneck but could not complete the research pass.",
+              bottleneck: isExhausted
+                ? "Daily research limit reached. Provide sources manually or upgrade plan."
+                : (error instanceof Error ? error.message : "Web research is temporarily unavailable."),
+              next_move: {
+                ...researchMove,
+                mode: "ASK_USER",
+                actor: "HUMAN",
+                worker_type: null,
+                title: isExhausted ? "Provide source manually or continue later" : "Choose whether to provide a source or continue later.",
+                why: isExhausted ? "Daily research limit reached." : "The needed research capability was unavailable.",
+                expected_change: "Provide evidence manually or retry when research is available.",
+                stryde_can_do: "Retry the research when the capability is available.",
+                user_needs_to_do: "Provide a source only if you already have one; otherwise you can return later.",
+                completion_condition: "The research question is resolved or intentionally deferred.",
+              },
+            },
+          };
+        }
       }
     }
 

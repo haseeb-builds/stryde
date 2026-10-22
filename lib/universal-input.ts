@@ -1,8 +1,10 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { runSourceAdaptation, type SourceAdaptation } from "@/lib/adaptive-model";
-import { assembleAdaptiveSituation } from "@/lib/adaptive-situation";
-import { buildSourceCitation } from "@/lib/source-citation";
-import { ingestUrlSource } from "@/lib/source-ingestion";
+import { runSourceAdaptation, type SourceAdaptation } from "./adaptive-model.ts";
+import { assembleAdaptiveSituation } from "./adaptive-situation.ts";
+import { buildSourceCitation } from "./source-citation.ts";
+import { ingestPastedSource, ingestUrlSource } from "./source-ingestion.ts";
+import { detectPastedRoadmapFromText, updateAdaptationAuditStatus } from "./research-orchestration.ts";
+import { getSupabaseServiceClient } from "./supabase/service.ts";
 
 const MAX_URLS_PER_TURN = 2;
 
@@ -18,6 +20,12 @@ export type UniversalUrlResult = {
 export type UniversalInputResult = {
   urls: UniversalUrlResult[];
   handled: boolean;
+  pasted_source?: {
+    source_id: string | null;
+    title: string;
+    adapted: boolean;
+    warning: string | null;
+  } | null;
 };
 
 function cleanUrl(value: string): string | null {
@@ -52,9 +60,219 @@ export async function processUniversalInput(
   ownerUserId: string,
   pursuitId: string,
   inputText: string,
+  trustedPlane?: SupabaseClient,
 ): Promise<UniversalInputResult> {
   const urls = extractUrls(inputText);
-  if (!urls.length) return { urls: [], handled: false };
+  if (!urls.length) {
+    const roadmap = detectPastedRoadmapFromText(inputText);
+    if (!roadmap.isRoadmap) return { urls: [], handled: false, pasted_source: null };
+
+    try {
+      const ingested = await ingestPastedSource({
+        content: roadmap.content,
+        title: roadmap.title,
+      });
+
+      const { data: source, error: sourceError } = await supabase
+        .from("pursuit_source")
+        .insert({
+          owner_user_id: ownerUserId,
+          pursuit_id: pursuitId,
+          source_kind: ingested.sourceKind,
+          uri: ingested.uri,
+          title: ingested.title,
+          content_type: ingested.contentType,
+          fetch_status: ingested.fetchStatus,
+          content_text: ingested.contentText,
+          content_sha256: ingested.contentSha256,
+          source_metadata: {
+            ...ingested.sourceMetadata,
+            ingestion: "UNIVERSAL_COMPOSER_PASTED_ROADMAP",
+          },
+        })
+        .select("id, source_kind, uri, title, content_type, fetch_status, content_sha256, source_metadata, created_at, updated_at")
+        .single();
+
+      let activeSource = source;
+      if (sourceError || !activeSource) {
+        if (sourceError?.code === "23505") {
+          const { data: duplicate } = await supabase
+            .from("pursuit_source")
+            .select("id, source_kind, uri, title, content_type, fetch_status, content_sha256, source_metadata, created_at, updated_at")
+            .eq("owner_user_id", ownerUserId)
+            .eq("pursuit_id", pursuitId)
+            .eq("content_sha256", ingested.contentSha256)
+            .limit(1)
+            .maybeSingle();
+          activeSource = duplicate ?? null;
+        }
+      }
+
+      if (!activeSource) {
+        return {
+          urls: [],
+          handled: false,
+          pasted_source: { source_id: null, title: roadmap.title, adapted: false, warning: "Could not save pasted roadmap" },
+        };
+      }
+
+      let adaptation: SourceAdaptation | null = null;
+      let warning: string | null = null;
+      const situationResult = await assembleAdaptiveSituation(supabase, ownerUserId, pursuitId);
+      if (!situationResult.error && situationResult.situation && ingested.contentText) {
+        try {
+          const adapted = await runSourceAdaptation({
+            source: {
+              id: activeSource.id,
+              uri: activeSource.uri,
+              title: activeSource.title,
+              content_text: ingested.contentText,
+              content_sha256: activeSource.content_sha256,
+              fetch_status: activeSource.fetch_status,
+            },
+            situation: {
+              ...situationResult.situation,
+              sources: [
+                ...situationResult.situation.sources,
+                { ...activeSource, content_text: ingested.contentText },
+              ],
+            },
+          });
+
+          // Mandate: In preliminary roadmap intake before required research runs,
+          // methods must not masquerade as research-verified audit findings.
+          // Set unverified methods explicitly to UNVERIFIED.
+          const preliminaryMethods = (adapted.adaptation.methods ?? []).map((m) => ({
+            ...m,
+            audit_status: "UNVERIFIED" as const,
+          }));
+
+          const { data: insertedAdaptation, error: adaptationError } = await supabase
+            .from("pursuit_source_adaptation")
+            .insert({
+              owner_user_id: ownerUserId,
+              pursuit_id: pursuitId,
+              source_id: activeSource.id,
+              version: 1,
+              status: "ADVISED",
+              ...adapted.adaptation,
+              methods: preliminaryMethods,
+            })
+            .select("id, source_id, version, status, summary, source_claims, methods, assumptions, prerequisites, expected_outcomes, unknowns, fit, conflicts, gaps, adapted_strategy, goal_candidates, provenance, created_at")
+            .single();
+
+          if (!adaptationError && insertedAdaptation) {
+            adaptation = insertedAdaptation as unknown as SourceAdaptation;
+            const sourceClaims = Array.isArray(adapted.adaptation.source_claims) ? adapted.adaptation.source_claims : [];
+            if (sourceClaims.length && activeSource.content_sha256 && ingested.contentText) {
+              const citations = [];
+              for (const item of sourceClaims) {
+                const stmt = typeof item.statement === "string" ? item.statement.trim() : "";
+                if (!stmt) continue;
+                const built = buildSourceCitation({
+                  content: ingested.contentText,
+                  contentSha256: activeSource.content_sha256,
+                  statement: stmt,
+                  basis: typeof item.basis === "string" ? item.basis : "INFERRED",
+                });
+                if (built) {
+                  citations.push({
+                    owner_user_id: ownerUserId,
+                    pursuit_id: pursuitId,
+                    source_id: activeSource.id,
+                    adaptation_id: insertedAdaptation.id,
+                    ...built,
+                  });
+                }
+              }
+              const serviceClient = trustedPlane ?? getSupabaseServiceClient();
+              const unverifiedMethods = (Array.isArray(insertedAdaptation.methods) ? insertedAdaptation.methods : []).map(
+                (m: Record<string, unknown>) => ({ ...m, audit_status: "UNVERIFIED" })
+              );
+
+              if (citations.length === 0) {
+                const updateRes = await updateAdaptationAuditStatus(serviceClient, {
+                  adaptationId: insertedAdaptation.id,
+                  ownerUserId,
+                  pursuitId,
+                  summary: "Roadmap saved, but claims could not be substantiated in the source content.",
+                  methods: unverifiedMethods,
+                  provenance: {
+                    ...(typeof insertedAdaptation.provenance === "object" && insertedAdaptation.provenance !== null ? insertedAdaptation.provenance : {}),
+                    audit_status: "INCOMPLETE",
+                    unsubstantiated: true,
+                  },
+                });
+                warning = "Roadmap adaptation claims could not be verified in the source content.";
+                if (!updateRes.success) warning += ` (warning: audit update failed: ${updateRes.error})`;
+              } else {
+                const { error: insertError } = await supabase.from("pursuit_source_citation").insert(citations);
+                if (insertError) {
+                  const updateRes = await updateAdaptationAuditStatus(serviceClient, {
+                    adaptationId: insertedAdaptation.id,
+                    ownerUserId,
+                    pursuitId,
+                    summary: `Roadmap was saved, but evidence citations could not be persisted: ${insertError.message}`,
+                    methods: unverifiedMethods,
+                    provenance: {
+                      ...(typeof insertedAdaptation.provenance === "object" && insertedAdaptation.provenance !== null ? insertedAdaptation.provenance : {}),
+                      audit_status: "INCOMPLETE",
+                      citation_error: insertError.message,
+                    },
+                  });
+                  warning = `Roadmap was saved, but evidence citations could not be persisted: ${insertError.message}`;
+                  if (!updateRes.success) warning += ` (warning: audit update failed: ${updateRes.error})`;
+                } else if (citations.length < sourceClaims.length) {
+                  const updateRes = await updateAdaptationAuditStatus(serviceClient, {
+                    adaptationId: insertedAdaptation.id,
+                    ownerUserId,
+                    pursuitId,
+                    summary: `Roadmap partially verified: ${citations.length} of ${sourceClaims.length} claims substantiated.`,
+                    methods: unverifiedMethods,
+                    provenance: {
+                      ...(typeof insertedAdaptation.provenance === "object" && insertedAdaptation.provenance !== null ? insertedAdaptation.provenance : {}),
+                      audit_status: "INCOMPLETE",
+                      partial_evidence: true,
+                      substantiated_claims: citations.length,
+                      total_claims: sourceClaims.length,
+                    },
+                  });
+                  warning = `Roadmap partially verified: ${citations.length} of ${sourceClaims.length} claims substantiated.`;
+                  if (!updateRes.success) warning += ` (warning: audit update failed: ${updateRes.error})`;
+                }
+              }
+            }
+          } else {
+            warning = "Roadmap source saved, but adaptation could not be persisted.";
+          }
+        } catch (error) {
+          warning = error instanceof Error ? error.message : "Roadmap adaptation failed.";
+        }
+      }
+
+      return {
+        urls: [],
+        handled: true,
+        pasted_source: {
+          source_id: activeSource.id,
+          title: roadmap.title,
+          adapted: Boolean(adaptation),
+          warning,
+        },
+      };
+    } catch (error) {
+      return {
+        urls: [],
+        handled: false,
+        pasted_source: {
+          source_id: null,
+          title: roadmap.title,
+          adapted: false,
+          warning: error instanceof Error ? error.message : "Unable to ingest pasted roadmap",
+        },
+      };
+    }
+  }
 
   const results: UniversalUrlResult[] = [];
 
@@ -160,6 +378,11 @@ export async function processUniversalInput(
               },
             });
 
+            const preliminaryMethods = (adapted.adaptation.methods ?? []).map((m) => ({
+              ...m,
+              audit_status: "UNVERIFIED" as const,
+            }));
+
             const { data: insertedAdaptation, error: adaptationError } = await supabase
               .from("pursuit_source_adaptation")
               .insert({
@@ -169,6 +392,7 @@ export async function processUniversalInput(
                 version: 1,
                 status: "ADVISED",
                 ...adapted.adaptation,
+                methods: preliminaryMethods,
               })
               .select("id, source_id, version, status, summary, source_claims, methods, assumptions, prerequisites, expected_outcomes, unknowns, fit, conflicts, gaps, adapted_strategy, goal_candidates, provenance, created_at")
               .single();
@@ -179,20 +403,83 @@ export async function processUniversalInput(
               adaptation = insertedAdaptation as unknown as SourceAdaptation;
 
               const sourceClaims = Array.isArray(adapted.adaptation.source_claims) ? adapted.adaptation.source_claims : [];
-              if (sourceClaims.length && source.content_sha256) {
-                const citations = sourceClaims.map((item) => ({
-                  owner_user_id: ownerUserId,
-                  pursuit_id: pursuitId,
-                  source_id: source.id,
-                  adaptation_id: insertedAdaptation.id,
-                  ...buildSourceCitation({
-                    content: ingested.contentText as string,
-                    contentSha256: source.content_sha256 as string,
-                    statement: typeof item.statement === "string" ? item.statement : "",
+              if (sourceClaims.length && source.content_sha256 && ingested.contentText) {
+                const citations = [];
+                for (const item of sourceClaims) {
+                  const stmt = typeof item.statement === "string" ? item.statement.trim() : "";
+                  if (!stmt) continue;
+                  const built = buildSourceCitation({
+                    content: ingested.contentText,
+                    contentSha256: source.content_sha256,
+                    statement: stmt,
                     basis: typeof item.basis === "string" ? item.basis : "INFERRED",
-                  }),
-                }));
-                if (citations.length) await supabase.from("pursuit_source_citation").insert(citations);
+                  });
+                  if (built) {
+                    citations.push({
+                      owner_user_id: ownerUserId,
+                      pursuit_id: pursuitId,
+                      source_id: source.id,
+                      adaptation_id: insertedAdaptation.id,
+                      ...built,
+                    });
+                  }
+                }
+                const serviceClient = trustedPlane ?? getSupabaseServiceClient();
+                const unverifiedMethods = (Array.isArray(insertedAdaptation.methods) ? insertedAdaptation.methods : []).map(
+                  (m: Record<string, unknown>) => ({ ...m, audit_status: "UNVERIFIED" })
+                );
+
+                if (citations.length === 0) {
+                  const updateRes = await updateAdaptationAuditStatus(serviceClient, {
+                    adaptationId: insertedAdaptation.id,
+                    ownerUserId,
+                    pursuitId,
+                    summary: "Source saved, but claims could not be substantiated in the source content.",
+                    methods: unverifiedMethods,
+                    provenance: {
+                      ...(typeof insertedAdaptation.provenance === "object" && insertedAdaptation.provenance !== null ? insertedAdaptation.provenance : {}),
+                      audit_status: "INCOMPLETE",
+                      unsubstantiated: true,
+                    },
+                  });
+                  warning = "Source adaptation claims could not be verified in the source content.";
+                  if (!updateRes.success) warning += ` (warning: audit update failed: ${updateRes.error})`;
+                } else {
+                  const { error: insertError } = await supabase.from("pursuit_source_citation").insert(citations);
+                  if (insertError) {
+                    const updateRes = await updateAdaptationAuditStatus(serviceClient, {
+                      adaptationId: insertedAdaptation.id,
+                      ownerUserId,
+                      pursuitId,
+                      summary: `Source was saved, but evidence citations could not be persisted: ${insertError.message}`,
+                      methods: unverifiedMethods,
+                      provenance: {
+                        ...(typeof insertedAdaptation.provenance === "object" && insertedAdaptation.provenance !== null ? insertedAdaptation.provenance : {}),
+                        audit_status: "INCOMPLETE",
+                        citation_error: insertError.message,
+                      },
+                    });
+                    warning = `Source was saved, but evidence citations could not be persisted: ${insertError.message}`;
+                    if (!updateRes.success) warning += ` (warning: audit update failed: ${updateRes.error})`;
+                  } else if (citations.length < sourceClaims.length) {
+                    const updateRes = await updateAdaptationAuditStatus(serviceClient, {
+                      adaptationId: insertedAdaptation.id,
+                      ownerUserId,
+                      pursuitId,
+                      summary: `Source partially verified: ${citations.length} of ${sourceClaims.length} claims substantiated.`,
+                      methods: unverifiedMethods,
+                      provenance: {
+                        ...(typeof insertedAdaptation.provenance === "object" && insertedAdaptation.provenance !== null ? insertedAdaptation.provenance : {}),
+                        audit_status: "INCOMPLETE",
+                        partial_evidence: true,
+                        substantiated_claims: citations.length,
+                        total_claims: sourceClaims.length,
+                      },
+                    });
+                    warning = `Source partially verified: ${citations.length} of ${sourceClaims.length} claims substantiated.`;
+                    if (!updateRes.success) warning += ` (warning: audit update failed: ${updateRes.error})`;
+                  }
+                }
               }
             }
           } catch (error) {

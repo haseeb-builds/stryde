@@ -8,6 +8,7 @@ import { assembleAdaptiveSituation } from "@/lib/adaptive-situation";
 import { getSupabaseServiceClient } from "@/lib/supabase/service";
 import { reserveResources, ResourceExhaustedError, type ReservationGroup } from "@/lib/resource-control";
 import { classifyResults } from "@/lib/research-planner";
+import { updateAdaptationAuditStatus } from "@/lib/research-orchestration";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -39,8 +40,50 @@ export async function POST(request: Request, context: RouteContext) {
       const highlights = Array.isArray(body.highlights) ? body.highlights.filter((value): value is string => typeof value === "string").slice(0, 5) : [];
       const { data: existing } = await supabase.from("pursuit_source").select("id, source_kind, uri, title, content_type, fetch_status, content_sha256, source_metadata, created_at, updated_at").eq("pursuit_id", id).eq("owner_user_id", user.id).eq("uri", url).maybeSingle();
       if (existing) return NextResponse.json({ source: existing, materialized: false });
-      const ingested = await ingestUrlSource(url);
-      if (!ingested.contentText || (ingested.fetchStatus !== "FETCHED" && ingested.fetchStatus !== "PARTIAL")) return NextResponse.json({ error: "Selected result could not be extracted into usable source content", status: ingested.fetchStatus }, { status: 502 });
+
+      const service = getSupabaseServiceClient();
+      const operationKey = `source_extraction:${user.id}:${Buffer.from(url).toString("base64").slice(0, 32)}:${Date.now()}`;
+      let reservation: ReservationGroup;
+      try {
+        reservation = await reserveResources(service, {
+          ownerUserId: user.id,
+          pursuitId: id,
+          operationKey,
+          capabilityKey: "sources.url_ingest",
+          requests: [{ resource: "source_extraction", expected: 1 }],
+        });
+      } catch (resError) {
+        if (resError instanceof ResourceExhaustedError) {
+          return NextResponse.json(
+            { error: "Daily plan limit reached for source extractions. Your plan resets tomorrow." },
+            { status: 429 },
+          );
+        }
+        return NextResponse.json(
+          { error: "Resource control is unavailable; source extraction is refused rather than unmetered" },
+          { status: 503 },
+        );
+      }
+
+      let ingested;
+      try {
+        ingested = await ingestUrlSource(url);
+      } catch (ingestError) {
+        await reservation.release().catch(() => {});
+        throw ingestError;
+      }
+
+      if (!ingested.contentText || (ingested.fetchStatus !== "FETCHED" && ingested.fetchStatus !== "PARTIAL")) {
+        await reservation.release().catch(() => {});
+        return NextResponse.json({ error: "Selected result could not be extracted into usable source content", status: ingested.fetchStatus }, { status: 502 });
+      }
+
+      try {
+        await reservation.reconcile([{ resource: "source_extraction", expected: 1 }]);
+      } catch {
+        await reservation.release().catch(() => {});
+        return NextResponse.json({ error: "Resource reconciliation failed; extraction cannot be confirmed" }, { status: 503 });
+      }
       // Syndication record: identical content under a different URI is a
       // shared primary source, not independent corroboration (Phase 8).
       const { data: shaTwin } = ingested.contentSha256
@@ -66,9 +109,52 @@ export async function POST(request: Request, context: RouteContext) {
           else adaptation = insertedAdaptation as unknown as SourceAdaptation;
         } catch (error) { warning = error instanceof Error ? error.message : "Source adaptation failed"; }
       } else warning = situationResult.error ?? "Unable to assemble situation for source adaptation";
-      if (source.content_sha256) {
+      if (source.content_sha256 && ingested.contentText) {
         const citation = buildSourceCitation({ content: ingested.contentText, contentSha256: source.content_sha256, statement: highlights[0] || title || url, basis: "EXPLICIT_SOURCE" });
-        await supabase.from("pursuit_source_citation").insert({ owner_user_id: user.id, pursuit_id: id, source_id: source.id, adaptation_id: adaptation ? (adaptation as { id?: string }).id ?? null : null, source_content_sha256: citation.source_content_sha256, locator: citation.locator, excerpt: citation.excerpt, basis: citation.basis });
+        if (citation) {
+          const { error: citError } = await supabase.from("pursuit_source_citation").insert({ owner_user_id: user.id, pursuit_id: id, source_id: source.id, adaptation_id: adaptation ? (adaptation as { id?: string }).id ?? null : null, source_content_sha256: citation.source_content_sha256, locator: citation.locator, excerpt: citation.excerpt, basis: citation.basis });
+          if (citError) {
+            warning = `Source was materialized, but citation could not be persisted: ${citError.message}`;
+            if (adaptation && (adaptation as { id?: string }).id) {
+              const serviceClient = getSupabaseServiceClient();
+              const unverifiedMethods = (Array.isArray(adaptation.methods) ? adaptation.methods : []).map(
+                (m: Record<string, unknown>) => ({ ...m, audit_status: "UNVERIFIED" })
+              );
+              const statusRes = await updateAdaptationAuditStatus(serviceClient, {
+                adaptationId: (adaptation as unknown as { id: string }).id,
+                ownerUserId: user.id,
+                pursuitId: id,
+                summary: `Materialized source citation persistence failed: ${citError.message}`,
+                methods: unverifiedMethods,
+                provenance: {
+                  ...(typeof adaptation.provenance === "object" && adaptation.provenance !== null ? (adaptation.provenance as Record<string, unknown>) : {}),
+                  audit_status: "INCOMPLETE",
+                  citation_error: citError.message,
+                },
+              });
+              if (!statusRes.success) warning += ` (warning: audit update failed: ${statusRes.error})`;
+            }
+          }
+        } else if (adaptation && (adaptation as { id?: string }).id) {
+          const serviceClient = getSupabaseServiceClient();
+          const unverifiedMethods = (Array.isArray(adaptation.methods) ? adaptation.methods : []).map(
+            (m: Record<string, unknown>) => ({ ...m, audit_status: "UNVERIFIED" })
+          );
+          const statusRes = await updateAdaptationAuditStatus(serviceClient, {
+            adaptationId: (adaptation as unknown as { id: string }).id,
+            ownerUserId: user.id,
+            pursuitId: id,
+            summary: "Materialized source citation could not be verified in text.",
+            methods: unverifiedMethods,
+            provenance: {
+              ...(typeof adaptation.provenance === "object" && adaptation.provenance !== null ? (adaptation.provenance as Record<string, unknown>) : {}),
+              audit_status: "INCOMPLETE",
+              unsubstantiated: true,
+            },
+          });
+          warning = "Source was materialized, but citation could not be verified in text.";
+          if (!statusRes.success) warning += ` (warning: audit update failed: ${statusRes.error})`;
+        }
       }
       return NextResponse.json({ source, adaptation, materialized: true, warning }, { status: 201 });
     }

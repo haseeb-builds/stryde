@@ -10,6 +10,7 @@ import PursuitClaimsPanel from "./claims-panel";
 import PursuitMemoryPanel from "./memory-panel";
 import PursuitAutonomyRow from "./autonomy-row";
 import PursuitSkillsPanel from "./skills-panel";
+import PursuitArtifactsPanel from "./artifacts-panel";
 
 type Pursuit = { id: string; title: string | null; status: string };
 type Option = { label: string; value: string };
@@ -108,6 +109,7 @@ export default function PursuitPage() {
   const [listening, setListening] = useState(false);
   const [fileNotice, setFileNotice] = useState("");
   const [uploadingFile, setUploadingFile] = useState(false);
+  const [failedTurnMessage, setFailedTurnMessage] = useState<string | null>(null);
 
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const voiceRef = useRef<VoiceRecognition | null>(null);
@@ -639,6 +641,7 @@ export default function PursuitPage() {
                   ready_for_reasoning: turn.ready_for_reasoning,
                   focus: turn.focus,
                   work: turn.work,
+                  ...(("autonomous_research" in turn && turn.autonomous_research) ? { autonomous_research: turn.autonomous_research } : {}),
                 },
               }
             : item,
@@ -665,15 +668,18 @@ export default function PursuitPage() {
         ),
       );
 
-      if (turn.work.next_move?.mode === "RESEARCH_WEB" && turn.work.next_move.actor === "STRYDE") {
+      const alreadyResearched = "autonomous_research" in turn && Boolean(turn.autonomous_research);
+      if (!alreadyResearched && turn.work.next_move?.mode === "RESEARCH_WEB" && turn.work.next_move.actor === "STRYDE") {
         setWorking(false);
         await recomputeWork();
       } else {
         setWorking(false);
       }
+      setFailedTurnMessage(null);
     } catch (err) {
       setMessages((current) => current.filter((item) => item.id !== assistantId));
       setError(err instanceof Error ? err.message : "Stryde couldn't continue.");
+      setFailedTurnMessage(content);
       setWorking(false);
     }
   }
@@ -683,7 +689,7 @@ export default function PursuitPage() {
     void sendMessage(input);
   }
 
-  if (loading && !pursuit) {
+  if (loading && (!pursuit || !session)) {
     return (
       <main className="min-h-screen bg-[#f7f7f8] p-8 text-sm text-zinc-500">
         Loading…
@@ -859,7 +865,7 @@ export default function PursuitPage() {
                         <div className="min-w-0">
                           <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-400">
                             {activeAction.execution_mode === "CONTROLLED"
-                              ? "Stryde is working"
+                              ? "Automated worker move"
                               : "Your move"}
                           </p>
                           <h3 className="mt-2 text-[17px] font-medium tracking-tight">
@@ -867,45 +873,43 @@ export default function PursuitPage() {
                           </h3>
                           <p className="mt-2 text-sm leading-6 text-zinc-600">
                             {activeAction.execution_mode === "CONTROLLED"
-                              ? "Stryde will bring the result back into this pursuit."
+                              ? "Stryde queued this step for an automated worker. If a worker daemon is not running in this environment or you complete it yourself, you can report the outcome directly."
                               : "Do the real-world part, then tell Stryde what happened in the same composer."}
                           </p>
                         </div>
 
-                        {activeAction.execution_mode === "HUMAN" && (
-                          <div className="flex shrink-0 gap-2">
-                            <button
-                              onClick={() => {
-                                setActionReport({
-                                  actionId: activeAction.id,
-                                  terminalStatus: "COMPLETED",
-                                });
-                                window.setTimeout(
-                                  () => composerRef.current?.focus(),
-                                  0,
-                                );
-                              }}
-                              className="rounded-lg bg-zinc-900 px-3.5 py-2 text-xs font-medium text-white"
-                            >
-                              I’m done
-                            </button>
-                            <button
-                              onClick={() => {
-                                setActionReport({
-                                  actionId: activeAction.id,
-                                  terminalStatus: "FAILED",
-                                });
-                                window.setTimeout(
-                                  () => composerRef.current?.focus(),
-                                  0,
-                                );
-                              }}
-                              className="rounded-lg border border-zinc-200 px-3.5 py-2 text-xs font-medium text-zinc-700"
-                            >
-                              I’m blocked
-                            </button>
-                          </div>
-                        )}
+                        <div className="flex shrink-0 gap-2">
+                          <button
+                            onClick={() => {
+                              setActionReport({
+                                actionId: activeAction.id,
+                                terminalStatus: "COMPLETED",
+                              });
+                              window.setTimeout(
+                                () => composerRef.current?.focus(),
+                                0,
+                              );
+                            }}
+                            className="rounded-lg bg-zinc-900 px-3.5 py-2 text-xs font-medium text-white"
+                          >
+                            I’m done
+                          </button>
+                          <button
+                            onClick={() => {
+                              setActionReport({
+                                actionId: activeAction.id,
+                                terminalStatus: "FAILED",
+                              });
+                              window.setTimeout(
+                                () => composerRef.current?.focus(),
+                                0,
+                              );
+                            }}
+                            className="rounded-lg border border-zinc-200 px-3.5 py-2 text-xs font-medium text-zinc-700"
+                          >
+                            I’m blocked
+                          </button>
+                        </div>
                       </div>
                     </section>
                   )}
@@ -1031,8 +1035,17 @@ export default function PursuitPage() {
               )}
 
               {error && (
-                <div className="mb-8 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-                  {error}
+                <div className="mb-8 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                  <span className="min-w-0 flex-1">{error}</span>
+                  {failedTurnMessage && !working && session?.status === "ACTIVE" && (
+                    <button
+                      type="button"
+                      onClick={() => void sendMessage(failedTurnMessage)}
+                      className="shrink-0 rounded-md bg-red-700 px-2.5 py-1 text-xs font-medium text-white hover:bg-red-800"
+                    >
+                      Retry message
+                    </button>
+                  )}
                 </div>
               )}
 
@@ -1055,6 +1068,7 @@ export default function PursuitPage() {
                 />
                 <PursuitClaimsPanel pursuitId={params.id} sessionActive={Boolean(session)} />
                 <PursuitMemoryPanel pursuitId={params.id} sessionActive={Boolean(session)} />
+                <PursuitArtifactsPanel pursuitId={params.id} sessionActive={Boolean(session)} />
                 <PursuitSkillsPanel pursuitId={params.id} sessionActive={Boolean(session)} />
                 <PursuitAutonomyRow pursuitId={params.id} sessionActive={Boolean(session)} />
               </div>
@@ -1106,7 +1120,11 @@ export default function PursuitPage() {
                       ? "Tell Stryde what happened…"
                       : session?.status === "ACTIVE"
                         ? "Tell Stryde what’s happening…"
-                        : "Conversation archived"
+                        : session?.status === "ARCHIVED"
+                          ? "Conversation archived"
+                          : loading
+                            ? "Loading conversation…"
+                            : "Conversation unavailable — reload or start a new conversation"
                   }
                   className="min-h-14 w-full resize-none bg-transparent px-2 py-1 text-[15px] leading-6 outline-none placeholder:text-zinc-400"
                 />

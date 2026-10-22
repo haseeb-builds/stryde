@@ -2,6 +2,10 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
+import {
+  isSelectableObservationForClaim,
+  formatObservationOptionLabel,
+} from "@/lib/pursuit-observations";
 
 type LinkedObservation = {
   id: string;
@@ -151,14 +155,14 @@ export default function PursuitClaimsPanel(props: { pursuitId: string; sessionAc
     finally { setBusy(false); }
   };
 
-  const pending = observations.filter((o) => o.observation_kind === "HUMAN_ACTION_RESULT");
+  const selectableObservations = observations.filter(isSelectableObservationForClaim);
 
   return <section className="overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm">
     <div className="px-5 py-4">
       <div className="flex items-center justify-between">
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-400">Evidence &amp; claims</p>
-          <p className="mt-1 text-sm leading-6 text-zinc-600">What you say happened stays separate from what has evidence. Link your action results to claims, then judge them.</p>
+          <p className="mt-1 text-sm leading-6 text-zinc-600">What you achieve stays grounded in verified evidence. Link research or action outcomes to claims to evaluate your progress.</p>
         </div>
         <button onClick={() => setOpen(v => !v)} className="rounded-lg border border-zinc-200 px-2.5 py-1.5 text-xs text-zinc-700">{open ? "Hide" : "Review"}</button>
       </div>
@@ -168,10 +172,10 @@ export default function PursuitClaimsPanel(props: { pursuitId: string; sessionAc
           <textarea value={draft} onChange={e => setDraft(e.target.value)} disabled={busy || !sessionActive} rows={2}
             placeholder="State an outcome as a claim, e.g. &quot;I finished the first study session&quot;"
             className="w-full resize-y rounded-xl border border-zinc-200 bg-white px-3 py-2.5 text-sm leading-6 outline-none" />
-          {pending.length > 0 && <select value={selectedObservation} onChange={e => setSelectedObservation(e.target.value)} disabled={busy}
+          {selectableObservations.length > 0 && <select value={selectedObservation} onChange={e => setSelectedObservation(e.target.value)} disabled={busy}
             className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2.5 text-sm outline-none">
-            <option value="">Optionally link an action result as evidence…</option>
-            {pending.map(o => <option key={o.id} value={o.id}>Action result · {new Date(o.observed_at).toLocaleString()}</option>)}
+            <option value="">Optionally link evidence (action, research, or URL verification)…</option>
+            {selectableObservations.map(o => <option key={o.id} value={o.id}>{formatObservationOptionLabel(o)}</option>)}
           </select>}
           <div className="flex justify-end">
             <button onClick={() => void createClaim()} disabled={busy || !sessionActive || !draft.trim()}
@@ -194,9 +198,9 @@ export default function PursuitClaimsPanel(props: { pursuitId: string; sessionAc
               </p>)}
             </div>}
             <div className="mt-2 flex flex-wrap items-center gap-2">
-              {c.observations?.length === 0 && pending.length > 0 && c.epistemic_status !== "VERIFIED" && c.epistemic_status !== "CONTRADICTED" &&
+              {c.observations?.length === 0 && selectableObservations.length > 0 && c.epistemic_status !== "VERIFIED" && c.epistemic_status !== "CONTRADICTED" &&
                 <button onClick={() => void linkObservation(c.id)} disabled={busy || !selectedObservation}
-                  className="rounded-lg border border-zinc-200 px-2.5 py-1.5 text-xs text-zinc-700 disabled:opacity-30">Link selected result</button>}
+                  className="rounded-lg border border-zinc-200 px-2.5 py-1.5 text-xs text-zinc-700 disabled:opacity-30">Link selected evidence</button>}
               {c.epistemic_status === "REPORTED" || c.epistemic_status === "OBSERVED" ? ADJUDICATIONS.map(a =>
                 <button key={a.to} onClick={() => void adjudicate(c.id, a.to)} disabled={busy || !sessionActive}
                   className={`rounded-lg px-2.5 py-1.5 text-xs disabled:opacity-30 ${a.to === "VERIFIED" ? "bg-zinc-900 text-white" : "border border-zinc-200 text-zinc-700"}`}>{a.label}</button>)
@@ -205,7 +209,7 @@ export default function PursuitClaimsPanel(props: { pursuitId: string; sessionAc
           </div>)}
         </div>}
 
-        {claims.length === 0 && <p className="mt-4 text-sm leading-6 text-zinc-500">No claims recorded for this pursuit yet. As you finish actions, state what you achieved and attach the result as evidence.</p>}
+        {claims.length === 0 && <p className="mt-4 text-sm leading-6 text-zinc-500">No claims recorded for this pursuit yet. As you complete actions or gather research, state your outcome and attach the evidence.</p>}
       </>}
 
       {error && <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}

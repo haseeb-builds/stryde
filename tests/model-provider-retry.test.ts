@@ -47,3 +47,68 @@ test("non-retryable failures are not retried and abort the chain", async () => {
   await assert.rejects(router.generateStructured(input), /failed \(401\)/);
   assert.equal(calls, 1);
 });
+
+test("429 rate limits are retried and fall through to fallback provider", async () => {
+  let geminiCalls = 0;
+  let omniCalls = 0;
+  const fallback: ModelProviderConfig = { provider: "omniroute", apiKey: "key", baseUrl: "https://omni.test/v1", model: "auto" };
+  const router = createModelRouter([config, fallback], async (_url, init) => {
+    if ((init?.headers as Record<string, string>)?.["x-goog-api-key"] !== undefined) {
+      geminiCalls++;
+      return new Response('{"error":{"code":429,"message":"Resource exhausted"}}', { status: 429 });
+    }
+    omniCalls++;
+    return okOpenAi();
+  });
+  const result = await router.generateStructured(input);
+  assert.equal(geminiCalls, 3, "Primary provider should be retried 3 times on 429");
+  assert.equal(omniCalls, 1, "Fallback provider should be invoked after primary 429 exhaustion");
+  assert.deepEqual(result.parsed, { status: "ok" });
+  assert.equal(result.provider, "omniroute");
+});
+
+test("malformed JSON output is retried and falls through to fallback provider", async () => {
+  let geminiCalls = 0;
+  let omniCalls = 0;
+  const fallback: ModelProviderConfig = { provider: "omniroute", apiKey: "key", baseUrl: "https://omni.test/v1", model: "auto" };
+  const router = createModelRouter([config, fallback], async (_url, init) => {
+    if ((init?.headers as Record<string, string>)?.["x-goog-api-key"] !== undefined) {
+      geminiCalls++;
+      // Return 200 OK with unparseable text
+      return new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: "not-json-content-here" }] } }] }), { status: 200 });
+    }
+    omniCalls++;
+    return okOpenAi();
+  });
+  const result = await router.generateStructured(input);
+  assert.equal(geminiCalls, 3, "Primary provider should be retried 3 times on malformed output");
+  assert.equal(omniCalls, 1, "Fallback provider should serve request after primary malformed output");
+  assert.deepEqual(result.parsed, { status: "ok" });
+  assert.equal(result.provider, "omniroute");
+});
+
+test("cancellation aborts immediately without retrying or falling through", async () => {
+  let geminiCalls = 0;
+  let omniCalls = 0;
+  const controller = new AbortController();
+  controller.abort();
+  const fallback: ModelProviderConfig = { provider: "omniroute", apiKey: "key", baseUrl: "https://omni.test/v1", model: "auto" };
+  const router = createModelRouter([config, fallback], async (_url, init) => {
+    if ((init?.headers as Record<string, string>)?.["x-goog-api-key"] !== undefined) {
+      geminiCalls++;
+    } else {
+      omniCalls++;
+    }
+    const domEx = new DOMException("The operation was aborted", "AbortError");
+    throw domEx;
+  });
+  await assert.rejects(
+    router.generateStructured({ ...input, signal: controller.signal }),
+    (err: unknown) => {
+      assert.ok(err instanceof Error);
+      return err.message.includes("Aborted") || err.name === "AbortError";
+    }
+  );
+  assert.equal(geminiCalls, 1, "Cancelled request must fail on first attempt without retrying");
+  assert.equal(omniCalls, 0, "Cancelled request must NOT fall through to fallback provider");
+});

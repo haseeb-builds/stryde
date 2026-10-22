@@ -50,7 +50,7 @@ function originalRange(normalized: NormalizedContent, start: number, end: number
 // exact normalized match, then case-insensitive, then distinctive substrings
 // (first 120 normalized chars, then last 120) for statements too long to match
 // verbatim. Returns null when the statement cannot be located.
-function locateStatement(content: string, statement: string): { start: number; end: number } | null {
+export function locateStatement(content: string, statement: string): { start: number; end: number } | null {
   const normalized = normalizeWithOffsets(content);
   const statementNormalized = statement.replace(/\s+/g, " ").trim();
   if (!normalized.text || !statementNormalized) return null;
@@ -74,15 +74,102 @@ function locateStatement(content: string, statement: string): { start: number; e
   return null;
 }
 
-export function buildSourceCitation(input: { content: string; contentSha256: string; statement: string; basis: string }): SourceCitation {
-  const excerpt = input.statement.trim().slice(0, 4000);
-  if (!input.contentSha256 || !excerpt) throw new Error("Citation requires a source hash and excerpt");
-  // Honest fallback: an unlocatable statement keeps the full-range locator
-  // (located: false); the caller-provided basis is model provenance and is
-  // never rewritten here.
+export function findSupportingPassage(
+  content: string,
+  statement: string
+): { start: number; end: number; excerpt: string } | null {
+  const range = locateStatement(content, statement);
+  if (!range) return null;
+  return {
+    start: range.start,
+    end: range.end,
+    excerpt: content.slice(range.start, range.end),
+  };
+}
+
+export function findSupportingSource<T extends { id: string; content_text: string | null; content_sha256: string | null }>(
+  sources: T[],
+  statement: string
+): { source: T; passage: { start: number; end: number; excerpt: string } } | null {
+  const trimmed = statement.trim();
+  if (!trimmed) return null;
+  for (const source of sources) {
+    if (!source.content_text || !source.content_sha256) continue;
+    const passage = findSupportingPassage(source.content_text, trimmed);
+    if (passage) {
+      return { source, passage };
+    }
+  }
+  return null;
+}
+
+export function buildSourceCitation(input: { content: string; contentSha256: string; statement: string; basis: string }): SourceCitation | null {
+  if (!input.contentSha256 || !input.statement.trim()) throw new Error("Citation requires a source hash and excerpt");
   const range = locateStatement(input.content, input.statement);
-  const locator = range
-    ? { type: "CHARACTER_RANGE" as const, start: range.start, end: range.end, located: true }
-    : { type: "CHARACTER_RANGE" as const, start: 0, end: input.content.length, located: false };
+  if (!range) {
+    // An unsupported claim must not produce a verified citation.
+    // Unlocatable statements return null so evidence persistence paths never persist false citations.
+    return null;
+  }
+  const locator = { type: "CHARACTER_RANGE" as const, start: range.start, end: range.end, located: true };
+  const excerpt = input.content.slice(range.start, range.end);
   return { source_content_sha256: input.contentSha256, locator, excerpt, basis: input.basis === "EXPLICIT_SOURCE" ? "EXPLICIT_SOURCE" : "INFERRED" };
+}
+
+export type PursuitSourceCitationInsert = {
+  owner_user_id: string;
+  pursuit_id: string;
+  source_id: string;
+  adaptation_id?: string | null;
+  source_content_sha256: string;
+  locator: {
+    type: "CHARACTER_RANGE" | "CONTENT_LOCATOR" | string;
+    start?: number;
+    end?: number;
+    located?: boolean;
+    claim_text?: string;
+    content_locator?: string;
+    [key: string]: unknown;
+  };
+  excerpt: string;
+  basis: "EXPLICIT_SOURCE" | "INFERRED";
+  claim_text?: string;
+};
+
+export function validatePursuitSourceCitationRow(row: unknown): PursuitSourceCitationInsert {
+  if (typeof row !== "object" || row === null) throw new Error("Citation payload must be an object");
+  const r = row as Record<string, unknown>;
+
+  // Check required NOT NULL fields per PostgreSQL schema
+  if (typeof r.owner_user_id !== "string" || !r.owner_user_id.trim()) {
+    throw new Error("Citation requires non-empty owner_user_id");
+  }
+  if (typeof r.pursuit_id !== "string" || !r.pursuit_id.trim()) {
+    throw new Error("Citation requires non-empty pursuit_id");
+  }
+  if (typeof r.source_id !== "string" || !r.source_id.trim()) {
+    throw new Error("Citation requires non-empty source_id");
+  }
+  if (typeof r.source_content_sha256 !== "string" || !r.source_content_sha256.trim()) {
+    throw new Error("Citation requires non-empty source_content_sha256");
+  }
+  if (typeof r.locator !== "object" || r.locator === null || Array.isArray(r.locator)) {
+    throw new Error("Citation requires jsonb object locator");
+  }
+  if (typeof r.excerpt !== "string" || !r.excerpt.trim()) {
+    throw new Error("Citation requires non-empty excerpt");
+  }
+  if (r.basis !== "EXPLICIT_SOURCE" && r.basis !== "INFERRED") {
+    throw new Error("Citation basis must be EXPLICIT_SOURCE or INFERRED");
+  }
+
+  // Reject legacy incompatible column names that caused defect R-1
+  if ("quote" in r) throw new Error("quote is invalid: schema column is excerpt");
+  if ("content_sha256" in r) throw new Error("content_sha256 is invalid: schema column is source_content_sha256");
+  if ("locator_type" in r) throw new Error("locator_type is not a column on pursuit_source_citation");
+  if ("exact_match" in r) throw new Error("exact_match is not a column on pursuit_source_citation");
+  if ("verification_status" in r) throw new Error("verification_status is not a column on pursuit_source_citation");
+  if ("metadata" in r) throw new Error("metadata is not a column on pursuit_source_citation");
+
+  return r as PursuitSourceCitationInsert;
 }

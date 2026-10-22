@@ -1,4 +1,5 @@
 import { ACTOR_TYPES, normalizeActor, normalizeWorkerType, WORKER_TYPES, type ActorType, type WorkerType } from "./actor.ts";
+import { normalizeWorkStatus } from "./working-state-normalization.ts";
 
 export const WORK_MODES = [
   "ASK_USER",
@@ -35,6 +36,7 @@ export const AVAILABLE_WORK_MODES = [
   "ANALYZE",
   "DRAFT",
   "DECIDE",
+  "CREATE_ACTION",
   "WAIT",
   "RECHECK",
   "STOP",
@@ -235,13 +237,12 @@ export function validateWorkingState(value: unknown): WorkingState {
   }
 
   const candidate = value as Record<string, unknown>;
-  if (candidate.version !== 1) throw new Error("Working state version must be 1");
+  if (candidate.version !== 1 && candidate.version !== "1") throw new Error("Working state version must be 1");
 
-  const rawStatus = candidate.status;
-  if (!WORK_STATUSES.includes(rawStatus as WorkStatus)) {
+  const status = normalizeWorkStatus(candidate.status);
+  if (!status) {
     throw new Error("Invalid working state status");
   }
-  const status = rawStatus as WorkStatus;
 
   const objective = optionalText(candidate.objective, "objective");
   const understanding = text(candidate.understanding, "understanding");
@@ -253,20 +254,21 @@ export function validateWorkingState(value: unknown): WorkingState {
   if (candidate.next_move !== null && candidate.next_move !== undefined) {
     if (typeof candidate.next_move !== "object") throw new Error("next_move must be an object or null");
     const move = candidate.next_move as Record<string, unknown>;
-    if (!WORK_MODES.includes(move.mode as WorkMode)) throw new Error("Invalid next move mode");
-    if (!AVAILABLE_WORK_MODES.includes(move.mode as (typeof AVAILABLE_WORK_MODES)[number])) {
+    const rawMode = typeof move.mode === "string" ? move.mode.trim().toUpperCase().replace(/[\s-]+/g, "_") : "";
+    if (!WORK_MODES.includes(rawMode as WorkMode)) throw new Error("Invalid next move mode");
+    if (!AVAILABLE_WORK_MODES.includes(rawMode as (typeof AVAILABLE_WORK_MODES)[number])) {
       throw new Error("Requested work mode is not currently available");
     }
-    const actor = normalizeActor(move.mode as WorkMode, move.actor);
+    const actor = normalizeActor(rawMode as WorkMode, move.actor);
     const worker_type = normalizeWorkerType(actor, move.worker_type);
-    if (move.mode === "RESEARCH_WEB" && actor !== "STRYDE") {
+    if (rawMode === "RESEARCH_WEB" && actor !== "STRYDE") {
       throw new Error("RESEARCH_WEB next move must be assigned to Stryde");
     }
     if (actor === "WORKER" && !worker_type) {
       throw new Error("WORKER next move requires worker_type");
     }
     next_move = {
-      mode: move.mode as WorkMode,
+      mode: rawMode as WorkMode,
       actor,
       worker_type,
       title: text(move.title, "next_move.title", 300),
