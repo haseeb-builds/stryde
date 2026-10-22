@@ -1,3 +1,13 @@
+## Reconciliation update — 2026-10-22 (Engineering-Complete V1 Candidate & Google Stitch Handoff Pack)
+
+| Area | Implemented | Tested | Deployed / Live | Remaining evidence |
+|---|---|---|---|---|
+| Google Stitch Design Brief | YES (`docs/STITCH_DESIGN_BRIEF.md`) | Founder-ready brief with 12 screen states and ready-to-paste Stitch prompt | Local docs | Founder visual design exploration in Stitch |
+| Stitch Integration Contract | YES (`docs/STITCH_INTEGRATION_CONTRACT.md`) | Component boundaries, frozen state types, post-import test procedure | Local docs | Post-Stitch import diff verification |
+| Manual Setup & Environment Checklist | YES (`docs/MANUAL_SETUP_AND_ENVIRONMENT_CHECKLIST.md`) | Complete discovered env vars, platform secrets, staging DB requirements | Local docs | Founder secret provisioning in Vercel |
+| Deferred Work & Launch Blockers Ledger | YES (`docs/DEFERRED_WORK_AND_LAUNCH_BLOCKERS.md`) | 7 decision ledger items with owners, acceptance tests, and severity | Local docs | Resolution of launch blockers prior to public release |
+| Post-Stitch Verification Mandate | YES (`docs/POST_STITCH_FINAL_VERIFICATION_MANDATE.md`) | Executable follow-up `/goal` mandate for post-design review and pre-launch gate | Local docs | Execution of mandate after Stitch import |
+
 ## Reconciliation update — 2026-10-22 (Observation Retrieval, Worker Honesty, and Secondary Citation Audit verified)
 
 | Area | Implemented | Tested | Deployed / Live | Remaining evidence |

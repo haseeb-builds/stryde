@@ -1,3 +1,17 @@
+## 2026-10-22 — V1 Engineering Release Candidate & Google Stitch Handoff Pack (`fix/conversation-turn-reliability`)
+
+- Branch `fix/conversation-turn-reliability` on PR #13, base `main` at `5259e7d0004000b3459e2a7ce7f9d6371a6feecc`.
+- **Engineering-Complete, Verified V1 Release Candidate Status:**
+  - Core product loop (Intention → Situation → Evidence → Next Move → Action → Observation → Verification → Persistent State) is complete, tested, and honestly evidenced.
+  - Observation retrieval tenant scoping, worker execution honesty, secondary citation persistence, model failover/cancellation, and SSRF redirect defenses verified test-first.
+- **Handoff Documentation & Deferral Ledger Created:**
+  - `docs/STITCH_DESIGN_BRIEF.md`: Founder-ready brief for visual/UX design exploration in Google Stitch, including ready-to-paste prompt and screen state inventory.
+  - `docs/STITCH_INTEGRATION_CONTRACT.md`: Architecture and component boundary specifications for importing Stitch UI into Next.js components without breaking backend API contracts or tests.
+  - `docs/MANUAL_SETUP_AND_ENVIRONMENT_CHECKLIST.md`: Complete discovered environment variable inventory and platform secret configuration guide.
+  - `docs/DEFERRED_WORK_AND_LAUNCH_BLOCKERS.md`: Decision ledger identifying exact prerequisites, owners, and acceptance tests for deferred items (Stitch design pass, search keys, worker daemon, Supabase staging, RLS DDL).
+  - `docs/POST_STITCH_FINAL_VERIFICATION_MANDATE.md`: Executable follow-up `/goal` mandate for post-Stitch integration, independent CodeRabbit/security review, and pre-launch gating.
+- **Full Verification Suite:** 342/342 tests pass across 46 suites. `npx tsc --noEmit` 0 errors. `npm run lint` 0 errors, 0 warnings. Clean Turbopack production build. `npm audit --omit=dev` 0 vulnerabilities.
+
 ## 2026-10-22 — Verification, Observation Retrieval Scoping, Worker Honesty, and Secondary Citation Audit Closure (`fix/conversation-turn-reliability`)
 
 - Branch `fix/conversation-turn-reliability` on PR #13, base `main` at `5259e7d0004000b3459e2a7ce7f9d6371a6feecc`.

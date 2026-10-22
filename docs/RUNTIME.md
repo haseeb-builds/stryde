@@ -1,3 +1,10 @@
+## Runtime checkpoint — 2026-10-22 (Engineering-Complete V1 Candidate & Google Stitch Handoff Pack)
+
+- Branch `fix/conversation-turn-reliability` reaches engineering-complete V1 candidate status:
+  - All functional defects (R-1 through R-8), tenant scoping, worker honesty, and secondary citation persistence are implemented and verified.
+  - Complete founder handoff pack created: `STITCH_DESIGN_BRIEF.md`, `STITCH_INTEGRATION_CONTRACT.md`, `MANUAL_SETUP_AND_ENVIRONMENT_CHECKLIST.md`, `DEFERRED_WORK_AND_LAUNCH_BLOCKERS.md`, and `POST_STITCH_FINAL_VERIFICATION_MANDATE.md`.
+  - All 342 tests pass across 46 test files (`npm test`). `npx tsc --noEmit` clean. ESLint 0 errors, 0 warnings. Next.js Turbopack production build clean across all routes. Production audit 0 vulnerabilities.
+
 ## Runtime checkpoint — 2026-10-22 (Observation Retrieval, Worker Honesty, and Secondary Citation Audit verified on fix/conversation-turn-reliability)
 
 - Branch `fix/conversation-turn-reliability` resolves observation retrieval scoping, worker trapping, and secondary citation audit persistence:
