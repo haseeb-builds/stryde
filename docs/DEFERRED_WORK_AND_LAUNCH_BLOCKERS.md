@@ -52,13 +52,13 @@ This ledger explicitly catalogues every capability, task, or architectural layer
 - **Severity:** High (Core Feature).
 
 ### Ledger Item 5: Supabase RLS `UPDATE` Policy on `pursuit_source_adaptation`
-- **Category:** Database Migration (DDL)
+- **Category:** Database Migration (DDL) / Defense-in-Depth
 - **Why Deferred:** Executing DDL migrations against the shared production Supabase database (`pvijrnwdnolvnoibarrj`) is strictly forbidden by non-negotiable mission safety boundaries.
-- **Can V1 Launch Without It:** **YES for V1 server-side flows; NO for direct client-plane mutations.**
-- **What Product Does Meanwhile:** Updates to adaptations are securely mediated via `trustedPlane` (`service_role`) strictly scoped by `owner_user_id` and `pursuit_id` inside server-side route handlers.
-- **Owner:** Founder (authorize migration) → Agent (execute migration).
+- **Can V1 Launch Without It:** **YES.** Inspection of all reachable write paths in `stryde` confirms that adaptations are either created via `INSERT` (which is fully covered by the active `"source adaptations owned insert"` RLS policy) or updated server-side via `trustedPlane` (`service_role`), which is strictly scoped to `owner_user_id` and `pursuit_id`. The client frontend never issues direct client-plane `UPDATE` queries against `pursuit_source_adaptation`. Therefore, the missing policy does NOT block any current, reachable V1 product flow.
+- **What Product Does Meanwhile:** Server-side routes continue managing adaptation updates via `trustedPlane` scoped by `owner_user_id` and `pursuit_id`.
+- **Owner:** Founder (authorize migration during a dedicated maintenance window on staging).
 - **Exact Prerequisite & Acceptance Test:** Apply SQL migration `CREATE POLICY "Users can update their own adaptations" ON public.pursuit_source_adaptation FOR UPDATE USING (auth.uid() = owner_user_id)`. Test direct client-side update via authenticated user JWT.
-- **Severity:** Medium (Architectural Cleanliness).
+- **Severity:** Low / Architectural Defense-in-Depth (Non-blocking for V1).
 
 ### Ledger Item 6: Token-Level Incremental Streaming of Structured Output
 - **Category:** Product Scope / Architecture Tradeoff

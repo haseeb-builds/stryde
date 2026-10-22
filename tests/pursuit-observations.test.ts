@@ -230,6 +230,61 @@ test("3. Observations belonging to another pursuit are excluded", async () => {
   assert.equal(result.observations[0].id, "obs-target");
 });
 
+test("3b. Observations with conflicting pursuit IDs between content and metadata are strictly rejected", async () => {
+  const pursuitId = "p-active";
+  const foreignPursuitId = "p-conflicting";
+  const userId = "user-1";
+
+  // Case A: content says p-active, but source_metadata says p-conflicting
+  const conflictingObsA: PursuitObservationRecord & { owner_user_id: string } = {
+    id: "obs-conflict-a",
+    owner_user_id: userId,
+    observation_kind: "WEB_SEARCH_RESULT",
+    content: { pursuit_id: pursuitId, query: "conflicting search A" },
+    observed_at: "2026-10-22T01:00:00Z",
+    source_type: "WEB_SEARCH",
+    source_reference: "req-conflict-a",
+    source_metadata: { pursuit_id: foreignPursuitId },
+  };
+
+  // Case B: content says p-conflicting, but source_metadata says p-active
+  const conflictingObsB: PursuitObservationRecord & { owner_user_id: string } = {
+    id: "obs-conflict-b",
+    owner_user_id: userId,
+    observation_kind: "WEB_SEARCH_RESULT",
+    content: { pursuit_id: foreignPursuitId, query: "conflicting search B" },
+    observed_at: "2026-10-22T02:00:00Z",
+    source_type: "WEB_SEARCH",
+    source_reference: "req-conflict-b",
+    source_metadata: { pursuit_id: pursuitId },
+  };
+
+  // Valid observation: both match p-active
+  const validObs: PursuitObservationRecord & { owner_user_id: string } = {
+    id: "obs-valid",
+    owner_user_id: userId,
+    observation_kind: "WEB_SEARCH_RESULT",
+    content: { pursuit_id: pursuitId, query: "valid search" },
+    observed_at: "2026-10-22T03:00:00Z",
+    source_type: "WEB_SEARCH",
+    source_reference: "req-valid",
+    source_metadata: { pursuit_id: pursuitId },
+  };
+
+  const client = createMockSupabase({
+    currentUserId: userId,
+    actions: [],
+    observations: [conflictingObsA, conflictingObsB, validObs],
+  });
+
+  const result = await fetchPursuitObservations(client, pursuitId);
+  assert.equal(result.error, null);
+  assert.ok(result.observations);
+  // Both conflicting observations must be rejected; a match in one field must never override a conflict in the other
+  assert.equal(result.observations.length, 1, "Only the unconflicted observation matching active pursuit must be retained");
+  assert.equal(result.observations[0].id, "obs-valid");
+});
+
 test("4. Another user's observations are excluded", async () => {
   const pursuitId = "p-user1";
   const user1 = "user-1";

@@ -162,17 +162,23 @@ export async function assembleAdaptiveSituation(
     const content = observation.content;
     const meta = observation.source_metadata as Record<string, unknown> | null;
 
-    // Strict cross-pursuit guard: if an observation has an explicit pursuit_id, it MUST match this pursuit
-    const explicitPursuitId =
-      (typeof content === "object" && content !== null && typeof (content as Record<string, unknown>).pursuit_id === "string"
+    // Strict cross-pursuit guard: if either explicit pursuit identifier exists and
+    // does not equal the active pursuit ID, reject the observation.
+    // A matching identifier in one field must never override a conflicting identifier in the other.
+    const contentPursuitId =
+      typeof content === "object" && content !== null && typeof (content as Record<string, unknown>).pursuit_id === "string"
         ? (content as Record<string, unknown>).pursuit_id
-        : null) ??
-      (meta && typeof meta === "object" && typeof meta.pursuit_id === "string"
+        : null;
+    const metaPursuitId =
+      meta && typeof meta === "object" && typeof meta.pursuit_id === "string"
         ? (meta.pursuit_id as string)
-        : null);
+        : null;
 
-    if (explicitPursuitId && explicitPursuitId !== pursuitId) {
-      return false; // Belongs to a different pursuit; never leak!
+    if (
+      (contentPursuitId && contentPursuitId !== pursuitId) ||
+      (metaPursuitId && metaPursuitId !== pursuitId)
+    ) {
+      return false; // Belongs to a different pursuit or has conflicting pursuit identifiers; never leak!
     }
 
     if (typeof content === "object" && content !== null) {

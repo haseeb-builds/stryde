@@ -132,6 +132,40 @@ test("R-3 search observations: preserves source-less WEB_SEARCH_RESULT observati
   assert.equal(compiledObs.observation_kind, "WEB_SEARCH_RESULT");
 });
 
+test("R-3 search observations: assembleAdaptiveSituation rejects observations with conflicting pursuit IDs", async () => {
+  const pursuitId = "pursuit-1";
+  const ownerUserId = "user-1";
+
+  // Conflicting observation: content has active pursuitId, but source_metadata has conflicting foreign ID
+  const conflictingObservation = {
+    id: "obs-conflicting-meta",
+    owner_user_id: ownerUserId,
+    observation_kind: "WEB_SEARCH_RESULT",
+    content: {
+      pursuit_id: pursuitId,
+      query: "marathon heart rate zones",
+      provider: "exa",
+      results: [{ url: "https://example.com/hr-zones" }],
+    },
+    observed_at: new Date().toISOString(),
+    source_type: "WEB_SEARCH",
+    source_metadata: {
+      pursuit_id: "other-pursuit-conflict",
+    },
+    created_at: new Date().toISOString(),
+  };
+
+  const client = createMockSupabase([conflictingObservation]);
+  const { situation, error } = await assembleAdaptiveSituation(client, ownerUserId, pursuitId);
+  assert.equal(error, null);
+  assert.ok(situation);
+
+  const leakedObs = (situation.observations as Array<Record<string, unknown>>).find(
+    (o) => o.id === "obs-conflicting-meta"
+  );
+  assert.equal(leakedObs, undefined, "Conflicting observation must be dropped from situation");
+});
+
 test("R-3 research execution: executeWebResearch writes pursuit_id to observation content and source_metadata", async (t) => {
   const savedKey = process.env.EXA_API_KEY;
   const savedProvider = process.env.STRYDE_SEARCH_PROVIDER;

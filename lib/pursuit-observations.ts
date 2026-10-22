@@ -104,17 +104,23 @@ export async function fetchPursuitObservations(
         const content = obs.content as Record<string, unknown> | null;
         const meta = obs.source_metadata as Record<string, unknown> | null;
 
-        // Strict cross-pursuit guard: if an observation has an explicit pursuit_id, it MUST match this pursuit
-        const explicitPursuitId =
-          (content && typeof content === "object" && typeof content.pursuit_id === "string"
+        // Strict cross-pursuit guard: if either explicit pursuit identifier exists and
+        // does not equal the active pursuit ID, reject the observation.
+        // A matching identifier in one field must never override a conflicting identifier in the other.
+        const contentPursuitId =
+          content && typeof content === "object" && typeof content.pursuit_id === "string"
             ? content.pursuit_id
-            : null) ??
-          (meta && typeof meta === "object" && typeof meta.pursuit_id === "string"
+            : null;
+        const metaPursuitId =
+          meta && typeof meta === "object" && typeof meta.pursuit_id === "string"
             ? meta.pursuit_id
-            : null);
+            : null;
 
-        if (explicitPursuitId && explicitPursuitId !== pursuitId) {
-          continue; // Belongs to a different pursuit; drop immediately
+        if (
+          (contentPursuitId && contentPursuitId !== pursuitId) ||
+          (metaPursuitId && metaPursuitId !== pursuitId)
+        ) {
+          continue; // Belongs to a different pursuit or has conflicting pursuit identifiers; drop immediately
         }
 
         map.set(obs.id, obs);
