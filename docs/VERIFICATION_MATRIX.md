@@ -1,3 +1,13 @@
+## Reconciliation update — 2026-10-22 (Observation Retrieval, Worker Honesty, and Secondary Citation Audit verified)
+
+| Area | Implemented | Tested | Deployed / Live | Remaining evidence |
+|---|---|---|---|---|
+| Observation Retrieval Contract & Scoping | YES (`lib/pursuit-observations.ts`, `/observations` route, `claims-panel.tsx`) | `tests/pursuit-observations.test.ts` (6/6); strictly scoped to owner and active pursuit ID across metadata and actions | Feature branch | Authenticated UI claim verification in browser |
+| Worker Execution Honesty & Fallback | YES (`app/pursuits/[id]/page.tsx`, `work-panels.tsx`) | Non-trapping UI logic; unlocks "I'm done" / "I'm blocked" manual completion buttons for CONTROLLED moves | Feature branch | Manual worker task progression in browser |
+| Secondary Citation Ingestion Audit Persistence | YES (`lib/source-adaptation-store.ts`, `lib/universal-input.ts`, `app/api/v1/pursuits/[id]/research/route.ts`) | `tests/source-adaptation-audit.test.ts` (3/3); updates adaptation audit status via trustedPlane on unlocatable, failed, or partial claims | Feature branch | Live citation persistence with unlocatable sources |
+| Model Provider Failover & Retry | YES (`lib/model-provider.ts`) | `tests/model-provider-retry.test.ts` (6/6); 429 rate limit retries/failover, malformed JSON retry, immediate AbortError cancellation | Feature branch | Live provider rate limiting |
+| Full Suite Verification | YES | `node --experimental-strip-types --test tests/**/*.test.ts` (342/342 passing across 46 suites), `npx tsc --noEmit` (0 errors), `npm run lint` (0 errors), `npm run build` (clean Turbopack), `npm audit --omit=dev` (0 vulnerabilities) | Hosted CI pending commit | PR review & squash merge approval |
+
 ## Reconciliation update — 2026-10-22 (release blockers closed & verified across all integration boundaries: R-1, R-2, R-3, R-6)
 
 | Area | Implemented | Tested | Deployed / Live | Remaining evidence |

@@ -865,7 +865,7 @@ export default function PursuitPage() {
                         <div className="min-w-0">
                           <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-400">
                             {activeAction.execution_mode === "CONTROLLED"
-                              ? "Stryde is working"
+                              ? "Automated worker move"
                               : "Your move"}
                           </p>
                           <h3 className="mt-2 text-[17px] font-medium tracking-tight">
@@ -873,45 +873,43 @@ export default function PursuitPage() {
                           </h3>
                           <p className="mt-2 text-sm leading-6 text-zinc-600">
                             {activeAction.execution_mode === "CONTROLLED"
-                              ? "Stryde will bring the result back into this pursuit."
+                              ? "Stryde queued this step for an automated worker. If a worker daemon is not running in this environment or you complete it yourself, you can report the outcome directly."
                               : "Do the real-world part, then tell Stryde what happened in the same composer."}
                           </p>
                         </div>
 
-                        {activeAction.execution_mode === "HUMAN" && (
-                          <div className="flex shrink-0 gap-2">
-                            <button
-                              onClick={() => {
-                                setActionReport({
-                                  actionId: activeAction.id,
-                                  terminalStatus: "COMPLETED",
-                                });
-                                window.setTimeout(
-                                  () => composerRef.current?.focus(),
-                                  0,
-                                );
-                              }}
-                              className="rounded-lg bg-zinc-900 px-3.5 py-2 text-xs font-medium text-white"
-                            >
-                              I’m done
-                            </button>
-                            <button
-                              onClick={() => {
-                                setActionReport({
-                                  actionId: activeAction.id,
-                                  terminalStatus: "FAILED",
-                                });
-                                window.setTimeout(
-                                  () => composerRef.current?.focus(),
-                                  0,
-                                );
-                              }}
-                              className="rounded-lg border border-zinc-200 px-3.5 py-2 text-xs font-medium text-zinc-700"
-                            >
-                              I’m blocked
-                            </button>
-                          </div>
-                        )}
+                        <div className="flex shrink-0 gap-2">
+                          <button
+                            onClick={() => {
+                              setActionReport({
+                                actionId: activeAction.id,
+                                terminalStatus: "COMPLETED",
+                              });
+                              window.setTimeout(
+                                () => composerRef.current?.focus(),
+                                0,
+                              );
+                            }}
+                            className="rounded-lg bg-zinc-900 px-3.5 py-2 text-xs font-medium text-white"
+                          >
+                            I’m done
+                          </button>
+                          <button
+                            onClick={() => {
+                              setActionReport({
+                                actionId: activeAction.id,
+                                terminalStatus: "FAILED",
+                              });
+                              window.setTimeout(
+                                () => composerRef.current?.focus(),
+                                0,
+                              );
+                            }}
+                            className="rounded-lg border border-zinc-200 px-3.5 py-2 text-xs font-medium text-zinc-700"
+                          >
+                            I’m blocked
+                          </button>
+                        </div>
                       </div>
                     </section>
                   )}

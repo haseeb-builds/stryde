@@ -1,3 +1,12 @@
+## Runtime checkpoint — 2026-10-22 (Observation Retrieval, Worker Honesty, and Secondary Citation Audit verified on fix/conversation-turn-reliability)
+
+- Branch `fix/conversation-turn-reliability` resolves observation retrieval scoping, worker trapping, and secondary citation audit persistence:
+  - **Observation Retrieval Contract:** `fetchPursuitObservations` in `lib/pursuit-observations.ts` retrieves pursuit observations scoped to `owner_user_id` and active `pursuit_id` via `content.pursuit_id`, `source_metadata.pursuit_id`, and `source_reference IN (actionIds)`. Surface in UI via `claims-panel.tsx` with user-facing labels (`formatObservationOptionLabel`). Tested in `tests/pursuit-observations.test.ts` (6/6).
+  - **Worker Execution Honesty:** Manual completion controls ("I'm done" / "I'm blocked") unlocked for both `HUMAN` and `CONTROLLED` moves. Discloses when an automated worker daemon is not running in the current environment to avoid trapping user.
+  - **Secondary Citation Ingestion:** Secondary citation paths in `lib/source-adaptation-store.ts`, `lib/universal-input.ts`, and `app/api/v1/pursuits/[id]/research/route.ts` update audit status via `trustedPlane` on unlocatable, failed, or partial claims, marking adaptations `INCOMPLETE` and demoting methods to `UNVERIFIED`. Tested in `tests/source-adaptation-audit.test.ts` (3/3).
+  - **Model Retry & Failover:** Robust 429 rate limit backoff, malformed output recovery, and immediate `AbortError` cancellation. Tested in `tests/model-provider-retry.test.ts` (6/6).
+- All 342 tests pass across 46 test files (`npm test`). `npx tsc --noEmit` clean. ESLint 0 errors, 0 warnings. Next.js Turbopack production build clean across all 25 routes. Production audit 0 vulnerabilities.
+
 ## Runtime checkpoint — 2026-10-22 (R-1, R-2, R-3, R-6 verified across all integration boundaries on fix/conversation-turn-reliability)
 
 - Branch `fix/conversation-turn-reliability` resolves all independently identified release blockers:

@@ -333,7 +333,7 @@ export async function POST(request: Request, context: RouteContext) {
 
               if (citations.length === 0) {
                 // All claims unlocatable: do not represent adaptation as fully verified!
-                await updateAdaptationAuditStatus(serviceClient, {
+                const statusRes = await updateAdaptationAuditStatus(serviceClient, {
                   adaptationId: insertedAdaptation.id,
                   ownerUserId: user.id,
                   pursuitId: id,
@@ -346,6 +346,7 @@ export async function POST(request: Request, context: RouteContext) {
                   },
                 });
                 adaptationWarning = "Source adaptation claims could not be verified in the source content.";
+                if (!statusRes.success) adaptationWarning += ` (warning: audit update failed: ${statusRes.error})`;
                 adaptation = {
                   ...adaptation,
                   methods: unverifiedMethods as unknown as SourceAdaptation["methods"],
@@ -359,7 +360,7 @@ export async function POST(request: Request, context: RouteContext) {
                 const { error: citationError } = await supabase.from("pursuit_source_citation").insert(citations);
                 if (citationError) {
                   // Persistence failure! Do not silently return a successful adaptation with missing citations!
-                  await updateAdaptationAuditStatus(serviceClient, {
+                  const statusRes = await updateAdaptationAuditStatus(serviceClient, {
                     adaptationId: insertedAdaptation.id,
                     ownerUserId: user.id,
                     pursuitId: id,
@@ -372,6 +373,7 @@ export async function POST(request: Request, context: RouteContext) {
                     },
                   });
                   adaptationWarning = `Source was saved, but evidence citations could not be persisted: ${citationError.message}`;
+                  if (!statusRes.success) adaptationWarning += ` (warning: audit update failed: ${statusRes.error})`;
                   adaptation = {
                     ...adaptation,
                     methods: unverifiedMethods as unknown as SourceAdaptation["methods"],
@@ -383,7 +385,7 @@ export async function POST(request: Request, context: RouteContext) {
                   };
                 } else if (citations.length < sourceClaims.length) {
                   // Mixed claims: only a subset of claims were substantiated
-                  await updateAdaptationAuditStatus(serviceClient, {
+                  const statusRes = await updateAdaptationAuditStatus(serviceClient, {
                     adaptationId: insertedAdaptation.id,
                     ownerUserId: user.id,
                     pursuitId: id,
@@ -398,6 +400,7 @@ export async function POST(request: Request, context: RouteContext) {
                     },
                   });
                   adaptationWarning = `Source adaptation partially verified: ${citations.length} of ${sourceClaims.length} claims were substantiated in source text.`;
+                  if (!statusRes.success) adaptationWarning += ` (warning: audit update failed: ${statusRes.error})`;
                   adaptation = {
                     ...adaptation,
                     methods: unverifiedMethods as unknown as SourceAdaptation["methods"],

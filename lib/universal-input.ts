@@ -1,9 +1,10 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { runSourceAdaptation, type SourceAdaptation } from "@/lib/adaptive-model";
-import { assembleAdaptiveSituation } from "@/lib/adaptive-situation";
-import { buildSourceCitation } from "@/lib/source-citation";
-import { ingestPastedSource, ingestUrlSource } from "@/lib/source-ingestion";
-import { detectPastedRoadmapFromText } from "@/lib/research-orchestration";
+import { runSourceAdaptation, type SourceAdaptation } from "./adaptive-model.ts";
+import { assembleAdaptiveSituation } from "./adaptive-situation.ts";
+import { buildSourceCitation } from "./source-citation.ts";
+import { ingestPastedSource, ingestUrlSource } from "./source-ingestion.ts";
+import { detectPastedRoadmapFromText, updateAdaptationAuditStatus } from "./research-orchestration.ts";
+import { getSupabaseServiceClient } from "./supabase/service.ts";
 
 const MAX_URLS_PER_TURN = 2;
 
@@ -59,6 +60,7 @@ export async function processUniversalInput(
   ownerUserId: string,
   pursuitId: string,
   inputText: string,
+  trustedPlane?: SupabaseClient,
 ): Promise<UniversalInputResult> {
   const urls = extractUrls(inputText);
   if (!urls.length) {
@@ -183,14 +185,61 @@ export async function processUniversalInput(
                   });
                 }
               }
-              if (citations.length) {
+              const serviceClient = trustedPlane ?? getSupabaseServiceClient();
+              const unverifiedMethods = (Array.isArray(insertedAdaptation.methods) ? insertedAdaptation.methods : []).map(
+                (m: Record<string, unknown>) => ({ ...m, audit_status: "UNVERIFIED" })
+              );
+
+              if (citations.length === 0) {
+                const updateRes = await updateAdaptationAuditStatus(serviceClient, {
+                  adaptationId: insertedAdaptation.id,
+                  ownerUserId,
+                  pursuitId,
+                  summary: "Roadmap saved, but claims could not be substantiated in the source content.",
+                  methods: unverifiedMethods,
+                  provenance: {
+                    ...(typeof insertedAdaptation.provenance === "object" && insertedAdaptation.provenance !== null ? insertedAdaptation.provenance : {}),
+                    audit_status: "INCOMPLETE",
+                    unsubstantiated: true,
+                  },
+                });
+                warning = "Roadmap adaptation claims could not be verified in the source content.";
+                if (!updateRes.success) warning += ` (warning: audit update failed: ${updateRes.error})`;
+              } else {
                 const { error: insertError } = await supabase.from("pursuit_source_citation").insert(citations);
                 if (insertError) {
+                  const updateRes = await updateAdaptationAuditStatus(serviceClient, {
+                    adaptationId: insertedAdaptation.id,
+                    ownerUserId,
+                    pursuitId,
+                    summary: `Roadmap was saved, but evidence citations could not be persisted: ${insertError.message}`,
+                    methods: unverifiedMethods,
+                    provenance: {
+                      ...(typeof insertedAdaptation.provenance === "object" && insertedAdaptation.provenance !== null ? insertedAdaptation.provenance : {}),
+                      audit_status: "INCOMPLETE",
+                      citation_error: insertError.message,
+                    },
+                  });
                   warning = `Roadmap was saved, but evidence citations could not be persisted: ${insertError.message}`;
+                  if (!updateRes.success) warning += ` (warning: audit update failed: ${updateRes.error})`;
+                } else if (citations.length < sourceClaims.length) {
+                  const updateRes = await updateAdaptationAuditStatus(serviceClient, {
+                    adaptationId: insertedAdaptation.id,
+                    ownerUserId,
+                    pursuitId,
+                    summary: `Roadmap partially verified: ${citations.length} of ${sourceClaims.length} claims substantiated.`,
+                    methods: unverifiedMethods,
+                    provenance: {
+                      ...(typeof insertedAdaptation.provenance === "object" && insertedAdaptation.provenance !== null ? insertedAdaptation.provenance : {}),
+                      audit_status: "INCOMPLETE",
+                      partial_evidence: true,
+                      substantiated_claims: citations.length,
+                      total_claims: sourceClaims.length,
+                    },
+                  });
+                  warning = `Roadmap partially verified: ${citations.length} of ${sourceClaims.length} claims substantiated.`;
+                  if (!updateRes.success) warning += ` (warning: audit update failed: ${updateRes.error})`;
                 }
-              }
-              if (citations.length < sourceClaims.length) {
-                warning = `Roadmap partially verified: ${citations.length} of ${sourceClaims.length} claims substantiated.`;
               }
             }
           } else {
@@ -375,14 +424,61 @@ export async function processUniversalInput(
                     });
                   }
                 }
-                if (citations.length) {
+                const serviceClient = trustedPlane ?? getSupabaseServiceClient();
+                const unverifiedMethods = (Array.isArray(insertedAdaptation.methods) ? insertedAdaptation.methods : []).map(
+                  (m: Record<string, unknown>) => ({ ...m, audit_status: "UNVERIFIED" })
+                );
+
+                if (citations.length === 0) {
+                  const updateRes = await updateAdaptationAuditStatus(serviceClient, {
+                    adaptationId: insertedAdaptation.id,
+                    ownerUserId,
+                    pursuitId,
+                    summary: "Source saved, but claims could not be substantiated in the source content.",
+                    methods: unverifiedMethods,
+                    provenance: {
+                      ...(typeof insertedAdaptation.provenance === "object" && insertedAdaptation.provenance !== null ? insertedAdaptation.provenance : {}),
+                      audit_status: "INCOMPLETE",
+                      unsubstantiated: true,
+                    },
+                  });
+                  warning = "Source adaptation claims could not be verified in the source content.";
+                  if (!updateRes.success) warning += ` (warning: audit update failed: ${updateRes.error})`;
+                } else {
                   const { error: insertError } = await supabase.from("pursuit_source_citation").insert(citations);
                   if (insertError) {
+                    const updateRes = await updateAdaptationAuditStatus(serviceClient, {
+                      adaptationId: insertedAdaptation.id,
+                      ownerUserId,
+                      pursuitId,
+                      summary: `Source was saved, but evidence citations could not be persisted: ${insertError.message}`,
+                      methods: unverifiedMethods,
+                      provenance: {
+                        ...(typeof insertedAdaptation.provenance === "object" && insertedAdaptation.provenance !== null ? insertedAdaptation.provenance : {}),
+                        audit_status: "INCOMPLETE",
+                        citation_error: insertError.message,
+                      },
+                    });
                     warning = `Source was saved, but evidence citations could not be persisted: ${insertError.message}`;
+                    if (!updateRes.success) warning += ` (warning: audit update failed: ${updateRes.error})`;
+                  } else if (citations.length < sourceClaims.length) {
+                    const updateRes = await updateAdaptationAuditStatus(serviceClient, {
+                      adaptationId: insertedAdaptation.id,
+                      ownerUserId,
+                      pursuitId,
+                      summary: `Source partially verified: ${citations.length} of ${sourceClaims.length} claims substantiated.`,
+                      methods: unverifiedMethods,
+                      provenance: {
+                        ...(typeof insertedAdaptation.provenance === "object" && insertedAdaptation.provenance !== null ? insertedAdaptation.provenance : {}),
+                        audit_status: "INCOMPLETE",
+                        partial_evidence: true,
+                        substantiated_claims: citations.length,
+                        total_claims: sourceClaims.length,
+                      },
+                    });
+                    warning = `Source partially verified: ${citations.length} of ${sourceClaims.length} claims substantiated.`;
+                    if (!updateRes.success) warning += ` (warning: audit update failed: ${updateRes.error})`;
                   }
-                }
-                if (citations.length < sourceClaims.length) {
-                  warning = `Source partially verified: ${citations.length} of ${sourceClaims.length} claims substantiated.`;
                 }
               }
             }

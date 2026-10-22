@@ -4,9 +4,11 @@
 // epistemic wiring (adaptation persisted as ADVISED, citations bound to the
 // source content hash, honest warnings on failure) cannot drift between paths.
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { runSourceAdaptation, type SourceAdaptation } from "@/lib/adaptive-model";
-import { assembleAdaptiveSituation } from "@/lib/adaptive-situation";
-import { buildSourceCitation } from "@/lib/source-citation";
+import { runSourceAdaptation, type SourceAdaptation } from "./adaptive-model.ts";
+import { assembleAdaptiveSituation } from "./adaptive-situation.ts";
+import { buildSourceCitation } from "./source-citation.ts";
+import { updateAdaptationAuditStatus } from "./research-orchestration.ts";
+import { getSupabaseServiceClient } from "./supabase/service.ts";
 
 export type StoredAdaptation = {
   adaptation: SourceAdaptation | null;
@@ -16,6 +18,7 @@ export type StoredAdaptation = {
 
 export async function adaptAndStoreSource(input: {
   supabase: SupabaseClient;
+  trustedPlane?: SupabaseClient;
   ownerUserId: string;
   pursuitId: string;
   source: {
@@ -98,21 +101,102 @@ export async function adaptAndStoreSource(input: {
           });
         }
       }
-      if (citations.length) {
-        const { error: insertError } = await input.supabase.from("pursuit_source_citation").insert(citations);
-        if (insertError) {
-          return {
-            adaptation: adapted.adaptation,
-            adaptation_id: inserted.id,
-            warning: `Source was saved, but evidence citations could not be persisted: ${insertError.message}`,
-          };
-        }
-      }
-      if (citations.length < sourceClaims.length) {
+
+      const serviceClient = input.trustedPlane ?? getSupabaseServiceClient();
+      const unverifiedMethods = (Array.isArray(inserted.methods) ? inserted.methods : []).map(
+        (m: Record<string, unknown>) => ({ ...m, audit_status: "UNVERIFIED" })
+      );
+
+      if (citations.length === 0) {
+        // All claims unlocatable: update adaptation audit status to INCOMPLETE with unsubstantiated: true
+        const updateRes = await updateAdaptationAuditStatus(serviceClient, {
+          adaptationId: inserted.id,
+          ownerUserId: input.ownerUserId,
+          pursuitId: input.pursuitId,
+          summary: "Source saved, but claims could not be substantiated in the source content.",
+          methods: unverifiedMethods,
+          provenance: {
+            ...(typeof inserted.provenance === "object" && inserted.provenance !== null ? inserted.provenance : {}),
+            audit_status: "INCOMPLETE",
+            unsubstantiated: true,
+          },
+        });
+        const baseWarning = "Source adaptation claims could not be verified in the source content.";
         return {
-          adaptation: adapted.adaptation,
+          adaptation: {
+            ...adapted.adaptation,
+            methods: unverifiedMethods as unknown as SourceAdaptation["methods"],
+            provenance: {
+              ...(typeof inserted.provenance === "object" && inserted.provenance !== null ? (inserted.provenance as Record<string, unknown>) : {}),
+              audit_status: "INCOMPLETE",
+              unsubstantiated: true,
+            } as unknown as SourceAdaptation["provenance"],
+          },
           adaptation_id: inserted.id,
-          warning: `Source adaptation partially verified: ${citations.length} of ${sourceClaims.length} claims could be substantiated.`,
+          warning: updateRes.success ? baseWarning : `${baseWarning} (warning: audit update failed: ${updateRes.error})`,
+        };
+      }
+
+      const { error: citInsertError } = await input.supabase.from("pursuit_source_citation").insert(citations);
+      if (citInsertError) {
+        const updateRes = await updateAdaptationAuditStatus(serviceClient, {
+          adaptationId: inserted.id,
+          ownerUserId: input.ownerUserId,
+          pursuitId: input.pursuitId,
+          summary: `Source saved, but evidence citations could not be persisted: ${citInsertError.message}`,
+          methods: unverifiedMethods,
+          provenance: {
+            ...(typeof inserted.provenance === "object" && inserted.provenance !== null ? inserted.provenance : {}),
+            audit_status: "INCOMPLETE",
+            citation_error: citInsertError.message,
+          },
+        });
+        const baseWarning = `Source was saved, but evidence citations could not be persisted: ${citInsertError.message}`;
+        return {
+          adaptation: {
+            ...adapted.adaptation,
+            methods: unverifiedMethods as unknown as SourceAdaptation["methods"],
+            provenance: {
+              ...(typeof inserted.provenance === "object" && inserted.provenance !== null ? (inserted.provenance as Record<string, unknown>) : {}),
+              audit_status: "INCOMPLETE",
+              citation_error: citInsertError.message,
+            } as unknown as SourceAdaptation["provenance"],
+          },
+          adaptation_id: inserted.id,
+          warning: updateRes.success ? baseWarning : `${baseWarning} (warning: audit update failed: ${updateRes.error})`,
+        };
+      }
+
+      if (citations.length < sourceClaims.length) {
+        const updateRes = await updateAdaptationAuditStatus(serviceClient, {
+          adaptationId: inserted.id,
+          ownerUserId: input.ownerUserId,
+          pursuitId: input.pursuitId,
+          summary: `Source adaptation partially verified: ${citations.length} of ${sourceClaims.length} claims were substantiated.`,
+          methods: unverifiedMethods,
+          provenance: {
+            ...(typeof inserted.provenance === "object" && inserted.provenance !== null ? inserted.provenance : {}),
+            audit_status: "INCOMPLETE",
+            partial_evidence: true,
+            substantiated_claims: citations.length,
+            total_claims: sourceClaims.length,
+          },
+        });
+        const baseWarning = `Source adaptation partially verified: ${citations.length} of ${sourceClaims.length} claims were substantiated.`;
+        return {
+          adaptation: {
+            ...adapted.adaptation,
+            methods: unverifiedMethods as unknown as SourceAdaptation["methods"],
+            provenance: {
+              ...(typeof inserted.provenance === "object" && inserted.provenance !== null ? (inserted.provenance as Record<string, unknown>) : {}),
+              audit_status: "INCOMPLETE",
+              partial_evidence: true,
+              substantiated_claims: citations.length,
+              total_claims: sourceClaims.length,
+            } as unknown as SourceAdaptation["provenance"],
+          },
+          adaptation_id: inserted.id,
+          warning: updateRes.success ? baseWarning : `${baseWarning} (warning: audit update failed: ${updateRes.error})`,
         };
       }
     }

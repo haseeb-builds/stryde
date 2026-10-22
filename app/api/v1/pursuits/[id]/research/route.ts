@@ -8,6 +8,7 @@ import { assembleAdaptiveSituation } from "@/lib/adaptive-situation";
 import { getSupabaseServiceClient } from "@/lib/supabase/service";
 import { reserveResources, ResourceExhaustedError, type ReservationGroup } from "@/lib/resource-control";
 import { classifyResults } from "@/lib/research-planner";
+import { updateAdaptationAuditStatus } from "@/lib/research-orchestration";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -114,7 +115,45 @@ export async function POST(request: Request, context: RouteContext) {
           const { error: citError } = await supabase.from("pursuit_source_citation").insert({ owner_user_id: user.id, pursuit_id: id, source_id: source.id, adaptation_id: adaptation ? (adaptation as { id?: string }).id ?? null : null, source_content_sha256: citation.source_content_sha256, locator: citation.locator, excerpt: citation.excerpt, basis: citation.basis });
           if (citError) {
             warning = `Source was materialized, but citation could not be persisted: ${citError.message}`;
+            if (adaptation && (adaptation as { id?: string }).id) {
+              const serviceClient = getSupabaseServiceClient();
+              const unverifiedMethods = (Array.isArray(adaptation.methods) ? adaptation.methods : []).map(
+                (m: Record<string, unknown>) => ({ ...m, audit_status: "UNVERIFIED" })
+              );
+              const statusRes = await updateAdaptationAuditStatus(serviceClient, {
+                adaptationId: (adaptation as unknown as { id: string }).id,
+                ownerUserId: user.id,
+                pursuitId: id,
+                summary: `Materialized source citation persistence failed: ${citError.message}`,
+                methods: unverifiedMethods,
+                provenance: {
+                  ...(typeof adaptation.provenance === "object" && adaptation.provenance !== null ? (adaptation.provenance as Record<string, unknown>) : {}),
+                  audit_status: "INCOMPLETE",
+                  citation_error: citError.message,
+                },
+              });
+              if (!statusRes.success) warning += ` (warning: audit update failed: ${statusRes.error})`;
+            }
           }
+        } else if (adaptation && (adaptation as { id?: string }).id) {
+          const serviceClient = getSupabaseServiceClient();
+          const unverifiedMethods = (Array.isArray(adaptation.methods) ? adaptation.methods : []).map(
+            (m: Record<string, unknown>) => ({ ...m, audit_status: "UNVERIFIED" })
+          );
+          const statusRes = await updateAdaptationAuditStatus(serviceClient, {
+            adaptationId: (adaptation as unknown as { id: string }).id,
+            ownerUserId: user.id,
+            pursuitId: id,
+            summary: "Materialized source citation could not be verified in text.",
+            methods: unverifiedMethods,
+            provenance: {
+              ...(typeof adaptation.provenance === "object" && adaptation.provenance !== null ? (adaptation.provenance as Record<string, unknown>) : {}),
+              audit_status: "INCOMPLETE",
+              unsubstantiated: true,
+            },
+          });
+          warning = "Source was materialized, but citation could not be verified in text.";
+          if (!statusRes.success) warning += ` (warning: audit update failed: ${statusRes.error})`;
         }
       }
       return NextResponse.json({ source, adaptation, materialized: true, warning }, { status: 201 });

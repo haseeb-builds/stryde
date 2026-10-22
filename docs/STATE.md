@@ -1,3 +1,30 @@
+## 2026-10-22 — Verification, Observation Retrieval Scoping, Worker Honesty, and Secondary Citation Audit Closure (`fix/conversation-turn-reliability`)
+
+- Branch `fix/conversation-turn-reliability` on PR #13, base `main` at `5259e7d0004000b3459e2a7ce7f9d6371a6feecc`.
+- **Independently Identified Gaps Resolved & Verified (TDD):**
+  - **Observation Retrieval Contract & Scoping (`lib/pursuit-observations.ts`):**
+    - Created `fetchPursuitObservations`, `isSelectableObservationForClaim`, and `formatObservationOptionLabel`.
+    - Scoped queries strictly to `owner_user_id` and active `pursuit_id` across `content.pursuit_id`, `source_metadata.pursuit_id`, and `source_reference IN (actionIds)`.
+    - Integrated with `/api/v1/pursuits/[id]/observations` and `claims-panel.tsx` to ensure search observations and evidence can be selected for claim verification with human-readable labels instead of raw ontology strings.
+    - Verified by `tests/pursuit-observations.test.ts` (6/6).
+  - **Worker Execution Honesty & Fallback Controls (`page.tsx` & `work-panels.tsx`):**
+    - Fixed the worker trapping defect where `execution_mode === "CONTROLLED"` previously suppressed user completion buttons.
+    - Unblocked "I'm done" and "I'm blocked" manual controls for both `HUMAN` and `CONTROLLED` moves.
+    - Added transparent disclosure: *"Stryde queued this step for an automated worker. If a worker daemon is not running in this environment or you complete it yourself, you can report the outcome directly."*
+  - **Secondary Citation Ingestion Audit Status Persistence:**
+    - Updated `adaptAndStoreSource` in `lib/source-adaptation-store.ts`, `lib/universal-input.ts`, and `app/api/v1/pursuits/[id]/research/route.ts` to call `updateAdaptationAuditStatus` via `trustedPlane` on unlocatable claims (`unsubstantiated: true`), citation persistence failures (`citation_error`), and partial evidence (`partial_evidence: true`), demoting methods to `UNVERIFIED`.
+    - Handled error responses from `updateAdaptationAuditStatus` in `app/api/v1/pursuits/[id]/sources/route.ts`.
+    - Verified by `tests/source-adaptation-audit.test.ts` (3/3).
+  - **Model Provider Failover & Retry Expanded (TDD):**
+    - Expanded test coverage in `tests/model-provider-retry.test.ts` for HTTP 429 rate limit retries and failover across providers, malformed JSON recovery, and immediate abort cancellation (`AbortError`) with zero retries/failover.
+    - Verified by `tests/model-provider-retry.test.ts` (6/6).
+- **Full Verification Suite:**
+  - `node --experimental-strip-types --test tests/**/*.test.ts`: **342/342 tests pass across 46 test suites**.
+  - `npx tsc --noEmit`: **0 errors**.
+  - `npm run lint`: **0 errors, 0 warnings**.
+  - `npm run build`: **Clean Turbopack production build across all 25 routes**.
+  - `npm audit --omit=dev`: **0 vulnerabilities**.
+
 ## 2026-10-22 — Release blockers closed & verified across all integration boundaries: R-1, R-2, R-3, R-6 (`fix/conversation-turn-reliability`)
 
 - Branch `fix/conversation-turn-reliability` on PR #13, base `main` at `5259e7d0004000b3459e2a7ce7f9d6371a6feecc`.

@@ -1,3 +1,28 @@
+## 2026-10-22 — Observation Retrieval Scoping, Worker Honesty, and Secondary Citation Audit Persistence verified (`fix/conversation-turn-reliability`)
+
+### Branch status
+- Branch: `fix/conversation-turn-reliability` on PR #13, base `main` at `5259e7d0004000b3459e2a7ce7f9d6371a6feecc`.
+- **Independently Identified Gaps Resolved & Verified (TDD):**
+  - **Observation Retrieval Contract & Scoping (`lib/pursuit-observations.ts`):**
+    - `fetchPursuitObservations`, `isSelectableObservationForClaim`, and `formatObservationOptionLabel` strictly scope observation queries to `owner_user_id` and active `pursuit_id`.
+    - Integrated with `/api/v1/pursuits/[id]/observations` and `claims-panel.tsx` to provide selectable search evidence with human-readable labels instead of raw ontology strings.
+    - Verified by `tests/pursuit-observations.test.ts` (6/6).
+  - **Worker Execution Honesty & Fallback Controls (`page.tsx` & `work-panels.tsx`):**
+    - Fixed worker trapping defect by enabling manual "I'm done" and "I'm blocked" buttons for both `HUMAN` and `CONTROLLED` moves.
+    - Added transparent disclosure when automated worker daemons are not running in the environment.
+  - **Secondary Citation Ingestion Audit Status Persistence:**
+    - Updated `adaptAndStoreSource` in `lib/source-adaptation-store.ts`, `lib/universal-input.ts`, and `app/api/v1/pursuits/[id]/research/route.ts` to call `updateAdaptationAuditStatus` via `trustedPlane` on unlocatable claims (`unsubstantiated: true`), citation persistence failures (`citation_error`), and partial evidence (`partial_evidence: true`), demoting methods to `UNVERIFIED`.
+    - Verified by `tests/source-adaptation-audit.test.ts` (3/3).
+  - **Model Provider Failover & Retry Expanded (TDD):**
+    - Expanded test coverage in `tests/model-provider-retry.test.ts` for HTTP 429 rate limit retries and failover across providers, malformed JSON recovery, and immediate abort cancellation (`AbortError`) with zero retries/failover.
+    - Verified by `tests/model-provider-retry.test.ts` (6/6).
+- **Full Verification Suite:**
+  - `node --experimental-strip-types --test tests/**/*.test.ts`: **342/342 tests passing across 46 test suites**.
+  - `npx tsc --noEmit`: **0 errors**.
+  - `npm run lint`: **0 errors, 0 warnings**.
+  - `npm run build`: **Clean Turbopack compile across all 25 routes**.
+  - `npm audit --omit=dev`: **0 vulnerabilities**.
+
 ## 2026-10-22 — Independently identified release blockers closed & verified: R-1, R-2, R-3, R-6 (`fix/conversation-turn-reliability`)
 
 ### Branch status
