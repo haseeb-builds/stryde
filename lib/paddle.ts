@@ -64,24 +64,27 @@ export type PaddleWebhookEvent = {
 };
 
 export function isPaddleConfigured(env: NodeJS.ProcessEnv = process.env): boolean {
-  return Boolean(
-    env.PADDLE_API_KEY?.trim() &&
-    env.PADDLE_WEBHOOK_SECRET?.trim() &&
-    (env.PADDLE_PRICE_ID_PRO?.trim() || env.PADDLE_PRICE_ID?.trim())
-  );
+  const apiKey = env.PADDLE_API_KEY?.trim();
+  const webhookSecret = env.PADDLE_WEBHOOK_SECRET_KEY?.trim() || env.PADDLE_WEBHOOK_SECRET?.trim();
+  const priceId = env.PADDLE_PRO_PRICE_ID?.trim() || env.PADDLE_PRICE_ID_PRO?.trim() || env.PADDLE_PRICE_ID?.trim();
+  return Boolean(apiKey && webhookSecret && priceId);
 }
 
 export function getPaddleConfig(env: NodeJS.ProcessEnv = process.env): PaddleConfig {
   const apiKey = env.PADDLE_API_KEY?.trim();
-  const webhookSecret = env.PADDLE_WEBHOOK_SECRET?.trim();
-  const priceIdPro = env.PADDLE_PRICE_ID_PRO?.trim() || env.PADDLE_PRICE_ID?.trim() || "";
+  const webhookSecret = env.PADDLE_WEBHOOK_SECRET_KEY?.trim() || env.PADDLE_WEBHOOK_SECRET?.trim();
+  const priceIdPro =
+    env.PADDLE_PRO_PRICE_ID?.trim() ||
+    env.PADDLE_PRICE_ID_PRO?.trim() ||
+    env.PADDLE_PRICE_ID?.trim() ||
+    "";
   const priceIdMax = env.PADDLE_PRICE_ID_MAX?.trim() || "";
   const environment: PaddleEnvironment =
     env.PADDLE_ENVIRONMENT?.trim().toLowerCase() === "sandbox" ? "sandbox" : "production";
 
   if (!apiKey || !webhookSecret || !priceIdPro) {
     throw new Error(
-      "Paddle billing is not fully configured. Required environment variables: PADDLE_API_KEY, PADDLE_WEBHOOK_SECRET, and PADDLE_PRICE_ID_PRO (or PADDLE_PRICE_ID)."
+      "Paddle billing is not fully configured. Required environment variables: PADDLE_API_KEY, PADDLE_WEBHOOK_SECRET (or PADDLE_WEBHOOK_SECRET_KEY), and PADDLE_PRO_PRICE_ID (or PADDLE_PRICE_ID_PRO)."
     );
   }
 
@@ -130,6 +133,8 @@ export function verifyPaddleWebhookSignature(
       timestampStr = part.slice(3);
     } else if (part.startsWith("h1=")) {
       signatureHex = part.slice(3);
+    } else if (part.startsWith("h=")) {
+      signatureHex = part.slice(2);
     }
   }
 
@@ -252,7 +257,11 @@ export function normalizePaddleSubscriptionEvent(
     return null;
   }
 
-  const ownerUserId = (data.custom_data?.owner_user_id as string) || "";
+  const ownerUserId =
+    (data.custom_data?.owner_user_id as string) ||
+    (data.custom_data?.user_id as string) ||
+    (data.custom_data?.userId as string) ||
+    "";
   if (!ownerUserId) {
     return null;
   }
