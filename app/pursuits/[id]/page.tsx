@@ -18,6 +18,8 @@ import PursuitMemoryPanel from "./memory-panel";
 import PursuitAutonomyRow from "./autonomy-row";
 import PursuitSkillsPanel from "./skills-panel";
 import PursuitArtifactsPanel from "./artifacts-panel";
+import ContextDrawer, { type ContextDrawerTab } from "./context-drawer";
+import AddContextModal, { type AddContextTab } from "./add-context-modal";
 import { MarkdownContent } from "./markdown-content";
 
 type Pursuit = { id: string; title: string | null; status: string };
@@ -128,6 +130,10 @@ export default function PursuitPage() {
   const [failedTurnMessage, setFailedTurnMessage] = useState<string | null>(
     null
   );
+  const [contextDrawerOpen, setContextDrawerOpen] = useState(false);
+  const [contextDrawerTab, setContextDrawerTab] = useState<ContextDrawerTab>("sources");
+  const [addContextOpen, setAddContextOpen] = useState(false);
+  const [addContextTab, setAddContextTab] = useState<AddContextTab>("source");
 
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const voiceRef = useRef<VoiceRecognition | null>(null);
@@ -912,12 +918,26 @@ export default function PursuitPage() {
           </div>
 
           <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
-            <a
-              href="#pursuit-context"
+            <button
+              type="button"
+              onClick={() => {
+                setAddContextTab("source");
+                setAddContextOpen(true);
+              }}
+              className="rounded-[4px] border border-[var(--rule-strong)] bg-[var(--surface-subtle)] px-2.5 py-1.5 font-mono text-[11px] font-medium text-[var(--ink)] hover:bg-[#e4e7e2]"
+            >
+              + Add context
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setContextDrawerTab("sources");
+                setContextDrawerOpen(true);
+              }}
               className="rounded-[4px] border border-[var(--rule)] bg-[var(--surface)] px-2.5 py-1.5 font-mono text-[11px] font-medium text-[var(--ink-secondary)] hover:border-[var(--rule-strong)] hover:text-[var(--ink)]"
             >
               Context &amp; files
-            </a>
+            </button>
             <button
               type="button"
               onClick={() => void newConversation()}
@@ -1538,6 +1558,36 @@ export default function PursuitPage() {
           </form>
         </div>
       </footer>
+
+      <ContextDrawer
+        isOpen={contextDrawerOpen}
+        onClose={() => setContextDrawerOpen(false)}
+        pursuitId={params.id}
+        sessionId={session?.id ?? null}
+        sessionActive={Boolean(session)}
+        workingState={workingState}
+        onWorkingStateChange={setWorkingState}
+        onActionStatusRequest={(actionId, status) =>
+          setActionReport({ actionId, terminalStatus: status })
+        }
+        initialTab={contextDrawerTab}
+        onOpenAddContext={() => {
+          setAddContextTab("source");
+          setAddContextOpen(true);
+        }}
+      />
+      <AddContextModal
+        isOpen={addContextOpen}
+        onClose={() => setAddContextOpen(false)}
+        pursuitId={params.id}
+        sessionId={session?.id ?? null}
+        sessionActive={Boolean(session)}
+        initialTab={addContextTab}
+        onContextAdded={() => {
+          if (session?.id) void openSession(session.id);
+          void recomputeWork();
+        }}
+      />
     </main>
   );
 }

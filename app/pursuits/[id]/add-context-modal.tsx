@@ -7,7 +7,7 @@ import {
   formatObservationOptionLabel
 } from "@/lib/pursuit-observations";
 
-type AddContextTab = "source" | "research" | "evidence";
+export type AddContextTab = "source" | "research" | "evidence";
 
 type ResearchResult = {
   url: string;

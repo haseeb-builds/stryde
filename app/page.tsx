@@ -10,6 +10,16 @@ type Pursuit = {
   status: string;
 };
 
+type SubscriptionDetails = {
+  planId: string;
+  status: string;
+  provider: string;
+  managementUrls: {
+    updatePaymentMethod?: string | null;
+    cancel?: string | null;
+  } | null;
+};
+
 function describePursuitStatus(status: string): {
   code: string;
   summary: string;
@@ -77,6 +87,35 @@ export default function HomePage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
+  const [subscription, setSubscription] = useState<SubscriptionDetails | null>(
+    null
+  );
+
+  const loadSubscription = useCallback(async (token: string) => {
+    try {
+      const response = await fetch("/api/v1/billing/portal", {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (!response.ok) return;
+      const body = (await response.json()) as {
+        plan_id?: string;
+        status?: string;
+        provider?: string;
+        management_urls?: {
+          updatePaymentMethod?: string | null;
+          cancel?: string | null;
+        } | null;
+      };
+      setSubscription({
+        planId: body.plan_id ?? "free",
+        status: body.status ?? "ACTIVE",
+        provider: body.provider ?? "none",
+        managementUrls: body.management_urls ?? null
+      });
+    } catch {
+      // Non-critical fallback
+    }
+  }, []);
 
   const loadPursuits = useCallback(async () => {
     const { data: sessionData } = await supabase.auth.getSession();
@@ -86,13 +125,14 @@ export default function HomePage() {
       return;
     }
     setSessionReady(true);
+    void loadSubscription(token);
     const response = await fetch("/api/v1/pursuits?limit=30", {
       headers: { Authorization: `Bearer ${token}` }
     });
     if (!response.ok) return;
     const body = (await response.json()) as { pursuits?: Pursuit[] };
     setPursuits(body.pursuits ?? []);
-  }, []);
+  }, [loadSubscription]);
 
   useEffect(() => {
     void Promise.resolve().then(loadPursuits);
@@ -212,6 +252,7 @@ export default function HomePage() {
   async function signOut() {
     await supabase.auth.signOut();
     setPursuits([]);
+    setSubscription(null);
     setSessionReady(false);
   }
 
@@ -466,13 +507,32 @@ export default function HomePage() {
             </span>
           </div>
 
-          <button
-            type="button"
-            onClick={() => void signOut()}
-            className="rounded-[4px] border border-[var(--rule)] bg-[var(--surface)] px-2.5 py-1 text-[12px] font-medium text-[var(--ink-secondary)] transition-colors hover:border-[var(--rule-strong)] hover:text-[var(--ink)]"
-          >
-            Sign out
-          </button>
+          <div className="flex items-center gap-2">
+            <span className="rounded-[3px] border border-[var(--rule)] bg-[var(--surface-subtle)] px-2 py-0.5 font-mono text-[10.5px] font-medium uppercase tracking-wider text-[var(--ink-secondary)]">
+              {subscription?.planId === "pro" || subscription?.planId === "max" ? (
+                <span className="text-[var(--verified)]">● {subscription.planId.toUpperCase()}</span>
+              ) : (
+                <span>Free Plan</span>
+              )}
+            </span>
+            {subscription?.managementUrls?.updatePaymentMethod ? (
+              <a
+                href={subscription.managementUrls.updatePaymentMethod}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="rounded-[4px] border border-[var(--rule)] bg-[var(--surface)] px-2.5 py-1 text-[12px] font-medium text-[var(--ink-secondary)] transition-colors hover:border-[var(--rule-strong)] hover:text-[var(--ink)]"
+              >
+                Manage
+              </a>
+            ) : null}
+            <button
+              type="button"
+              onClick={() => void signOut()}
+              className="rounded-[4px] border border-[var(--rule)] bg-[var(--surface)] px-2.5 py-1 text-[12px] font-medium text-[var(--ink-secondary)] transition-colors hover:border-[var(--rule-strong)] hover:text-[var(--ink)]"
+            >
+              Sign out
+            </button>
+          </div>
         </div>
       </header>
 
@@ -707,25 +767,43 @@ export default function HomePage() {
           ) : null}
         </section>
 
-        {/* Quiet Founding Access Footer */}
+        {/* Commercial Access / Founding Membership */}
         <section className="rounded-[4px] border border-[var(--rule)] bg-[var(--surface)] px-4 py-4 sm:px-5">
           <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
             <div className="space-y-1">
-              <p className="font-mono text-[11px] font-semibold uppercase tracking-wider text-[var(--ink-secondary)]">
-                Founding access
-              </p>
+              <div className="flex items-center gap-2">
+                <p className="font-mono text-[11px] font-semibold uppercase tracking-wider text-[var(--ink-secondary)]">
+                  Founding Membership &amp; Access
+                </p>
+                <span className="rounded-[3px] border border-[var(--rule)] bg-[var(--surface-subtle)] px-1.5 py-0.5 font-mono text-[10px] uppercase text-[var(--ink-muted)]">
+                  Tier: {subscription?.planId ? subscription.planId.toUpperCase() : "FREE"}
+                </span>
+              </div>
               <p className="max-w-xl text-[12.5px] leading-relaxed text-[var(--ink-secondary)]">
-                Support Stryde early and lock in the founding rate. Payments are handled by Stripe when billing is switched on — until then nothing is charged and nothing pretends to be.
+                Support Stryde early and lock in founding access. Global and Pakistan billing is securely processed by Paddle as Merchant of Record (supporting Pakistani software businesses with direct SWIFT / Payoneer payouts). In preview mode, no charges are made.
               </p>
             </div>
-            <button
-              type="button"
-              onClick={() => void foundingAccess()}
-              disabled={loading}
-              className="shrink-0 rounded-[4px] border border-[var(--rule-strong)] bg-[var(--surface-subtle)] px-3.5 py-2 text-[12.5px] font-medium text-[var(--ink)] transition-colors hover:bg-[#e4e7e2] disabled:opacity-45"
-            >
-              Request founding access
-            </button>
+            {subscription?.managementUrls?.updatePaymentMethod ? (
+              <a
+                href={subscription.managementUrls.updatePaymentMethod}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="shrink-0 rounded-[4px] border border-[var(--rule-strong)] bg-[var(--surface-subtle)] px-3.5 py-2 text-[12.5px] font-medium text-[var(--ink)] transition-colors hover:bg-[#e4e7e2]"
+              >
+                Manage subscription
+              </a>
+            ) : (
+              <button
+                type="button"
+                onClick={() => void foundingAccess()}
+                disabled={loading}
+                className="shrink-0 rounded-[4px] border border-[var(--rule-strong)] bg-[var(--surface-subtle)] px-3.5 py-2 text-[12.5px] font-medium text-[var(--ink)] transition-colors hover:bg-[#e4e7e2] disabled:opacity-45"
+              >
+                {subscription?.planId === "pro" || subscription?.planId === "max"
+                  ? "Manage Pro tier"
+                  : "Request founding access"}
+              </button>
+            )}
           </div>
         </section>
       </div>

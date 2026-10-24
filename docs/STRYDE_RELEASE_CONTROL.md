@@ -67,14 +67,14 @@
 - **GATE 1 (Code & Data Integrity):** **PASS** (Action fallback and claim sync migrations applied to Supabase `pvijrnwdnolvnoibarrj`, 42 migrations active).
 - **GATE 2 (Model Availability):** **PASS** (OpenRouter live probe passed; Gemini upgraded to 3.8-flash; health probe live).
 - **GATE 3 (Pursuit Product Experience):** **PASS** (Zero console errors, zero page errors, zero overflow, responsive 1440x900 and 390x844).
-- **GATE 4 (Full Verification):** **PASS** (356/356 tests, tsc, lint, build, audit all passing).
-- **GATE 5 (Release Candidate Packaging):** **PASS** (Commit `62b3b97` pushed to GitHub; PR #13 kept open per founder decision).
-- **GATE 6 (Commercial Engine & Production Readiness):** **PASS** (Paddle Billing v2 integrated, tested, and documented).
+- **GATE 4 (Full Mechanical & E2E Verification):** **PASS** (356/356 tests passing, `npx tsc --noEmit` 0 errors, `npm run lint` 0 errors, `npm run build` 27 routes compiled, `npm run e2e:entitlement` 8 boundaries passing on live DB).
+- **GATE 5 (Release Candidate Packaging):** **PASS** (PR #13 kept open per founder instruction; code synchronized on branch `fix/conversation-turn-reliability`).
+- **GATE 6 (Commercial Engine & Production Readiness):** **PASS** (Paddle Billing v2 integrated, backend tested with 6/6 tests, frontend portal and tier badges wired up, docs authored).
 
 ---
 
 ## 6. Next Highest-Value Actions
 
-1. Stage and commit the Paddle Billing implementation (`lib/paddle.ts`, checkout, webhook, portal routes, tests, documentation) onto `fix/conversation-turn-reliability`.
-2. Push commit to origin to update PR #13 on GitHub (keeping PR #13 open per instruction).
-3. Provide the founder with the explicit, clear manual setup gate for Paddle credentials and local/live testing.
+1. Commit the frontend billing and contextual UI updates onto `fix/conversation-turn-reliability`.
+2. Push commits to `origin fix/conversation-turn-reliability` to update open PR #13 (keeping PR #13 OPEN per founder instructions).
+3. Present the founder with the comprehensive verification report, live capabilities ledger, and exact manual onboarding gates for live Paddle keys and live research keys.

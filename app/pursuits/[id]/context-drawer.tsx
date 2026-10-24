@@ -30,6 +30,7 @@ export default function ContextDrawer(props: {
     status: "COMPLETED" | "FAILED"
   ) => void;
   initialTab?: ContextDrawerTab;
+  onOpenAddContext?: () => void;
 }) {
   const {
     isOpen,
@@ -40,7 +41,8 @@ export default function ContextDrawer(props: {
     workingState,
     onWorkingStateChange,
     onActionStatusRequest,
-    initialTab = "sources"
+    initialTab = "sources",
+    onOpenAddContext
   } = props;
 
   const [activeTab, setActiveTab] = useState<ContextDrawerTab>(initialTab);
@@ -103,14 +105,28 @@ export default function ContextDrawer(props: {
               Inspect grounded sources, claims, memories, procedures, and autonomy policies.
             </p>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close context drawer"
-            className="rounded-[4px] p-1 font-mono text-[14px] text-[var(--ink-muted)] hover:bg-[var(--surface-subtle)] hover:text-[var(--ink)]"
-          >
-            ✕
-          </button>
+          <div className="flex items-center gap-2">
+            {onOpenAddContext ? (
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  onOpenAddContext();
+                }}
+                className="rounded-[4px] border border-[var(--rule-strong)] bg-[var(--surface-subtle)] px-2.5 py-1 font-mono text-[11px] font-medium text-[var(--ink)] hover:bg-[#e4e7e2]"
+              >
+                + Add context
+              </button>
+            ) : null}
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close context drawer"
+              className="rounded-[4px] p-1 font-mono text-[14px] text-[var(--ink-muted)] hover:bg-[var(--surface-subtle)] hover:text-[var(--ink)]"
+            >
+              ✕
+            </button>
+          </div>
         </div>
 
         {/* Horizontal Navigation Tabs */}
