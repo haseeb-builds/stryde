@@ -3,8 +3,13 @@ import test from "node:test";
 import crypto from "node:crypto";
 import {
   verifyPaddleWebhookSignature,
+  normalizePaddleBillingEvent,
   normalizePaddleSubscriptionEvent,
   createPaddleCheckoutTransaction,
+  resolvePaddleWebhookSecret,
+  resolvePaddlePricePlanMap,
+  getPaddleConfig,
+  isPaddleConfigured,
 } from "../lib/paddle.ts";
 import { normalizePlanId } from "../lib/entitlement.ts";
 
@@ -44,63 +49,181 @@ test("paddle sandbox e2e: cryptographic signature and replay protection", () => 
   // 4. Future drift (> 300 seconds in future) fails
   const futureSig = generateTestSignature(secret, body, nowSec + 301);
   assert.equal(verifyPaddleWebhookSignature(body, futureSig, secret), false);
+
+  // 5. Alternate h= signature format is also accepted
+  const hSig = `ts=${nowSec};h=${crypto.createHmac("sha256", secret).update(`${nowSec}:${body}`).digest("hex")}`;
+  assert.equal(verifyPaddleWebhookSignature(body, hSig, secret), true);
 });
 
-test("paddle sandbox e2e: full subscription lifecycle normalization", () => {
-  // A. subscription.created -> ACTIVE, PRO
-  const created = normalizePaddleSubscriptionEvent({
-    event_id: "evt_1",
-    event_type: "subscription.created",
-    occurred_at: "2026-10-24T00:00:00Z",
-    data: {
-      id: "sub_1",
-      customer_id: "ctm_1",
-      status: "active",
-      started_at: "2026-10-24T00:00:00Z",
-      items: [{ price: { id: "pri_pro_monthly" } }],
-      custom_data: { user_id: "user-123" },
-    },
-  });
+test("paddle sandbox e2e: canonical configuration resolver and aliases", () => {
+  // Test webhook secret aliases
+  assert.equal(resolvePaddleWebhookSecret({ PADDLE_WEBHOOK_SECRET_KEY: "secret_a" }), "secret_a");
+  assert.equal(resolvePaddleWebhookSecret({ PADDLE_WEBHOOK_SECRET: "secret_b" }), "secret_b");
+  assert.equal(
+    resolvePaddleWebhookSecret({ PADDLE_WEBHOOK_SECRET_KEY: "secret_a", PADDLE_WEBHOOK_SECRET: "secret_b" }),
+    "secret_a"
+  );
+  assert.equal(resolvePaddleWebhookSecret({}), "");
 
-  assert.ok(created);
-  assert.equal(created!.ownerUserId, "user-123");
-  assert.equal(created!.providerSubscriptionRef, "sub_1");
-  assert.equal(created!.providerCustomerRef, "ctm_1");
-  assert.equal(created!.status, "ACTIVE");
-  assert.equal(created!.planId, "pro");
-  assert.equal(created!.effectiveAt, "2026-10-24T00:00:00Z");
-
-  // B. subscription.paused -> PAUSED
-  const paused = normalizePaddleSubscriptionEvent({
-    event_id: "evt_2",
-    event_type: "subscription.paused",
-    occurred_at: "2026-10-24T00:00:00Z",
-    data: {
-      id: "sub_1",
-      customer_id: "ctm_1",
-      status: "paused",
-      items: [{ price: { id: "pri_pro_monthly" } }],
-      custom_data: { user_id: "user-123" },
-    },
+  // Test price plan map aliases
+  const planMap = resolvePaddlePricePlanMap({
+    PADDLE_PRO_PRICE_ID: "pri_pro_1",
+    PADDLE_PRICE_ID_PRO: "pri_pro_2",
+    PADDLE_PRICE_ID: "pri_pro_3",
+    PADDLE_MAX_PRICE_ID: "pri_max_1",
+    PADDLE_PRICE_ID_MAX: "pri_max_2",
   });
-  assert.ok(paused);
-  assert.equal(paused!.status, "PAUSED");
+  assert.equal(planMap["pri_pro_1"], "pro");
+  assert.equal(planMap["pri_pro_2"], "pro");
+  assert.equal(planMap["pri_pro_3"], "pro");
+  assert.equal(planMap["pri_max_1"], "max");
+  assert.equal(planMap["pri_max_2"], "max");
 
-  // C. subscription.canceled -> CANCELLED
-  const canceled = normalizePaddleSubscriptionEvent({
-    event_id: "evt_3",
-    event_type: "subscription.canceled",
-    occurred_at: "2026-10-24T00:00:00Z",
-    data: {
-      id: "sub_1",
-      customer_id: "ctm_1",
-      status: "canceled",
-      items: [{ price: { id: "pri_pro_monthly" } }],
-      custom_data: { user_id: "user-123" },
+  // Test isPaddleConfigured & getPaddleConfig
+  const validEnv = {
+    PADDLE_API_KEY: "pdl_api_123",
+    PADDLE_WEBHOOK_SECRET_KEY: "secret_123",
+    PADDLE_PRO_PRICE_ID: "pri_pro_123",
+    PADDLE_ENVIRONMENT: "sandbox",
+  };
+  assert.equal(isPaddleConfigured(validEnv), true);
+  const cfg = getPaddleConfig(validEnv);
+  assert.equal(cfg.apiKey, "pdl_api_123");
+  assert.equal(cfg.webhookSecret, "secret_123");
+  assert.equal(cfg.priceIdPro, "pri_pro_123");
+  assert.equal(cfg.environment, "sandbox");
+  assert.equal(cfg.baseUrl, "https://sandbox-api.paddle.com");
+  assert.equal(cfg.pricePlanMap["pri_pro_123"], "pro");
+
+  // Test missing env fails closed
+  assert.equal(isPaddleConfigured({}), false);
+  assert.throws(() => getPaddleConfig({}), /Paddle billing is not fully configured/);
+});
+
+test("paddle sandbox e2e: hardened fail-closed entitlement normalization", () => {
+  const priceMap = {
+    pri_pro_plan: "pro" as const,
+    pri_max_plan: "max" as const,
+  };
+
+  // 1. KNOWN PRO PRICE -> PRO
+  const proEvent = normalizePaddleBillingEvent(
+    {
+      event_id: "evt_1",
+      event_type: "subscription.created",
+      occurred_at: "2026-10-24T00:00:00Z",
+      data: {
+        id: "sub_1",
+        customer_id: "ctm_1",
+        status: "active",
+        items: [{ price: { id: "pri_pro_plan" } }],
+        custom_data: { user_id: "user-123" },
+      },
     },
-  });
+    priceMap
+  );
+  assert.ok(proEvent);
+  assert.equal(proEvent!.planId, "pro");
+  assert.equal(proEvent!.status, "ACTIVE");
+  assert.equal(proEvent!.quarantined, false);
+
+  // 2. KNOWN MAX PRICE -> MAX
+  const maxEvent = normalizePaddleBillingEvent(
+    {
+      event_id: "evt_2",
+      event_type: "subscription.created",
+      occurred_at: "2026-10-24T00:00:00Z",
+      data: {
+        id: "sub_2",
+        customer_id: "ctm_2",
+        status: "active",
+        items: [{ price: { id: "pri_max_plan" } }],
+        custom_data: { user_id: "user-456" },
+      },
+    },
+    priceMap
+  );
+  assert.ok(maxEvent);
+  assert.equal(maxEvent!.planId, "max");
+  assert.equal(maxEvent!.status, "ACTIVE");
+
+  // 3. UNKNOWN PRICE MAPPING -> MUST QUARANTINE TO FREE / UNKNOWN (NEVER DEFAULT TO PRO!)
+  const unknownPriceEvent = normalizePaddleBillingEvent(
+    {
+      event_id: "evt_3",
+      event_type: "subscription.created",
+      occurred_at: "2026-10-24T00:00:00Z",
+      data: {
+        id: "sub_3",
+        customer_id: "ctm_3",
+        status: "active",
+        items: [{ price: { id: "pri_unknown_rogue_price" } }],
+        custom_data: { user_id: "user-789" },
+      },
+    },
+    priceMap
+  );
+  assert.ok(unknownPriceEvent);
+  assert.equal(unknownPriceEvent!.planId, "free", "Unknown price MUST fail closed to free!");
+  assert.equal(unknownPriceEvent!.status, "UNKNOWN", "Unknown price MUST map status to UNKNOWN!");
+  assert.equal(unknownPriceEvent!.quarantined, true, "Unknown price MUST be quarantined!");
+
+  // 4. CANCELLATION -> STATUS IS CANCELLED
+  const canceled = normalizePaddleBillingEvent(
+    {
+      event_id: "evt_4",
+      event_type: "subscription.canceled",
+      occurred_at: "2026-10-24T00:00:00Z",
+      data: {
+        id: "sub_1",
+        customer_id: "ctm_1",
+        status: "canceled",
+        items: [{ price: { id: "pri_pro_plan" } }],
+        custom_data: { user_id: "user-123" },
+      },
+    },
+    priceMap
+  );
   assert.ok(canceled);
   assert.equal(canceled!.status, "CANCELLED");
+
+  // 5. TRANSACTION.COMPLETED FOR SUBSCRIPTION -> CONFIRMS ACTIVE
+  const txnCompleted = normalizePaddleBillingEvent(
+    {
+      event_id: "evt_5",
+      event_type: "transaction.completed",
+      occurred_at: "2026-10-24T00:00:00Z",
+      data: {
+        id: "txn_999",
+        subscription_id: "sub_1",
+        customer_id: "ctm_1",
+        status: "completed",
+        items: [{ price: { id: "pri_pro_plan" } }],
+        custom_data: { user_id: "user-123" },
+      },
+    },
+    priceMap
+  );
+  assert.ok(txnCompleted);
+  assert.equal(txnCompleted!.providerSubscriptionRef, "sub_1");
+  assert.equal(txnCompleted!.status, "ACTIVE");
+  assert.equal(txnCompleted!.planId, "pro");
+
+  // Backward compatibility alias check
+  const legacyCall = normalizePaddleSubscriptionEvent({
+    event_id: "evt_legacy",
+    event_type: "subscription.updated",
+    occurred_at: "2026-10-24T00:00:00Z",
+    data: {
+      id: "sub_leg",
+      customer_id: "ctm_leg",
+      status: "active",
+      items: [{ price: { id: "pri_pro_plan" } }],
+      custom_data: { user_id: "user-leg" },
+    },
+  }, priceMap);
+  assert.ok(legacyCall);
+  assert.equal(legacyCall!.planId, "pro");
 });
 
 test("paddle sandbox e2e: entitlement resolver behavior across lifecycle", () => {

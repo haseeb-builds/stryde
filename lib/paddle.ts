@@ -9,6 +9,7 @@ export type PaddleConfig = {
   priceIdMax: string;
   environment: PaddleEnvironment;
   baseUrl: string;
+  pricePlanMap: Record<string, "pro" | "max">;
 };
 
 export type NormalizedSubscriptionStatus =
@@ -36,6 +37,8 @@ export type NormalizedSubscriptionUpdate = {
     updatePaymentMethod?: string | null;
     cancel?: string | null;
   } | null;
+  quarantined?: boolean;
+  quarantineReason?: string;
 };
 
 export type PaddleWebhookEvent = {
@@ -46,6 +49,7 @@ export type PaddleWebhookEvent = {
     id: string;
     status: string;
     customer_id: string;
+    subscription_id?: string | null;
     started_at?: string | null;
     created_at?: string | null;
     next_billed_at?: string | null;
@@ -63,22 +67,64 @@ export type PaddleWebhookEvent = {
   };
 };
 
-export function isPaddleConfigured(env: NodeJS.ProcessEnv = process.env): boolean {
+export type PaddleEnvSource = NodeJS.ProcessEnv | Record<string, string | undefined>;
+
+/**
+ * Resolves the webhook secret from standard and legacy environment variable aliases.
+ */
+export function resolvePaddleWebhookSecret(env: PaddleEnvSource = process.env): string {
+  return env.PADDLE_WEBHOOK_SECRET_KEY?.trim() || env.PADDLE_WEBHOOK_SECRET?.trim() || "";
+}
+
+/**
+ * Resolves price-to-plan mappings from standard and legacy environment variable aliases.
+ */
+export function resolvePaddlePricePlanMap(env: PaddleEnvSource = process.env): Record<string, "pro" | "max"> {
+  const map: Record<string, "pro" | "max"> = {};
+
+  const proAliases = [
+    env.PADDLE_PRO_PRICE_ID,
+    env.PADDLE_PRICE_ID_PRO,
+    env.PADDLE_PRICE_ID,
+  ];
+  for (const alias of proAliases) {
+    if (alias?.trim()) {
+      map[alias.trim()] = "pro";
+    }
+  }
+
+  const maxAliases = [
+    env.PADDLE_MAX_PRICE_ID,
+    env.PADDLE_PRICE_ID_MAX,
+  ];
+  for (const alias of maxAliases) {
+    if (alias?.trim()) {
+      map[alias.trim()] = "max";
+    }
+  }
+
+  return map;
+}
+
+export function isPaddleConfigured(env: PaddleEnvSource = process.env): boolean {
   const apiKey = env.PADDLE_API_KEY?.trim();
-  const webhookSecret = env.PADDLE_WEBHOOK_SECRET_KEY?.trim() || env.PADDLE_WEBHOOK_SECRET?.trim();
-  const priceId = env.PADDLE_PRO_PRICE_ID?.trim() || env.PADDLE_PRICE_ID_PRO?.trim() || env.PADDLE_PRICE_ID?.trim();
+  const webhookSecret = resolvePaddleWebhookSecret(env);
+  const priceId =
+    env.PADDLE_PRO_PRICE_ID?.trim() ||
+    env.PADDLE_PRICE_ID_PRO?.trim() ||
+    env.PADDLE_PRICE_ID?.trim();
   return Boolean(apiKey && webhookSecret && priceId);
 }
 
-export function getPaddleConfig(env: NodeJS.ProcessEnv = process.env): PaddleConfig {
+export function getPaddleConfig(env: PaddleEnvSource = process.env): PaddleConfig {
   const apiKey = env.PADDLE_API_KEY?.trim();
-  const webhookSecret = env.PADDLE_WEBHOOK_SECRET_KEY?.trim() || env.PADDLE_WEBHOOK_SECRET?.trim();
+  const webhookSecret = resolvePaddleWebhookSecret(env);
   const priceIdPro =
     env.PADDLE_PRO_PRICE_ID?.trim() ||
     env.PADDLE_PRICE_ID_PRO?.trim() ||
     env.PADDLE_PRICE_ID?.trim() ||
     "";
-  const priceIdMax = env.PADDLE_PRICE_ID_MAX?.trim() || "";
+  const priceIdMax = env.PADDLE_MAX_PRICE_ID?.trim() || env.PADDLE_PRICE_ID_MAX?.trim() || "";
   const environment: PaddleEnvironment =
     env.PADDLE_ENVIRONMENT?.trim().toLowerCase() === "sandbox" ? "sandbox" : "production";
 
@@ -100,13 +146,14 @@ export function getPaddleConfig(env: NodeJS.ProcessEnv = process.env): PaddleCon
     priceIdMax,
     environment,
     baseUrl,
+    pricePlanMap: resolvePaddlePricePlanMap(env),
   };
 }
 
 /**
  * Verifies Paddle Billing v2 webhook signatures (HMAC-SHA256).
  *
- * Header format: ts=1729800000;h1=a9c8f...
+ * Header format: ts=1729800000;h1=a9c8f... (or h=a9c8f...)
  * Signature payload: ${ts}:${rawBody}
  *
  * @param rawBody - The unparsed raw request body string
@@ -147,17 +194,15 @@ export function verifyPaddleWebhookSignature(
     return false;
   }
 
-  // Prevent replay attacks: timestamp must be within tolerance window
   const now = Math.floor(Date.now() / 1000);
   if (Math.abs(now - timestamp) > toleranceSeconds) {
     return false;
   }
 
-  // Compute expected HMAC-SHA256
-  const payloadToSign = `${timestampStr}:${rawBody}`;
+  const payload = `${timestampStr}:${rawBody}`;
   const computedSignature = crypto
     .createHmac("sha256", secret)
-    .update(payloadToSign)
+    .update(payload)
     .digest("hex");
 
   if (computedSignature.length !== signatureHex.length) {
@@ -174,58 +219,80 @@ export function verifyPaddleWebhookSignature(
   }
 }
 
+export type CreatePaddleCheckoutOptions = {
+  ownerUserId: string;
+  userEmail?: string;
+  planId?: "pro" | "max";
+  returnUrl?: string;
+  env?: PaddleEnvSource;
+  fetchImpl?: typeof fetch;
+};
+
+export type PaddleCheckoutResult = {
+  checkoutUrl: string;
+  transactionId: string;
+};
+
 /**
  * Creates a Paddle Billing v2 transaction for user checkout.
  */
 export async function createPaddleCheckoutTransaction(
-  input: {
-    ownerUserId: string;
-    userEmail?: string;
-    planId: "pro" | "max";
-    returnUrl?: string;
-    env?: NodeJS.ProcessEnv;
-    fetchImpl?: typeof fetch;
-  }
-): Promise<{ checkoutUrl: string; transactionId: string }> {
-  const config = getPaddleConfig(input.env ?? process.env);
-  const priceId = input.planId === "max" && config.priceIdMax ? config.priceIdMax : config.priceIdPro;
+  options: CreatePaddleCheckoutOptions
+): Promise<PaddleCheckoutResult> {
+  const { ownerUserId, userEmail, planId = "pro", returnUrl, env, fetchImpl = fetch } = options;
+  const config = getPaddleConfig(env);
+
+  const priceId = planId === "max" && config.priceIdMax ? config.priceIdMax : config.priceIdPro;
 
   if (!priceId) {
-    throw new Error(`No Paddle price configured for plan: ${input.planId}`);
+    throw new Error(`No Paddle price configured for plan: ${planId}`);
   }
 
   const payload: Record<string, unknown> = {
-    items: [{ price_id: priceId, quantity: 1 }],
+    items: [
+      {
+        price_id: priceId,
+        quantity: 1,
+      },
+    ],
     custom_data: {
-      owner_user_id: input.ownerUserId,
-      plan_id: input.planId,
+      owner_user_id: ownerUserId,
+      plan_id: planId,
     },
   };
 
-  if (input.userEmail) {
-    payload.customer_email = input.userEmail;
-  }
-
-  if (input.returnUrl) {
-    payload.checkout = {
-      url: input.returnUrl,
+  if (userEmail) {
+    payload.customer_email = userEmail;
+    payload.customer = {
+      email: userEmail,
     };
   }
 
-  const fetchFn = input.fetchImpl ?? fetch;
-  const response = await fetchFn(`${config.baseUrl}/transactions`, {
+  if (returnUrl) {
+    payload.checkout = {
+      url: returnUrl,
+    };
+  }
+
+  const response = await fetchImpl(`${config.baseUrl}/transactions`, {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${config.apiKey}`,
       "Content-Type": "application/json",
+      Authorization: `Bearer ${config.apiKey}`,
     },
     body: JSON.stringify(payload),
     cache: "no-store",
   });
 
   const body = (await response.json()) as {
-    data?: { id?: string; checkout_url?: string };
-    error?: { message?: string; detail?: string };
+    data?: {
+      id?: string;
+      checkout_url?: string;
+    };
+    error?: {
+      detail?: string;
+      message?: string;
+    };
   };
 
   if (!response.ok || !body.data?.checkout_url || !body.data?.id) {
@@ -241,14 +308,26 @@ export async function createPaddleCheckoutTransaction(
 }
 
 /**
- * Normalizes Paddle subscription webhook events into Stryde's subscription_state structure.
+ * Normalizes Paddle subscription and transaction events into Stryde's subscription_state structure.
+ *
+ * Enforces strict fail-closed state:
+ * - Never assigns Pro/Max by default.
+ * - Safely quarantines unrecognized price mappings.
+ * - Handles both subscription lifecycle and transaction.completed.
  */
-export function normalizePaddleSubscriptionEvent(
+export function normalizePaddleBillingEvent(
   event: PaddleWebhookEvent,
   pricePlanMap?: Record<string, "pro" | "max">
 ): NormalizedSubscriptionUpdate | null {
   const eventType = event.event_type;
-  if (!eventType || !eventType.startsWith("subscription.")) {
+  if (!eventType) {
+    return null;
+  }
+
+  const isSubscriptionEvent = eventType.startsWith("subscription.");
+  const isTransactionEvent = eventType.startsWith("transaction.");
+
+  if (!isSubscriptionEvent && !isTransactionEvent) {
     return null;
   }
 
@@ -267,20 +346,22 @@ export function normalizePaddleSubscriptionEvent(
   }
 
   // Resolve plan
-  let planId: "free" | "pro" | "max" = "pro";
-  const customPlan = data.custom_data?.plan_id as string | undefined;
+  let planId: "free" | "pro" | "max" | null = null;
+  const customPlan = (data.custom_data?.plan_id as string | undefined)?.toLowerCase();
   if (customPlan === "max" || customPlan === "pro" || customPlan === "free") {
     planId = customPlan;
-  } else if (data.items?.[0]?.price_id && pricePlanMap) {
-    const mapped = pricePlanMap[data.items[0].price_id];
-    if (mapped) planId = mapped;
+  } else {
+    const itemPriceId = data.items?.[0]?.price_id || data.items?.[0]?.price?.id;
+    if (itemPriceId && pricePlanMap && pricePlanMap[itemPriceId]) {
+      planId = pricePlanMap[itemPriceId];
+    }
   }
 
   // Normalize status
   const rawStatus = (data.status || "").toLowerCase();
   let status: NormalizedSubscriptionStatus = "UNKNOWN";
 
-  if (rawStatus === "active") {
+  if (rawStatus === "active" || rawStatus === "completed" || rawStatus === "paid") {
     status = "ACTIVE";
   } else if (rawStatus === "trialing") {
     status = "TRIALING";
@@ -294,15 +375,36 @@ export function normalizePaddleSubscriptionEvent(
     status = "EXPIRED";
   }
 
+  // Fail-closed quarantine:
+  // If plan cannot be resolved:
+  // - If canceled or expired, demote to free and record status.
+  // - If active / trialing / past_due / paused, DO NOT assign pro/max!
+  //   Quarantine to "free" with status "UNKNOWN".
+  let quarantined = false;
+  let quarantineReason: string | undefined;
+
+  if (!planId) {
+    if (status === "CANCELLED" || status === "EXPIRED") {
+      planId = "free";
+    } else {
+      quarantined = true;
+      planId = "free";
+      status = "UNKNOWN";
+      quarantineReason = `Unrecognized price mapping: ${data.items?.[0]?.price_id || data.items?.[0]?.price?.id || "none"}`;
+    }
+  }
+
   const effectiveAt = data.started_at || data.created_at || event.occurred_at || new Date().toISOString();
   const expiresAt = data.canceled_at || data.next_billed_at || null;
+
+  const subscriptionRef = isSubscriptionEvent ? data.id : (data.subscription_id || data.id);
 
   return {
     ownerUserId,
     planId,
     provider: "paddle",
     providerCustomerRef: data.customer_id || "",
-    providerSubscriptionRef: data.id,
+    providerSubscriptionRef: subscriptionRef,
     providerStatus: data.status || "unknown",
     status,
     effectiveAt,
@@ -314,5 +416,20 @@ export function normalizePaddleSubscriptionEvent(
           cancel: data.management_urls.cancel ?? null,
         }
       : null,
+    quarantined,
+    quarantineReason,
   };
+}
+
+/**
+ * Normalizes Paddle subscription webhook events. Only processes subscription.* events.
+ */
+export function normalizePaddleSubscriptionEvent(
+  event: PaddleWebhookEvent,
+  pricePlanMap?: Record<string, "pro" | "max">
+): NormalizedSubscriptionUpdate | null {
+  if (!event.event_type || !event.event_type.startsWith("subscription.")) {
+    return null;
+  }
+  return normalizePaddleBillingEvent(event, pricePlanMap);
 }

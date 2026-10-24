@@ -3,6 +3,11 @@
  *
  * Usage: npm run probe:research [exa|firecrawl|auto] [query]
  *
+ * Exit Codes:
+ *   0 = PASS (Verified live search API reachability and citation grounding)
+ *   1 = FAIL (Provider returned an error or assertion failed)
+ *   2 = BLOCKED (Required provider credentials not configured)
+ *
  * Probes the real HTTP search API when credentials are present in .env.local,
  * verifying:
  *   1. Authentication & reachability
@@ -10,6 +15,7 @@
  *   3. Result extraction (URL, title, rank, highlights, published date)
  *   4. Direct page-fetch on top result
  *   5. Grounded citation extraction
+ *   6. Outputs unambiguous machine-readable status
  */
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -48,7 +54,7 @@ console.log(`Exa API Key configured: ${exaKey ? "YES (masked: " + exaKey.slice(0
 console.log(`Firecrawl API Key configured: ${firecrawlKey ? "YES (masked: " + firecrawlKey.slice(0, 6) + "...)" : "NO"}`);
 
 if (!exaKey && !firecrawlKey) {
-  console.log("\n[PROBE GATE: CREDENTIALS REQUIRED]");
+  console.log("\n[STATUS: BLOCKED] (CREDENTIALS_MISSING)");
   console.log("Neither EXA_API_KEY nor FIRECRAWL_API_KEY is configured in your environment.");
   console.log("Stryde's R-4 guard correctly prevents ungrounded hallucination and fails closed.\n");
   console.log("To verify live web research with a real provider:");
@@ -58,7 +64,7 @@ if (!exaKey && !firecrawlKey) {
   console.log("     # or");
   console.log("     FIRECRAWL_API_KEY=\"your_firecrawl_api_key_here\"");
   console.log("  3. Run: npm run probe:research\n");
-  process.exit(0);
+  process.exit(2);
 }
 
 const chain = getSearchProviderChain();
@@ -123,9 +129,11 @@ try {
   }
 
   console.log("\n=======================================================");
-  console.log(`  RESEARCH PROBE PASSED: ${provider.name.toUpperCase()} OPERATIONAL`);
+  console.log(`  [STATUS: PASS] RESEARCH PROBE: ${provider.name.toUpperCase()} OPERATIONAL`);
   console.log("=======================================================\n");
+  process.exit(0);
 } catch (err) {
-  console.error(`\n✖ Research probe failed:`, err);
+  console.error(`\n[STATUS: FAIL] (SEARCH_FAILED)`);
+  console.error("Error detail:", err instanceof Error ? err.message : String(err));
   process.exit(1);
 }

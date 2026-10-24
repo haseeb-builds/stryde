@@ -22,7 +22,7 @@ export async function POST(request: Request) {
     if (!isPaddleConfigured()) {
       return NextResponse.json(
         {
-          error: "Billing is not configured yet. Paddle credentials (PADDLE_API_KEY, PADDLE_WEBHOOK_SECRET, PADDLE_PRICE_ID_PRO) are required.",
+          error: "Billing is not configured yet. Paddle credentials (PADDLE_API_KEY, PADDLE_WEBHOOK_SECRET_KEY/PADDLE_WEBHOOK_SECRET, PADDLE_PRO_PRICE_ID/PADDLE_PRICE_ID_PRO) are required.",
           configured: false,
           provider: "paddle",
           details: "Stryde uses Paddle Billing as its Merchant of Record to support Pakistan and global operations.",
