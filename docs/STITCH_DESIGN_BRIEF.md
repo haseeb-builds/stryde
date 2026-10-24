@@ -1,6 +1,8 @@
 # Stryde Google Stitch Design Brief
 
-**Status:** Canonical Design Brief for Founder UI/UX Pass  
+> **STATUS RECONCILIATION (2026-10-22):** This is a historical content/interaction inventory, not a final styling prompt. The requested “working card,” fixed color system, prescribed card composition, “Sources/Claims” labels and 12-state mockup list must be re-evaluated against the 26 product decisions and the actual running implementation. No final art direction has been approved. The earlier .design-lab/01–04 directions are rejected. Use docs/ANTIGRAVITY_UI_UX_REDESIGN_PLAYBOOK.md and docs/AI_WEBSITE_DESIGN_ANTI_PATTERNS.md before any further visual work.
+
+**Status:** Historical Content/Interaction Inventory — visual direction not approved  
 **Author:** Chief of Staff / Product Architect  
 **Target Tool:** Google Stitch  
 **Repository:** `haseeb-builds/stryde`  

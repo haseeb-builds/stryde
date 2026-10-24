@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Stryde",
-  description: "Move real situations forward with persistent situational intelligence.",
+  title: "Stryde — Persistent Pursuit System",
+  description: "Move meaningful intentions into verified reality through one continuous operational record.",
 };
 
 export default function RootLayout({
@@ -24,7 +24,9 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}>
-      <body className="min-h-full flex flex-col bg-[#f7f7f8] font-sans">{children}</body>
+      <body className="min-h-full flex flex-col bg-[#f6f7f4] text-[#161917] font-sans">
+        {children}
+      </body>
     </html>
   );
 }

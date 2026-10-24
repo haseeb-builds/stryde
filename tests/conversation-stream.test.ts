@@ -257,7 +257,7 @@ test("OpenAI-compatible legs send the canonical OpenRouter routing shape", async
     return new Response(JSON.stringify({ choices: [{ message: { content: '{"ok":true}' } }] }), { status: 200 });
   });
   await provider.generateStructured({ schemaName: "test", schema: { type: "object" }, prompt: "x" });
-  assert.deepEqual(captured?.provider, { require_parameters: true, allow_fallbacks: true });
+  assert.deepEqual(captured?.provider, { allow_fallbacks: true });
   assert.deepEqual(captured?.plugins, [{ id: "response-healing" }]);
   assert.deepEqual(captured?.response_format, { type: "json_object" });
 });
@@ -343,7 +343,7 @@ test("disabled preferred provider is skipped and the remaining chain still route
   assert.deepEqual(configs.map((config) => config.provider), ["gemini"]);
   const router = createModelRouter(configs, async (url) => { calls.push(String(url)); return new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: '{"ok":true}' }] } }] }), { status: 200 }); });
   assert.equal((await router.generateStructured({ schemaName: "x", schema: {}, prompt: "x" })).provider, "gemini");
-  assert.deepEqual(calls, ["https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"]);
+  assert.deepEqual(calls, ["https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent"]);
 });
 
 test("disabled-only configuration fails fast with no usable providers", () => {
