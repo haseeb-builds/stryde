@@ -39,8 +39,8 @@ Stryde is a persistent pursuit, execution, and accountability product. It guides
 | **CAP-11** | **Autonomy Governance & Resource Quotas** | `/autonomy-policy`, `resource-control.ts` | `autonomy-policy.test.ts`, `e2e:entitlement` | Atomic DB RPCs (`stryde_resource_available`) | Live DB 8/8 boundaries passed | No | **FULLY COMPLETE** |
 | **CAP-12** | **Progressive-Disclosure Pursuit Workspace** | `page.tsx`, `context-drawer.tsx`, `add-context-modal.tsx` | `browser-qa-audit.mjs` | Full Next.js production build | Real Chrome QA: 0 errors, 0 overflow | No | **FULLY COMPLETE** |
 | **CAP-13** | **Model Health & Diagnostics** | `app/api/health/model/route.ts` | Health route tests | Live OpenRouter probe | Verified live on port 3155 | No | **FULLY COMPLETE** |
-| **CAP-14** | **Commercial Billing Engine (Paddle-First)** | `lib/paddle.ts`, `/api/v1/billing/*` | `paddle-billing.test.ts`, `paddle-sandbox-e2e.test.ts` | **PENDING** (Paddle sandbox credentials absent) | 503 fallback & UI tier verified; `probe:paddle` ready | **YES** (Awaiting sandbox account) | **IMPLEMENTED (BLOCKED ON SANDBOX ACCOUNT)** |
-| **CAP-15** | **Controlled Worker Execution Plane** | `worker-dispatcher.ts`, `worker-dispatch-runner.ts`, `/api/cron/worker-dispatch` | `worker-dispatcher.test.ts`, `worker-dispatch-cron.test.ts` | Supabase `public.job` leasing | Serverless dispatch cron & Docker container prepared | No | **IMPLEMENTED & DEPLOYMENT PREPARED** |
+| **CAP-14** | **Commercial Billing Engine (Paddle-First)** | `lib/paddle.ts`, `/api/v1/billing/*` | `paddle-billing.test.ts`, `paddle-sandbox-e2e.test.ts` | **VERIFIED** (Live Paddle Sandbox API authenticated in 394ms) | Pro Price USD 29.00 (`pri_01m5t8tt...`) live verified | No | **FULLY COMPLETE** |
+| **CAP-15** | **Controlled Worker Execution Plane** | `worker-dispatcher.ts`, `worker-dispatch-runner.ts`, `run-production-worker.mjs` | `worker-dispatcher.test.ts`, `worker-dispatch-cron.test.ts` | Supabase `public.job` leasing + Render Docker | Live Docker container deployed on Render with Chromium | No | **FULLY COMPLETE** |
 
 ---
 

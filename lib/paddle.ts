@@ -69,11 +69,20 @@ export type PaddleWebhookEvent = {
 
 export type PaddleEnvSource = NodeJS.ProcessEnv | Record<string, string | undefined>;
 
+function stripQuotes(val?: string): string {
+  if (!val) return "";
+  let trimmed = val.trim();
+  if ((trimmed.startsWith('"') && trimmed.endsWith('"')) || (trimmed.startsWith("'") && trimmed.endsWith("'"))) {
+    trimmed = trimmed.slice(1, -1).trim();
+  }
+  return trimmed;
+}
+
 /**
  * Resolves the webhook secret from standard and legacy environment variable aliases.
  */
 export function resolvePaddleWebhookSecret(env: PaddleEnvSource = process.env): string {
-  return env.PADDLE_WEBHOOK_SECRET_KEY?.trim() || env.PADDLE_WEBHOOK_SECRET?.trim() || "";
+  return stripQuotes(env.PADDLE_WEBHOOK_SECRET_KEY) || stripQuotes(env.PADDLE_WEBHOOK_SECRET);
 }
 
 /**
@@ -88,8 +97,9 @@ export function resolvePaddlePricePlanMap(env: PaddleEnvSource = process.env): R
     env.PADDLE_PRICE_ID,
   ];
   for (const alias of proAliases) {
-    if (alias?.trim()) {
-      map[alias.trim()] = "pro";
+    const cleaned = stripQuotes(alias);
+    if (cleaned) {
+      map[cleaned] = "pro";
     }
   }
 
@@ -98,8 +108,9 @@ export function resolvePaddlePricePlanMap(env: PaddleEnvSource = process.env): R
     env.PADDLE_PRICE_ID_MAX,
   ];
   for (const alias of maxAliases) {
-    if (alias?.trim()) {
-      map[alias.trim()] = "max";
+    const cleaned = stripQuotes(alias);
+    if (cleaned) {
+      map[cleaned] = "max";
     }
   }
 
@@ -107,26 +118,25 @@ export function resolvePaddlePricePlanMap(env: PaddleEnvSource = process.env): R
 }
 
 export function isPaddleConfigured(env: PaddleEnvSource = process.env): boolean {
-  const apiKey = env.PADDLE_API_KEY?.trim();
+  const apiKey = stripQuotes(env.PADDLE_API_KEY);
   const webhookSecret = resolvePaddleWebhookSecret(env);
   const priceId =
-    env.PADDLE_PRO_PRICE_ID?.trim() ||
-    env.PADDLE_PRICE_ID_PRO?.trim() ||
-    env.PADDLE_PRICE_ID?.trim();
+    stripQuotes(env.PADDLE_PRO_PRICE_ID) ||
+    stripQuotes(env.PADDLE_PRICE_ID_PRO) ||
+    stripQuotes(env.PADDLE_PRICE_ID);
   return Boolean(apiKey && webhookSecret && priceId);
 }
 
 export function getPaddleConfig(env: PaddleEnvSource = process.env): PaddleConfig {
-  const apiKey = env.PADDLE_API_KEY?.trim();
+  const apiKey = stripQuotes(env.PADDLE_API_KEY);
   const webhookSecret = resolvePaddleWebhookSecret(env);
   const priceIdPro =
-    env.PADDLE_PRO_PRICE_ID?.trim() ||
-    env.PADDLE_PRICE_ID_PRO?.trim() ||
-    env.PADDLE_PRICE_ID?.trim() ||
-    "";
-  const priceIdMax = env.PADDLE_MAX_PRICE_ID?.trim() || env.PADDLE_PRICE_ID_MAX?.trim() || "";
+    stripQuotes(env.PADDLE_PRO_PRICE_ID) ||
+    stripQuotes(env.PADDLE_PRICE_ID_PRO) ||
+    stripQuotes(env.PADDLE_PRICE_ID);
+  const priceIdMax = stripQuotes(env.PADDLE_MAX_PRICE_ID) || stripQuotes(env.PADDLE_PRICE_ID_MAX);
   const environment: PaddleEnvironment =
-    env.PADDLE_ENVIRONMENT?.trim().toLowerCase() === "sandbox" ? "sandbox" : "production";
+    stripQuotes(env.PADDLE_ENVIRONMENT).toLowerCase() === "sandbox" ? "sandbox" : "production";
 
   if (!apiKey || !webhookSecret || !priceIdPro) {
     throw new Error(

@@ -19,6 +19,15 @@ import fs from "node:fs";
 import path from "node:path";
 import { getPaddleConfig, isPaddleConfigured, resolvePaddleWebhookSecret } from "../lib/paddle.ts";
 
+function stripQuotes(val?: string): string {
+  if (!val) return "";
+  let trimmed = val.trim();
+  if ((trimmed.startsWith('"') && trimmed.endsWith('"')) || (trimmed.startsWith("'") && trimmed.endsWith("'"))) {
+    trimmed = trimmed.slice(1, -1).trim();
+  }
+  return trimmed;
+}
+
 // Load .env.local
 const envPath = path.resolve(".env.local");
 if (fs.existsSync(envPath)) {
@@ -26,10 +35,10 @@ if (fs.existsSync(envPath)) {
     fs.readFileSync(envPath, "utf8")
       .split(/\r?\n/)
       .filter((l) => l.includes("=") && !l.trimStart().startsWith("#"))
-      .map((l) => [l.slice(0, l.indexOf("=")).trim(), l.slice(l.indexOf("=") + 1).trim()])
+      .map((l) => [stripQuotes(l.slice(0, l.indexOf("="))), stripQuotes(l.slice(l.indexOf("=") + 1))])
   );
   for (const [k, v] of Object.entries(env)) {
-    if (!(k in process.env)) process.env[k] = v;
+    process.env[k] = v;
   }
 }
 
@@ -37,13 +46,13 @@ console.log("\n=======================================================");
 console.log("  STRYDE PADDLE BILLING v2 COMMERCIAL PROBE");
 console.log("=======================================================\n");
 
-const apiKey = process.env.PADDLE_API_KEY?.trim();
+const apiKey = stripQuotes(process.env.PADDLE_API_KEY);
 const webhookSecret = resolvePaddleWebhookSecret(process.env);
 const priceId =
-  process.env.PADDLE_PRO_PRICE_ID?.trim() ||
-  process.env.PADDLE_PRICE_ID_PRO?.trim() ||
-  process.env.PADDLE_PRICE_ID?.trim();
-const envName = (process.env.PADDLE_ENVIRONMENT || "sandbox").toLowerCase();
+  stripQuotes(process.env.PADDLE_PRO_PRICE_ID) ||
+  stripQuotes(process.env.PADDLE_PRICE_ID_PRO) ||
+  stripQuotes(process.env.PADDLE_PRICE_ID);
+const envName = (stripQuotes(process.env.PADDLE_ENVIRONMENT) || "sandbox").toLowerCase();
 
 console.log(`Configured Environment: ${envName.toUpperCase()}`);
 console.log(`API Key configured: ${apiKey ? "YES (masked: " + apiKey.slice(0, 8) + "...)" : "NO"}`);
@@ -109,6 +118,22 @@ try {
       console.log(`✔ Price ID verified: ${currency} ${(Number(amount) / 100).toFixed(2)}`);
     } else {
       console.warn(`⚠ Warning: Price ID ${config.priceIdPro} returned HTTP ${priceRes.status}`);
+      if (config.priceIdPro.startsWith("pro_")) {
+        console.warn(`  Notice: '${config.priceIdPro}' is a Product ID (pro_...), but Paddle requires a Price ID (pri_...).`);
+      }
+      const listPricesRes = await fetch(`${config.baseUrl}/prices?per_page=5`, {
+        headers: { Authorization: `Bearer ${config.apiKey}` },
+      });
+      if (listPricesRes.ok) {
+        const listBody = (await listPricesRes.json()) as { data?: Array<{ id: string; name?: string; description?: string; unit_price?: { amount?: string; currency_code?: string } }> };
+        if (listBody.data && listBody.data.length > 0) {
+          console.log(`\nFound existing Price IDs in your Paddle account:`);
+          for (const p of listBody.data) {
+            console.log(`  -> Price ID: ${p.id} (${p.description || p.name || "Price"} - ${p.unit_price?.currency_code} ${(Number(p.unit_price?.amount || 0) / 100).toFixed(2)})`);
+          }
+          console.log(`\nTo fix, update PADDLE_PRO_PRICE_ID in .env.local with one of the 'pri_...' IDs above.`);
+        }
+      }
     }
   }
 
