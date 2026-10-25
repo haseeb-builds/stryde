@@ -42,7 +42,38 @@ Dockerfile.worker (Node 22 + Chromium)             /api/cron/worker-dispatch
 
 ## 3. Dedicated Container Deployment Runbook
 
-### A. Deploy to Fly.io (Recommended)
+### A. Deploy to Render (Web Service / Blueprint)
+
+1. **Option 1: Deploy with Blueprint (`render.yaml`)**
+   - Push your repository to GitHub.
+   - Go to [dashboard.render.com](https://dashboard.render.com) → **New +** → **Blueprint**.
+   - Select repository `https://github.com/haseeb-builds/stryde` (branch `fix/conversation-turn-reliability` or `main`).
+   - Render automatically detects `render.yaml` and provisions `stryde-worker`.
+   - In the Render Dashboard, fill the required environment variables:
+     - `NEXT_PUBLIC_SUPABASE_URL`: `https://pvijrnwdnolvnoibarrj.supabase.co`
+     - `SUPABASE_SERVICE_ROLE_KEY`: `[Your remote Supabase service_role key]`
+     - `CRON_SECRET`: `[Matches your Vercel CRON_SECRET]`
+     - `EXA_API_KEY` / `FIRECRAWL_API_KEY`: `[Optional research keys]`
+   - Click **Apply**.
+
+2. **Option 2: Deploy as Manual Web Service on Render**
+   - Go to [dashboard.render.com](https://dashboard.render.com) → **New +** → **Web Service**.
+   - Connect repository `https://github.com/haseeb-builds/stryde`.
+   - **Runtime:** `Docker`
+   - **Dockerfile Path:** `./Dockerfile.worker`
+   - **Instance Type:** `Starter` ($7/mo for 24/7 continuous worker without sleep) or `Free`
+   - **Health Check Path:** `/health`
+   - Add environment variables (`NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `CRON_SECRET`).
+   - Click **Create Web Service**.
+
+3. **Render Guarantees:**
+   - Active health check probe hitting `http://localhost:${PORT}/health`.
+   - Automatically executes `scripts/run-production-worker.mjs` supervising both the continuous Postgres job leasing dispatcher and the Chromium browser worker.
+   - Generates ephemeral IPC tokens securely on startup.
+
+---
+
+### B. Deploy to Fly.io
 
 1. **Prerequisites:**
    - Install Fly CLI: `curl -L https://fly.io/install.sh | sh` (or `brew install flyctl`)

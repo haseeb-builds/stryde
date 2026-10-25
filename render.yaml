@@ -1,0 +1,26 @@
+services:
+  - type: web
+    name: stryde-worker
+    runtime: docker
+    dockerfilePath: ./Dockerfile.worker
+    plan: starter
+    region: oregon
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NEXT_PUBLIC_SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: STRYDE_WORKER_POLL_MS
+        value: "1000"
+      - key: STRYDE_WORKER_LEASE_SECONDS
+        value: "600"
+      - key: CRON_SECRET
+        sync: false
+      - key: EXA_API_KEY
+        sync: false
+      - key: FIRECRAWL_API_KEY
+        sync: false
