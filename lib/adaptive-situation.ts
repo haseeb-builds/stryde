@@ -1,9 +1,9 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { assembleSituation, type Situation } from "@/lib/situation";
-import { rankMemories } from "@/lib/memory-core";
-import { WORKER_TYPES, type WorkerType } from "@/lib/actor";
-import { workerToolKey } from "@/lib/worker-contract";
-import { loadAgentSelection, resolvePreferredWorkers, type AgentSelection } from "@/lib/agent-selection";
+import { assembleSituation, type Situation } from "./situation.ts";
+import { rankMemories } from "./memory-core.ts";
+import { WORKER_TYPES, type WorkerType } from "./actor.ts";
+import { workerToolKey } from "./worker-contract.ts";
+import { loadAgentSelection, resolvePreferredWorkers, type AgentSelection } from "./agent-selection.ts";
 
 export type MemoryEpisode = {
   session_id: string;
@@ -160,8 +160,48 @@ export async function assembleAdaptiveSituation(
   const actionIds = new Set((actionsResult.data ?? []).map((action) => action.id as string));
   const observations = (observationsResult.data ?? []).filter((observation) => {
     const content = observation.content;
-    if (typeof content === "object" && content !== null && "action_id" in content) {
-      return typeof content.action_id === "string" && actionIds.has(content.action_id);
+    const meta = observation.source_metadata as Record<string, unknown> | null;
+
+    // Strict cross-pursuit guard: if either explicit pursuit identifier exists and
+    // does not equal the active pursuit ID, reject the observation.
+    // A matching identifier in one field must never override a conflicting identifier in the other.
+    const contentPursuitId =
+      typeof content === "object" && content !== null && typeof (content as Record<string, unknown>).pursuit_id === "string"
+        ? (content as Record<string, unknown>).pursuit_id
+        : null;
+    const metaPursuitId =
+      meta && typeof meta === "object" && typeof meta.pursuit_id === "string"
+        ? (meta.pursuit_id as string)
+        : null;
+
+    if (
+      (contentPursuitId && contentPursuitId !== pursuitId) ||
+      (metaPursuitId && metaPursuitId !== pursuitId)
+    ) {
+      return false; // Belongs to a different pursuit or has conflicting pursuit identifiers; never leak!
+    }
+
+    if (typeof content === "object" && content !== null) {
+      if ("action_id" in content && typeof content.action_id === "string" && actionIds.has(content.action_id)) {
+        return true;
+      }
+      if ("pursuit_id" in content && content.pursuit_id === pursuitId) {
+        return true;
+      }
+      if (meta && typeof meta === "object" && meta.pursuit_id === pursuitId) {
+        return true;
+      }
+      if (observation.observation_kind === "WEB_SEARCH_RESULT") {
+        if (Array.isArray((content as Record<string, unknown>).results) && ((content as Record<string, unknown>).results as Record<string, unknown>[]).some((r) => typeof r.url === "string" && sourceUris.has(r.url))) {
+          return true;
+        }
+        if (Array.isArray((content as Record<string, unknown>).retrieved_sources) && ((content as Record<string, unknown>).retrieved_sources as Record<string, unknown>[]).some((s) => typeof s.content_locator === "string" && sourceUris.has(s.content_locator))) {
+          return true;
+        }
+      }
+    }
+    if (meta && typeof meta === "object" && meta.pursuit_id === pursuitId) {
+      return true;
     }
     return typeof observation.source_uri === "string" && sourceUris.has(observation.source_uri);
   });
@@ -284,7 +324,7 @@ export async function assembleAdaptiveSituation(
       memories,
       worker_capabilities,
       capabilities: {
-        web_search: Boolean(process.env.EXA_API_KEY?.trim()),
+        web_search: Boolean(process.env.EXA_API_KEY?.trim() || process.env.FIRECRAWL_API_KEY?.trim()),
       },
       agent_selection,
       skills: skillsRows as unknown as SkillContextItem[],

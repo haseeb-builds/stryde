@@ -1,8 +1,33 @@
 @import "tailwindcss";
 
 :root {
-  --background: #f7f7f8;
-  --foreground: #18181b;
+  --canvas: #F7F7F5;
+  --surface: #FCFCFB;
+  --surface-pure: #FFFFFF;
+  --surface-subtle: #F3F2EF;
+  --surface-muted: #EBEAE6;
+  --ink: #111111;
+  --ink-secondary: #52525B;
+  --ink-muted: #6B6B6B;
+  --rule: #E7E7E4;
+  --rule-strong: #D4D4D0;
+  --signal: #111111;
+  --signal-dark: #000000;
+  --signal-soft: #F3F2EF;
+  --signal-wash: #F3F2EF;
+  --verified: #059669;
+  --verified-soft: #ECFDF5;
+  --verified-wash: #ECFDF5;
+  --verified-Wash: #ECFDF5;
+  --waiting: #B45309;
+  --waiting-soft: #FFFBEB;
+  --waiting-wash: #FFFBEB;
+  --blocked: #DC2626;
+  --blocked-soft: #FEF2F2;
+  --blocked-wash: #FEF2F2;
+  --link: #111111;
+  --background: var(--canvas);
+  --foreground: var(--ink);
 }
 
 @theme inline {
@@ -12,30 +37,67 @@
   --font-mono: var(--font-geist-mono);
 }
 
-* {
-  box-sizing: border-box;
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+
+  html,
+  body {
+    min-height: 100%;
+    background-color: #F7F7F5;
+    color: #111111;
+  }
+
+  body {
+    margin: 0;
+    background-color: #F7F7F5;
+    color: #111111;
+    font-family: var(--font-geist-sans), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    font-size: 15px;
+    line-height: 1.6;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  button {
+    cursor: pointer;
+  }
+
+  button:disabled {
+    cursor: not-allowed;
+  }
+
+  :focus-visible {
+    outline: 2px solid #111111;
+    outline-offset: 2px;
+  }
+
+  ::selection {
+    background-color: #111111;
+    color: #FFFFFF;
+  }
+
+  details > summary {
+    list-style: none;
+  }
+
+  details > summary::-webkit-details-marker {
+    display: none;
+  }
 }
 
-html,
-body {
-  min-height: 100%;
-}
-
-body {
-  margin: 0;
-  background: var(--background);
-  color: var(--foreground);
-  font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
-  text-rendering: optimizeLegibility;
-}
-
-button,
-textarea,
-input {
-  font: inherit;
-}
-
-::selection {
-  background: #18181b;
-  color: #ffffff;
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

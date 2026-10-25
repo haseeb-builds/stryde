@@ -4,7 +4,13 @@
 // merely enqueues the same work the authorization-commit path already
 // governs. Triggers never grant authority and never bypass the resource
 // plane: the enqueued job's execution reserves budget like any other.
+import { createHash } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { WORKER_TYPES, type WorkerType } from "./actor.ts";
+import { checkWorkerDelegation, loadAutonomyPolicy } from "./autonomy-policy.ts";
+import { recordNotification } from "./notifications.ts";
+import { reserveResources } from "./resource-control.ts";
+import { parseWorkerJobArguments, workerToolKey } from "./worker-contract.ts";
 
 export type TriggerRow = {
   id: string;
@@ -32,6 +38,14 @@ export type TriggerRow = {
 export type DueTrigger = {
   trigger: TriggerRow;
   windowKey: string;
+};
+
+export type FiredTriggerOutcome = {
+  id: string;
+  name: string;
+  windowKey: string;
+  outcome: "JOB_ENQUEUED" | "NOTIFIED" | "POLICY_REFUSED" | "BUDGET_EXHAUSTED" | "SKIPPED";
+  jobId: string | null;
 };
 
 // Pure condition evaluation — unit-testable without a database.
@@ -85,29 +99,360 @@ export function isDue(
   }
 }
 
-// Evaluate all ACTIVE triggers for due-ness and fire the due ones (trusted
-// plane). Firing is idempotent per window via stryde_fire_trigger; the
-// winner records a firing row. Enqueuing the actual job is the caller's
-// responsibility (it needs the worker-plane dispatcher).
+// Pure parser for a trigger's action payload so tests can verify worker job
+// construction vs notification fallback without a live database.
+export function planTriggerDispatch(
+  trigger: TriggerRow,
+  windowKey: string,
+):
+  | { kind: "worker_job"; workerType: WorkerType; toolKey: string; intentSummary: string; jobArgs: ReturnType<typeof parseWorkerJobArguments> }
+  | { kind: "notification"; title: string; body: string } {
+  const action = trigger.action ?? {};
+  const rawWorkerType = typeof action.worker_type === "string" ? action.worker_type.trim().toUpperCase() : "";
+  const isWorker = (WORKER_TYPES as readonly string[]).includes(rawWorkerType);
+
+  if (isWorker && trigger.pursuit_id) {
+    const workerType = rawWorkerType as WorkerType;
+    const rawInstruction = typeof action.instruction === "string" && action.instruction.trim()
+      ? action.instruction.trim()
+      : trigger.name;
+    const rawContext = typeof action.context === "object" && action.context !== null && !Array.isArray(action.context)
+      ? (action.context as Record<string, unknown>)
+      : {};
+    const idempotencyKey = `stryde-trigger-${trigger.id}-${windowKey}`;
+    const jobArgs = parseWorkerJobArguments({
+      worker_type: workerType,
+      instruction: rawInstruction,
+      context: {
+        ...rawContext,
+        pursuit_id: trigger.pursuit_id,
+        trigger_id: trigger.id,
+        trigger_name: trigger.name,
+        window_key: windowKey,
+      },
+      idempotency_key: idempotencyKey,
+    });
+    const intentSummary = typeof action.title === "string" && action.title.trim()
+      ? action.title.trim().slice(0, 2000)
+      : `Triggered work: ${trigger.name}`.slice(0, 2000);
+    return {
+      kind: "worker_job",
+      workerType,
+      toolKey: workerToolKey(workerType),
+      intentSummary,
+      jobArgs,
+    };
+  }
+
+  const message = typeof action.message === "string" && action.message.trim()
+    ? action.message.trim()
+    : typeof action.instruction === "string" && action.instruction.trim()
+      ? action.instruction.trim()
+      : `Scheduled trigger "${trigger.name}" fired.`;
+  return {
+    kind: "notification",
+    title: `Trigger fired: ${trigger.name}`.slice(0, 300),
+    body: message.slice(0, 4000),
+  };
+}
+
+async function resolveTriggerContext(
+  service: SupabaseClient,
+  trigger: TriggerRow,
+  now: Date,
+): Promise<{ pursuitUpdatedAt: string | null; inFlightAction: boolean; recentEvent: { entity_type: string; event_type: string; occurred_at: string } | null }> {
+  let pursuitUpdatedAt: string | null = null;
+  let inFlightAction = false;
+  let recentEvent: { entity_type: string; event_type: string; occurred_at: string } | null = null;
+
+  if (trigger.pursuit_id && (trigger.trigger_kind === "STATE" || trigger.trigger_kind === "EVENT")) {
+    const { data: pursuit } = await service
+      .from("pursuit")
+      .select("updated_at")
+      .eq("id", trigger.pursuit_id)
+      .eq("owner_user_id", trigger.owner_user_id)
+      .maybeSingle();
+    pursuitUpdatedAt = (pursuit as { updated_at?: string } | null)?.updated_at ?? null;
+
+    const { data: activeAction } = await service
+      .from("action")
+      .select("id")
+      .eq("pursuit_id", trigger.pursuit_id)
+      .eq("owner_user_id", trigger.owner_user_id)
+      .eq("status", "IN_PROGRESS")
+      .limit(1)
+      .maybeSingle();
+    inFlightAction = Boolean(activeAction);
+  }
+
+  if (trigger.trigger_kind === "EVENT") {
+    const since = trigger.last_fired_at ?? new Date(now.getTime() - 86_400_000).toISOString();
+    let query = service
+      .from("event")
+      .select("entity_type, event_type, occurred_at")
+      .eq("owner_user_id", trigger.owner_user_id)
+      .gte("occurred_at", since)
+      .order("occurred_at", { ascending: false })
+      .limit(1);
+    if (trigger.condition?.event_entity) {
+      query = query.eq("entity_type", trigger.condition.event_entity);
+    }
+    if (trigger.condition?.event_type) {
+      query = query.eq("event_type", trigger.condition.event_type);
+    }
+    const { data: ev } = await query.maybeSingle();
+    if (ev) {
+      recentEvent = ev as { entity_type: string; event_type: string; occurred_at: string };
+    }
+  }
+
+  return { pursuitUpdatedAt, inFlightAction, recentEvent };
+}
+
+async function dispatchFiredTrigger(
+  service: SupabaseClient,
+  trigger: TriggerRow,
+  windowKey: string,
+): Promise<{ outcome: FiredTriggerOutcome["outcome"]; jobId: string | null }> {
+  let plan: ReturnType<typeof planTriggerDispatch>;
+  try {
+    plan = planTriggerDispatch(trigger, windowKey);
+  } catch {
+    await service
+      .from("trigger_firing")
+      .update({ outcome: "SKIPPED" })
+      .eq("trigger_id", trigger.id)
+      .eq("window_key", windowKey);
+    return { outcome: "SKIPPED", jobId: null };
+  }
+
+  if (plan.kind === "notification") {
+    await recordNotification(service, {
+      ownerUserId: trigger.owner_user_id,
+      pursuitId: trigger.pursuit_id,
+      title: plan.title,
+      body: plan.body,
+      linkPath: trigger.pursuit_id ? `/pursuits/${trigger.pursuit_id}` : "/",
+      dedupeKey: `trigger:${trigger.id}:${windowKey}`,
+    });
+    await service
+      .from("trigger_firing")
+      .update({ outcome: "NOTIFIED" })
+      .eq("trigger_id", trigger.id)
+      .eq("window_key", windowKey);
+    return { outcome: "NOTIFIED", jobId: null };
+  }
+
+  // Worker job path: verify autonomy policy, active capability grant, in-flight
+  // guard, and resource reservation before enqueuing into public.job.
+  const policy = await loadAutonomyPolicy(service, trigger.owner_user_id);
+  const delegation = checkWorkerDelegation(policy, plan.workerType);
+  if (!delegation.allowed) {
+    await service
+      .from("trigger_firing")
+      .update({ outcome: "POLICY_REFUSED" })
+      .eq("trigger_id", trigger.id)
+      .eq("window_key", windowKey);
+    return { outcome: "POLICY_REFUSED", jobId: null };
+  }
+
+  const { data: activeControlled } = await service
+    .from("action")
+    .select("id")
+    .eq("owner_user_id", trigger.owner_user_id)
+    .eq("pursuit_id", trigger.pursuit_id!)
+    .eq("execution_mode", "CONTROLLED")
+    .eq("status", "IN_PROGRESS")
+    .limit(1)
+    .maybeSingle();
+  if (activeControlled) {
+    await service
+      .from("trigger_firing")
+      .update({ outcome: "SKIPPED" })
+      .eq("trigger_id", trigger.id)
+      .eq("window_key", windowKey);
+    return { outcome: "SKIPPED", jobId: null };
+  }
+
+  const { data: tool } = await service
+    .from("tool")
+    .select("id, tool_key, tool_version")
+    .eq("tool_key", plan.toolKey)
+    .eq("tool_version", "v1")
+    .maybeSingle();
+  if (!tool) {
+    await service
+      .from("trigger_firing")
+      .update({ outcome: "SKIPPED" })
+      .eq("trigger_id", trigger.id)
+      .eq("window_key", windowKey);
+    return { outcome: "SKIPPED", jobId: null };
+  }
+
+  // Triggers never fabricate authority: require an active unrestricted
+  // capability_grant for this owner and tool (sourced from a prior user
+  // approval decision).
+  const { data: grant } = await service
+    .from("capability_grant")
+    .select("id, source_decision_id")
+    .eq("owner_user_id", trigger.owner_user_id)
+    .eq("tool_id", tool.id)
+    .is("revoked_at", null)
+    .or(`expires_at.is.null,expires_at.gt.${new Date().toISOString()}`)
+    .order("granted_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (!grant) {
+    await service
+      .from("trigger_firing")
+      .update({ outcome: "POLICY_REFUSED" })
+      .eq("trigger_id", trigger.id)
+      .eq("window_key", windowKey);
+    return { outcome: "POLICY_REFUSED", jobId: null };
+  }
+
+  // Reserve 1 worker_jobs unit on the resource control plane before creating the job.
+  let reservation: Awaited<ReturnType<typeof reserveResources>>;
+  try {
+    reservation = await reserveResources(service, {
+      ownerUserId: trigger.owner_user_id,
+      pursuitId: trigger.pursuit_id,
+      operationKey: `trigger:${trigger.id}:${windowKey}`,
+      capabilityKey: plan.toolKey,
+      requests: [{ resource: "worker_jobs", expected: 1 }],
+    });
+  } catch {
+    await service
+      .from("trigger_firing")
+      .update({ outcome: "BUDGET_EXHAUSTED" })
+      .eq("trigger_id", trigger.id)
+      .eq("window_key", windowKey);
+    return { outcome: "BUDGET_EXHAUSTED", jobId: null };
+  }
+
+  const argsHash = createHash("sha256").update(JSON.stringify(plan.jobArgs)).digest("hex");
+  const { data: actionRow, error: actionError } = await service
+    .from("action")
+    .insert({
+      owner_user_id: trigger.owner_user_id,
+      pursuit_id: trigger.pursuit_id!,
+      execution_mode: "CONTROLLED",
+      originating_decision_id: (grant as { source_decision_id?: string | null }).source_decision_id ?? null,
+      intent_summary: plan.intentSummary,
+      intent_parameters: plan.jobArgs,
+      status: "IN_PROGRESS",
+      version: 1,
+    })
+    .select("id")
+    .single();
+  if (actionError || !actionRow) {
+    await reservation.release().catch(() => {});
+    await service
+      .from("trigger_firing")
+      .update({ outcome: "SKIPPED" })
+      .eq("trigger_id", trigger.id)
+      .eq("window_key", windowKey);
+    return { outcome: "SKIPPED", jobId: null };
+  }
+
+  const { data: jobRow, error: jobError } = await service
+    .from("job")
+    .insert({
+      owner_user_id: trigger.owner_user_id,
+      action_id: actionRow.id,
+      tool_id: tool.id,
+      tool_version: tool.tool_version,
+      frozen_arguments: plan.jobArgs,
+      args_hash: argsHash,
+      idempotency_key: plan.jobArgs.idempotency_key,
+      authorization_basis: {
+        authorization_type: "TRIGGER_WITH_CAPABILITY_GRANT",
+        trigger_id: trigger.id,
+        window_key: windowKey,
+        capability_grant_id: grant.id,
+        decision_id: (grant as { source_decision_id?: string | null }).source_decision_id ?? null,
+        tool_id: tool.id,
+        tool_version: tool.tool_version,
+        args_hash: argsHash,
+      },
+      status: "AUTHORIZED",
+      retry_count: 0,
+      max_retries: 0,
+      fencing_token: 0,
+    })
+    .select("id")
+    .single();
+  if (jobError || !jobRow) {
+    await reservation.release().catch(() => {});
+    await service
+      .from("trigger_firing")
+      .update({ outcome: "SKIPPED" })
+      .eq("trigger_id", trigger.id)
+      .eq("window_key", windowKey);
+    return { outcome: "SKIPPED", jobId: null };
+  }
+
+  await service.from("job_authorization").insert({
+    owner_user_id: trigger.owner_user_id,
+    job_id: jobRow.id,
+    action_id: actionRow.id,
+    decision_id: (grant as { source_decision_id?: string | null }).source_decision_id ?? null,
+    authorization_type: "TRIGGER_WITH_CAPABILITY_GRANT",
+    args_hash: argsHash,
+    authorized_by_type: "USER",
+    authorized_by_id: trigger.owner_user_id,
+    authorization_snapshot: {
+      trigger_id: trigger.id,
+      window_key: windowKey,
+      action_id: actionRow.id,
+      tool_id: tool.id,
+      tool_version: tool.tool_version,
+      args_hash: argsHash,
+      capability_grant_id: grant.id,
+    },
+  });
+
+  await reservation.reconcile([{ resource: "worker_jobs", expected: 1 }]).catch(() => {});
+
+  await service
+    .from("trigger_firing")
+    .update({ job_id: jobRow.id, outcome: "JOB_ENQUEUED" })
+    .eq("trigger_id", trigger.id)
+    .eq("window_key", windowKey);
+
+  return { outcome: "JOB_ENQUEUED", jobId: jobRow.id };
+}
+
+// Evaluate all ACTIVE triggers for due-ness, fire the due ones (idempotent per
+// window via stryde_fire_trigger), and dispatch each winning firing into either
+// an authorized worker job on the existing queue or an in-app notification.
 export async function evaluateTriggers(
   service: SupabaseClient,
   now: Date,
-): Promise<{ evaluated: number; fired: Array<{ id: string; name: string; windowKey: string }> }> {
+): Promise<{ evaluated: number; fired: FiredTriggerOutcome[] }> {
   const { data: triggers, error } = await service
     .from("trigger")
     .select("*")
     .eq("status", "ACTIVE");
   if (error) throw new Error(`Unable to list triggers: ${error.message}`);
 
-  const fired: Array<{ id: string; name: string; windowKey: string }> = [];
+  const fired: FiredTriggerOutcome[] = [];
   for (const raw of (triggers ?? []) as TriggerRow[]) {
-    const context = { pursuitUpdatedAt: null as string | null, inFlightAction: false, recentEvent: null };
+    const context = await resolveTriggerContext(service, raw, now);
     const verdict = isDue(raw, now, context);
     if (!verdict.due) continue;
     const { data: won, error: fireError } = await service
       .rpc("stryde_fire_trigger", { p_trigger: raw.id, p_window_key: verdict.windowKey });
-    if (fireError) continue;
-    if (won) fired.push({ id: raw.id, name: raw.name, windowKey: verdict.windowKey });
+    if (fireError || !won) continue;
+
+    const dispatched = await dispatchFiredTrigger(service, raw, verdict.windowKey);
+    fired.push({
+      id: raw.id,
+      name: raw.name,
+      windowKey: verdict.windowKey,
+      outcome: dispatched.outcome,
+      jobId: dispatched.jobId,
+    });
   }
   return { evaluated: (triggers ?? []).length, fired };
 }

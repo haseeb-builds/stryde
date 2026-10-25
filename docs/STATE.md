@@ -1,5 +1,99 @@
-## 2026-10-06 (later) — capability-composition platform (Issue #8) checkpoint (current)
+## 2026-10-22 — V1 Engineering Release Candidate & Google Stitch Handoff Pack (`fix/conversation-turn-reliability`)
 
+- Branch `fix/conversation-turn-reliability` on PR #13, base `main` at `5259e7d0004000b3459e2a7ce7f9d6371a6feecc`.
+- **Engineering-Complete, Verified V1 Release Candidate Status:**
+  - Core product loop (Intention → Situation → Evidence → Next Move → Action → Observation → Verification → Persistent State) is complete, tested, and honestly evidenced.
+  - Observation retrieval tenant scoping, worker execution honesty, secondary citation persistence, model failover/cancellation, and SSRF redirect defenses verified test-first.
+- **Handoff Documentation & Deferral Ledger Created:**
+  - `docs/STITCH_DESIGN_BRIEF.md`: Founder-ready brief for visual/UX design exploration in Google Stitch, including ready-to-paste prompt and screen state inventory.
+  - `docs/STITCH_INTEGRATION_CONTRACT.md`: Architecture and component boundary specifications for importing Stitch UI into Next.js components without breaking backend API contracts or tests.
+  - `docs/MANUAL_SETUP_AND_ENVIRONMENT_CHECKLIST.md`: Complete discovered environment variable inventory and platform secret configuration guide.
+  - `docs/DEFERRED_WORK_AND_LAUNCH_BLOCKERS.md`: Decision ledger identifying exact prerequisites, owners, and acceptance tests for deferred items (Stitch design pass, search keys, worker daemon, Supabase staging, RLS DDL).
+  - `docs/POST_STITCH_FINAL_VERIFICATION_MANDATE.md`: Executable follow-up `/goal` mandate for post-Stitch integration, independent CodeRabbit/security review, and pre-launch gating.
+- **Full Verification Suite:** 342/342 tests pass across 46 suites. `npx tsc --noEmit` 0 errors. `npm run lint` 0 errors, 0 warnings. Clean Turbopack production build. `npm audit --omit=dev` 0 vulnerabilities.
+
+## 2026-10-22 — Verification, Observation Retrieval Scoping, Worker Honesty, and Secondary Citation Audit Closure (`fix/conversation-turn-reliability`)
+
+- Branch `fix/conversation-turn-reliability` on PR #13, base `main` at `5259e7d0004000b3459e2a7ce7f9d6371a6feecc`.
+- **Independently Identified Gaps Resolved & Verified (TDD):**
+  - **Observation Retrieval Contract & Scoping (`lib/pursuit-observations.ts`):**
+    - Created `fetchPursuitObservations`, `isSelectableObservationForClaim`, and `formatObservationOptionLabel`.
+    - Scoped queries strictly to `owner_user_id` and active `pursuit_id` across `content.pursuit_id`, `source_metadata.pursuit_id`, and `source_reference IN (actionIds)`.
+    - Integrated with `/api/v1/pursuits/[id]/observations` and `claims-panel.tsx` to ensure search observations and evidence can be selected for claim verification with human-readable labels instead of raw ontology strings.
+    - Verified by `tests/pursuit-observations.test.ts` (6/6).
+  - **Worker Execution Honesty & Fallback Controls (`page.tsx` & `work-panels.tsx`):**
+    - Fixed the worker trapping defect where `execution_mode === "CONTROLLED"` previously suppressed user completion buttons.
+    - Unblocked "I'm done" and "I'm blocked" manual controls for both `HUMAN` and `CONTROLLED` moves.
+    - Added transparent disclosure: *"Stryde queued this step for an automated worker. If a worker daemon is not running in this environment or you complete it yourself, you can report the outcome directly."*
+  - **Secondary Citation Ingestion Audit Status Persistence:**
+    - Updated `adaptAndStoreSource` in `lib/source-adaptation-store.ts`, `lib/universal-input.ts`, and `app/api/v1/pursuits/[id]/research/route.ts` to call `updateAdaptationAuditStatus` via `trustedPlane` on unlocatable claims (`unsubstantiated: true`), citation persistence failures (`citation_error`), and partial evidence (`partial_evidence: true`), demoting methods to `UNVERIFIED`.
+    - Handled error responses from `updateAdaptationAuditStatus` in `app/api/v1/pursuits/[id]/sources/route.ts`.
+    - Verified by `tests/source-adaptation-audit.test.ts` (3/3).
+  - **Model Provider Failover & Retry Expanded (TDD):**
+    - Expanded test coverage in `tests/model-provider-retry.test.ts` for HTTP 429 rate limit retries and failover across providers, malformed JSON recovery, and immediate abort cancellation (`AbortError`) with zero retries/failover.
+    - Verified by `tests/model-provider-retry.test.ts` (6/6).
+- **Full Verification Suite:**
+  - `node --experimental-strip-types --test tests/**/*.test.ts`: **342/342 tests pass across 46 test suites**.
+  - `npx tsc --noEmit`: **0 errors**.
+  - `npm run lint`: **0 errors, 0 warnings**.
+  - `npm run build`: **Clean Turbopack production build across all 25 routes**.
+  - `npm audit --omit=dev`: **0 vulnerabilities**.
+
+## 2026-10-22 — Release blockers closed & verified across all integration boundaries: R-1, R-2, R-3, R-6 (`fix/conversation-turn-reliability`)
+
+- Branch `fix/conversation-turn-reliability` on PR #13, base `main` at `5259e7d0004000b3459e2a7ce7f9d6371a6feecc`.
+- **Independently Identified Release Blockers Resolved & Verified (TDD):**
+  - **R-1 (Citation Semantics & Schema Integrity across all paths):**
+    - `buildSourceCitation` returns `SourceCitation | null`; unlocatable statements return `null` instead of generating fallback stubs with `located: false`.
+    - `findSupportingSource` searches candidates without falling back to unrelated sources.
+    - Research orchestration and direct `/sources` route handle mixed claims (`0 < citations.length < claims.length`): inserts valid citations, updates adaptation to `INCOMPLETE` with `partial_evidence: true`, and demotes unsupported methods to `UNVERIFIED`.
+    - Citation persistence failures explicitly update adaptation to `INCOMPLETE` via `trustedPlane` with `citation_error` documented and return clear warning messages.
+    - Verified by `tests/source-citation.test.ts`, `tests/research-citation-persistence.test.ts`, and `tests/research-citation-integrity.test.ts` (5/5).
+  - **R-2 (Adaptation Supersession & Audit Status Persistence):**
+    - `supersedeAdaptation` and `updateAdaptationAuditStatus` fail closed (`affectedCount: 0`, `success: false`) if result data is empty or not an array.
+    - Both normal try path and error catch path in `executeResearchAndRoadmapOrchestration` abort inserting a new adaptation if supersession fails or returns 0 affected rows.
+    - Verified by `tests/adaptation-supersession.test.ts` (7/7).
+  - **R-3 (Search Observation Contract & Cross-Pursuit Isolation):**
+    - `executeWebResearch` writes `pursuit_id: pursuitId` inside `content`, `raw_payload`, and `source_metadata`.
+    - `assembleAdaptiveSituation` enforces a strict cross-pursuit guard: drops any observation whose explicit `pursuit_id` (`content.pursuit_id` or `source_metadata.pursuit_id`) does not match the active `pursuitId`, even if the observation shares a `source_uri` with the pursuit's sources.
+    - Preserves source-less observations belonging to the target pursuit.
+    - Verified by `tests/search-observations-situation.test.ts` (3/3).
+  - **R-6 (Source Extraction Atomic Quota & Concurrency Safety):**
+    - Direct `/sources` URL extraction uses atomic reservation lifecycle: `reserveResources` for `source_extraction: 1`, followed by `reconcile` on success or `release` on failure.
+    - Denial throws `ResourceExhaustedError` and returns HTTP 429 ("Daily plan limit reached for source extractions").
+    - Ingestion failures or reconciliation failures release reservations and fail closed (HTTP 503).
+    - Prevents race conditions and double reservations under concurrent load.
+    - Verified by `tests/source-extraction-concurrency.test.ts` (5/5) and `tests/resource-autonomy-controls.test.ts`.
+- Full verification suite: 332/332 tests pass. TypeScript: 0 errors (`npx tsc --noEmit`). ESLint: 0 errors, 0 warnings (`npm run lint`). Turbopack production build clean across all routes. Production audit: 0 vulnerabilities (`npm audit --omit=dev`).
+
+## 2026-10-21 — Core release-hardening defects closed & verified: R-1, R-2, R-3, R-6, R-7, R-8 (`fix/conversation-turn-reliability`)
+
+- Branch `fix/conversation-turn-reliability` on PR #13, base `main` at `5259e7d0004000b3459e2a7ce7f9d6371a6feecc`.
+- **Defects Resolved & Verified:**
+  - **R-1 (Citation Integrity & Schema):** Exact text excerpts sliced from source content, semantic evidence locator matching, honest `INCOMPLETE` status with `UNVERIFIED` methods on citation insertion failure or missing evidence. Tested in `tests/source-citation.test.ts`, `tests/research-citation-persistence.test.ts`, and `tests/research-citation-integrity.test.ts`.
+  - **R-2 (Adaptation Supersession & RLS):** `supersedeAdaptation` and `updateAdaptationAuditStatus` executed via `trustedPlane` (`service_role`) scoped to `owner_user_id` and `pursuit_id`, validating affected rows to resolve missing RLS UPDATE policy. Tested in `tests/adaptation-supersession.test.ts`.
+  - **R-3 (Search Observations Situation Assembly):** Source-less `WEB_SEARCH_RESULT` observations tagged with `pursuit_id` are preserved during situation assembly. Tested in `tests/search-observations-situation.test.ts`.
+  - **R-4 (Blocked Research Ungrounded Guard):** Verified pre-stream interceptor in `/conversation` route prevents ungrounded model output when research is blocked, streaming honest SSE blocker messages. Tested in `tests/research-blocked-ungrounded-guard.test.ts`.
+  - **R-6 (Resource & Autonomy Controls):** Enforces `checkAutoResearch(userPolicy)` in `/work`, reserves and reconciles `research_rounds`, checks and records `source_extractions` in `/sources`, and meters `model_turns` in `/conversation`. Tested in `tests/resource-autonomy-controls.test.ts`.
+  - **R-7 (Context Compiler Roadmap Integrity):** Retains full roadmap audit fields (`methods` with `audit_status`, `assumptions`, `prerequisites`, `expected_outcomes`, `unknowns`, `fit`, `gaps`, `conflicts`, `adapted_strategy`, `goal_candidates`, `source_claims`, and `provenance`) in compiled context packets. Tested in `tests/context-compiler-roadmap-integrity.test.ts`.
+  - **R-8 (Search Provider Auto Mode):** Supports `STRYDE_SEARCH_PROVIDER=auto` with provider fallback. Tested in `tests/search-provider-auto.test.ts`.
+- Full test suite: 317/317 passing. TypeScript: 0 errors. Lint: 0 errors. Build: Turbopack production build clean in 3.0s. Production audit: 0 vulnerabilities.
+
+## 2026-10-21 — R-1 implemented & verified: citation persistence and schema reconciliation (`fix/conversation-turn-reliability`)
+
+- Branch `fix/conversation-turn-reliability` on PR #13, base `main` at `5259e7d0004000b3459e2a7ce7f9d6371a6feecc`.
+- **R-1 Defect Resolution (TDD):**
+  - Problem: Post-research roadmap reassessment previously constructed incompatible citation payloads with non-existent columns (`quote`, `content_sha256`, `locator_type`, `metadata`), cited the pasted roadmap (`sourceRow.id`) instead of retrieved external evidence, and silently swallowed database insertion failures.
+  - Solution: Integrated `validatePursuitSourceCitationRow` from `lib/source-citation.ts` into research orchestration. Replaced citation payload with actual PostgreSQL schema columns (`owner_user_id`, `pursuit_id`, `source_id`, `adaptation_id`, `source_content_sha256`, `locator`, `excerpt`, `basis`). Citations now link exclusively to retrieved external `pursuit_source` rows with real content hashes and locators. Handled citation insert errors explicitly by updating adaptation to `INCOMPLETE` with `UNVERIFIED` methods.
+  - Verification: 4 tests in `tests/research-citation-persistence.test.ts` verify schema validation, external source linkage, multi-citation handling, and explicit failure reporting. Full test suite: 300/300 passed.
+
+## 2026-10-21 — R-4 implemented & verified: ungrounded model stream blocked when research is impeded (`fix/conversation-turn-reliability`)
+
+- Branch `fix/conversation-turn-reliability` is synchronized with `main` at commit `5259e7d0004000b3459e2a7ce7f9d6371a6feecc` and incorporates the security baseline (Next.js 16.4.2, puppeteer-core 25.14.0, 0 production CVEs).
+- **R-4 Defect Resolution (TDD):**
+  - Problem: When required research was blocked (unauthorized, unconfigured, budget exhausted, or provider unavailable), the route previously called `streamConversationTurn` first, streaming ungrounded model hallucinations to the user before mutating `work` post-hoc.
+  - Solution: Implemented `buildBlockedResearchTurn` in `lib/research-orchestration.ts` and intercept in `app/api/v1/pursuits/[id]/conversation/route.ts` before model generation. Model streaming is bypassed completely; blocker message is emitted via SSE `message_delta` and committed with synchronized working state (`WAITING_USER` or `WAITING_EXTERNAL`, `bottleneck`, and actionable `next_move`).
+  - Verification: 6 regression tests in `tests/research-blocked-ungrounded-guard.test.ts` confirm honest blocker messages, correct options, skipped model generation, and SSE/database consistency. Total test suite passes (296/296).
 
 ## 2026-10-21 — release baseline security release (current production truth)
 
@@ -17,19 +111,20 @@ This checkpoint records the successful authorization, squash-merge, and producti
 - Database state: PR #9 contained zero database migrations (DDL). Live Supabase project `pvijrnwdnolvnoibarrj` retains isolated test records from local pre-merge E2E testing under dedicated test user `5b1dbe29-d6b7-4c0f-86bd-f285b4465a37` (isolated by Row Level Security; no other accounts or tables touched). Records are preserved without mutation or deletion.
 - Engineering control plane incorporated at `docs/ENGINEERING_CONTROL_PLANE.md`.
 
-## 2026-10-21 (earlier) — release baseline security reconciliation (superseded by release above)
+## 2026-10-21 — `fix/conversation-turn-reliability` correctness-closure pass (historical)
 
-This checkpoint records the reconciliation of PR #9 (`chore/release-baseline-security-2026-10-17`) and PR #12 (`docs/ENGINEERING_CONTROL_PLANE.md`) with `origin/main` (`b3680469703369fa8f27123fc0eb04f171700f49`). Historical checkpoints below are retained as evidence.
-
-### Repository and release baseline
-- Rebased PR #9 onto current main (`b3680469703369fa8f27123fc0eb04f171700f49`).
-- Production dependency audit: `npm audit --omit=dev` reports 0 vulnerabilities on Next.js 16.4.2 + puppeteer-core 25.14.0 (previously 13 vulnerabilities including 1 Critical Next.js App Router bypass advisory on 16.2.9).
-- Unit test suite: 255/255 passed.
-- TypeScript (`npx tsc --noEmit`): clean, zero errors.
-- ESLint (`npm run lint`): clean, zero errors/warnings.
-- Production build (`npm run build`): clean Turbopack compile across all 25 routes.
-- PR #12 engineering control plane incorporated at `docs/ENGINEERING_CONTROL_PLANE.md`.
-- Production deployment remains gated on user approval; PR #9 is review-ready and unmerged.
+- **Resource Safety & Reservation/Reconciliation Lifecycle:** Naive research availability checks and fire-and-forget post-hoc usage recording have been completely replaced with the formal reservation/reconciliation lifecycle in `lib/resource-control.ts`:
+  1. Calls `reserveResources(trustedPlane, { owner_id, operations: [{ resource: 'research_rounds', amount: 1 }] }, { operation_key })` before calling any external research provider.
+  2. Differentiates quota exhaustion (`ResourceExhaustedError`, mapping to `BUDGET_EXHAUSTED` blocker) from RPC / database connection failures (mapping to standard `UNAVAILABLE` blocker), failing closed in both cases without calling providers.
+  3. Releases reservations on failure, cancellation, or abort via `releaseReservations(trustedPlane, { reservation_id })`.
+  4. Reconciles actual usage on successful research completion via `reconcileReservation(trustedPlane, { reservation_id, consumed: { research_rounds: 1 } })`.
+  5. Replay protection: detects existing `CONSUMED` reservations for `research:${turnKey}` to prevent double-charging or running unmetered work on retried or replayed turns.
+- **Natural Goal Intent Across Domains:** `detectPursuitGoalIntent` in `lib/research-orchestration.ts` recognizes goal-seeking language for fitness/health, career/learning, business, technical projects, and roadmap audits.
+- **Roadmap Audit Correctness & Adaptation v2:**
+  1. Original submitted roadmap preserved unchanged in `pursuit_source`.
+  2. Preliminary intake method statuses forced to `UNVERIFIED` before evidence acquisition.
+  3. Critical post-research adaptation re-evaluates roadmap against acquired evidence, creating version 2 with linked citations in `pursuit_source_citation` and explicit statuses (`KEEP`, `CHANGE`, `REMOVE`, `MISSING`, `UNVERIFIED`, `NEEDS_EXPERIMENT`).
+- **Real Retrieval Status & Locators:** Differentiates `FULL_TEXT`, `PARTIAL_CONTENT`, `PAYWALLED`, `SNIPPET`, `INACCESSIBLE`, and `TRANSCRIPT_UNAVAILABLE`.
 
 ## 2026-10-17 — production/security reconciliation (superseded by 2026-10-21 candidate)
 

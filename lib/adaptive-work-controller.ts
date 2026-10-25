@@ -1,5 +1,5 @@
-import { ACTOR_TYPES, normalizeActor, normalizeWorkerType, WORKER_TYPES } from "@/lib/actor";
-import { WORK_STATUSES, normalizeVerify, type NextMove, type WorkingState } from "@/lib/work-controller";
+import { ACTOR_TYPES, normalizeActor, normalizeWorkerType, WORKER_TYPES } from "./actor.ts";
+import { WORK_STATUSES, normalizeVerify, type NextMove, type WorkingState } from "./work-controller.ts";
 import { normalizeWorkStatus } from "./working-state-normalization.ts";
 export { normalizeWorkStatus } from "./working-state-normalization.ts";
 
@@ -134,8 +134,8 @@ function validateWorkingStateShape(value: unknown): WorkingState {
     return normalized;
   };
   const arrayText = (value: unknown, field: string) => {
-    if (!Array.isArray(value) || value.length > MAX_ITEMS) throw new Error(`${field} must be an array`);
-    return value.map((item, index) => readText(item, `${field}[${index}]`));
+    if (!Array.isArray(value)) throw new Error(`${field} must be an array`);
+    return value.slice(0, MAX_ITEMS).map((item, index) => readText(item, `${field}[${index}]`));
   };
 
   const objective = optionalText(candidate.objective, "objective");
@@ -148,7 +148,7 @@ function validateWorkingStateShape(value: unknown): WorkingState {
   if (candidate.next_move !== null && candidate.next_move !== undefined) {
     if (typeof candidate.next_move !== "object") throw new Error("next_move must be an object or null");
     const move = candidate.next_move as Record<string, unknown>;
-    const mode = typeof move.mode === "string" ? move.mode : "";
+    const mode = typeof move.mode === "string" ? move.mode.trim().toUpperCase().replace(/[\s-]+/g, "_") : "";
     if (!ADAPTIVE_WORK_MODES.includes(mode as AdaptiveWorkMode)) {
       throw new Error("Requested adaptive work mode is not enabled");
     }
@@ -177,9 +177,9 @@ function validateWorkingStateShape(value: unknown): WorkingState {
     throw new Error("VERIFY_WEB next move requires verify: claim_id, url, and expect_text");
   }
 
-  if (candidate.status === "COMPLETE" && next_move) throw new Error("Complete working state cannot have a next move");
-  if (next_move?.mode === "STOP" && candidate.status !== "COMPLETE") throw new Error("STOP is only valid for COMPLETE");
-  if (candidate.status !== "COMPLETE" && candidate.status !== "STALLED" && !next_move) {
+  if (normalizedStatus === "COMPLETE" && next_move) throw new Error("Complete working state cannot have a next move");
+  if (next_move?.mode === "STOP" && normalizedStatus !== "COMPLETE") throw new Error("STOP is only valid for COMPLETE");
+  if (normalizedStatus !== "COMPLETE" && normalizedStatus !== "STALLED" && !next_move) {
     throw new Error("Active working state requires a next move");
   }
 

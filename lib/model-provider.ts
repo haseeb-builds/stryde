@@ -24,8 +24,8 @@ export type ModelProvider = {
 };
 
 const defaults: Record<ModelProviderName, { baseUrl: string; model: string; envKey: string }> = {
-  gemini: { baseUrl: "https://generativelanguage.googleapis.com/v1beta", model: "gemini-2.5-flash", envKey: "STRYDE_GEMINI_API_KEY" },
-  openrouter: { baseUrl: "https://openrouter.ai/api/v1", model: "openrouter/free", envKey: "STRYDE_OPENROUTER_API_KEY" },
+  gemini: { baseUrl: "https://generativelanguage.googleapis.com/v1beta", model: "gemini-3.8-flash", envKey: "STRYDE_GEMINI_API_KEY" },
+  openrouter: { baseUrl: "https://openrouter.ai/api/v1", model: "nvidia/nemotron-3-ultra-550b-a55b:free", envKey: "STRYDE_OPENROUTER_API_KEY" },
   omniroute: { baseUrl: "", model: "", envKey: "STRYDE_OMNIROUTE_API_KEY" },
   groq: { baseUrl: "https://api.groq.com/openai/v1", model: "openai/gpt-oss-120b", envKey: "STRYDE_GROQ_API_KEY" },
 };
@@ -76,7 +76,8 @@ function legacyGeminiAlias(provider: ModelProviderName, selected?: ModelProvider
 function configured(env: NodeJS.ProcessEnv, provider: ModelProviderName, selected?: ModelProviderName): ModelProviderConfig | null {
   const d = defaults[provider];
   const alias = legacyGeminiAlias(provider, selected);
-  const apiKey = (env[d.envKey] ?? (alias ? env.STRYDE_MODEL_API_KEY : undefined))?.trim();
+  const geminiKey = provider === "gemini" ? (env.GEMINI_API_KEY ?? env.GOOGLE_AI_STUDIO_API_KEY) : undefined;
+  const apiKey = (env[d.envKey] ?? geminiKey ?? (alias ? env.STRYDE_MODEL_API_KEY : undefined))?.trim();
   if (!apiKey) return null;
   const baseUrl = (env[`STRYDE_${provider.toUpperCase()}_BASE_URL`] ?? (alias ? env.STRYDE_MODEL_BASE_URL : undefined) ?? d.baseUrl).replace(/\/$/, "");
   const model = (env[`STRYDE_${provider.toUpperCase()}_MODEL`] ?? (alias ? env.STRYDE_MODEL_NAME : undefined) ?? d.model).trim();
@@ -171,7 +172,7 @@ function geminiThinkingBudget(): number {
 function body(config: ModelProviderConfig, input: StructuredInput, stream: boolean) {
   const max = input.maxOutputTokens ?? 1000;
   if (config.provider === "gemini") return { contents: [{ parts: [{ text: input.prompt }] }], generationConfig: { temperature: 0, maxOutputTokens: max, thinkingConfig: { thinkingBudget: geminiThinkingBudget() }, responseMimeType: "application/json", responseSchema: geminiSchema(input.schema) } };
-  const openrouterRouting = config.provider === "openrouter" ? { provider: { require_parameters: true, allow_fallbacks: true }, plugins: [{ id: "response-healing" }] } : {};
+  const openrouterRouting = config.provider === "openrouter" ? { provider: { allow_fallbacks: true }, plugins: [{ id: "response-healing" }] } : {};
   return { model: input.modelOverride ?? config.model, messages: [{ role: "user", content: `${input.prompt}\n\nReturn one JSON object only matching this schema:\n${JSON.stringify(input.schema)}` }], response_format: { type: "json_object" }, temperature: 0, max_tokens: max, stream, ...openrouterRouting };
 }
 

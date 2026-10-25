@@ -1,7 +1,7 @@
 // Trigger engine + notification semantics (Phases 9, 11) — pure logic.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { isDue, type TriggerRow } from "../lib/trigger-engine.ts";
+import { isDue, planTriggerDispatch, type TriggerRow } from "../lib/trigger-engine.ts";
 import { configuredChannels } from "../lib/notifications.ts";
 
 function trigger(overrides: Partial<TriggerRow>): TriggerRow {
@@ -55,6 +55,46 @@ test("trigger: EVENT matches entity and type", () => {
   assert.equal(miss.due, false);
   const hit = isDue(t, new Date(), { recentEvent: { entity_type: "claim", event_type: "CONTRADICTED", occurred_at: new Date().toISOString() } });
   assert.equal(hit.due, true);
+});
+
+test("trigger dispatch: worker trigger with pursuit_id builds a deterministic worker job payload", () => {
+  const t = trigger({
+    id: "trig-42",
+    pursuit_id: "pursuit-99",
+    name: "Check competitor pricing",
+    action: {
+      worker_type: "BROWSER",
+      instruction: "Inspect pricing page for changes",
+      context: { target_url: "https://example.com/pricing" },
+    },
+  });
+  const plan = planTriggerDispatch(t, "2026-10-18");
+  assert.equal(plan.kind, "worker_job");
+  if (plan.kind === "worker_job") {
+    assert.equal(plan.workerType, "BROWSER");
+    assert.equal(plan.toolKey, "worker.browser");
+    assert.equal(plan.jobArgs.idempotency_key, "stryde-trigger-trig-42-2026-10-18");
+    assert.equal(plan.jobArgs.context.pursuit_id, "pursuit-99");
+    assert.equal(plan.jobArgs.context.trigger_id, "trig-42");
+    assert.equal(plan.jobArgs.context.target_url, "https://example.com/pricing");
+  }
+});
+
+test("trigger dispatch: non-worker trigger produces an in-app notification plan", () => {
+  const t = trigger({
+    id: "trig-43",
+    pursuit_id: "pursuit-99",
+    name: "Weekly review reminder",
+    action: {
+      message: "Review subscriber growth metrics",
+    },
+  });
+  const plan = planTriggerDispatch(t, "2026-10-18");
+  assert.equal(plan.kind, "notification");
+  if (plan.kind === "notification") {
+    assert.match(plan.title, /Weekly review reminder/);
+    assert.equal(plan.body, "Review subscriber growth metrics");
+  }
 });
 
 test("notification channels: unconfigured providers stay pending, in-app is always deliverable", () => {

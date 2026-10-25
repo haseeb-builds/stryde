@@ -5,6 +5,10 @@ import { ingestPastedSource, ingestUrlSource, type IngestedSource } from "@/lib/
 import { extractFileSourceText, type FileSourceExtraction } from "@/lib/file-source-extraction";
 import { requireAuthenticatedSupabase } from "@/lib/supabase/server";
 import { buildSourceCitation } from "@/lib/source-citation";
+import { getSupabaseServiceClient } from "@/lib/supabase/service";
+import { reserveResources, ResourceExhaustedError, type ReservationGroup } from "@/lib/resource-control";
+import { updateAdaptationAuditStatus } from "@/lib/research-orchestration";
+import { validatePursuitSourceCitationRow, type PursuitSourceCitationInsert } from "@/lib/source-citation";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -95,6 +99,8 @@ export async function GET(request: Request, context: RouteContext) {
     const { supabase, user } = await requireAuthenticatedSupabase(request.headers.get("authorization"));
     const { id } = await context.params;
 
+
+
     const { data: pursuit, error: pursuitError } = await supabase
       .from("pursuit")
       .select("id")
@@ -179,9 +185,41 @@ export async function POST(request: Request, context: RouteContext) {
         return errorResponse("Provide exactly one of url or content", 400);
       }
 
-      ingested = url
-        ? await ingestUrlSource(url)
-        : await ingestPastedSource({ content: content!, title, uri: pastedUri });
+      if (url) {
+        const service = getSupabaseServiceClient();
+        const operationKey = `source_extraction:${user.id}:${Buffer.from(url).toString("base64").slice(0, 32)}:${Date.now()}`;
+        let reservation: ReservationGroup;
+        try {
+          reservation = await reserveResources(service, {
+            ownerUserId: user.id,
+            pursuitId: id,
+            operationKey,
+            capabilityKey: "sources.url_ingest",
+            requests: [{ resource: "source_extraction", expected: 1 }],
+          });
+        } catch (resError) {
+          if (resError instanceof ResourceExhaustedError) {
+            return errorResponse("Daily plan limit reached for source extractions. Your plan resets tomorrow.", 429);
+          }
+          return errorResponse("Resource control is unavailable; source extraction is refused rather than unmetered", 503);
+        }
+
+        try {
+          ingested = await ingestUrlSource(url);
+        } catch (ingestError) {
+          await reservation.release().catch(() => {});
+          throw ingestError;
+        }
+
+        try {
+          await reservation.reconcile([{ resource: "source_extraction", expected: 1 }]);
+        } catch {
+          await reservation.release().catch(() => {});
+          return errorResponse("Resource reconciliation failed; extraction cannot be confirmed", 503);
+        }
+      } else {
+        ingested = await ingestPastedSource({ content: content!, title, uri: pastedUri });
+      }
     }
 
     const { data: pursuit, error: pursuitError } = await supabase
@@ -267,14 +305,115 @@ export async function POST(request: Request, context: RouteContext) {
 
             const sourceClaims = Array.isArray(result.adaptation.source_claims) ? result.adaptation.source_claims : [];
             if (sourceClaims.length && ingested.contentText && source.content_sha256) {
-              const citations = sourceClaims.map((item) => ({
-                owner_user_id: user.id,
-                pursuit_id: id,
-                source_id: source.id,
-                adaptation_id: insertedAdaptation.id,
-                ...buildSourceCitation({ content: ingested.contentText!, contentSha256: source.content_sha256, statement: typeof item.statement === "string" ? item.statement : "", basis: typeof item.basis === "string" ? item.basis : "INFERRED" }),
-              }));
-              if (citations.length) await supabase.from("pursuit_source_citation").insert(citations);
+              const citations: PursuitSourceCitationInsert[] = [];
+              for (const item of sourceClaims) {
+                const statement = typeof item.statement === "string" ? item.statement.trim() : "";
+                if (!statement) continue;
+                const built = buildSourceCitation({
+                  content: ingested.contentText,
+                  contentSha256: source.content_sha256,
+                  statement,
+                  basis: typeof item.basis === "string" ? item.basis : "INFERRED",
+                });
+                if (built) {
+                  citations.push(validatePursuitSourceCitationRow({
+                    owner_user_id: user.id,
+                    pursuit_id: id,
+                    source_id: source.id,
+                    adaptation_id: insertedAdaptation.id,
+                    ...built,
+                  }));
+                }
+              }
+
+              const serviceClient = getSupabaseServiceClient();
+              const unverifiedMethods = (Array.isArray(insertedAdaptation.methods) ? insertedAdaptation.methods : []).map(
+                (m: Record<string, unknown>) => ({ ...m, audit_status: "UNVERIFIED" })
+              );
+
+              if (citations.length === 0) {
+                // All claims unlocatable: do not represent adaptation as fully verified!
+                const statusRes = await updateAdaptationAuditStatus(serviceClient, {
+                  adaptationId: insertedAdaptation.id,
+                  ownerUserId: user.id,
+                  pursuitId: id,
+                  summary: "Source saved, but claims could not be substantiated in the source content.",
+                  methods: unverifiedMethods,
+                  provenance: {
+                    ...(typeof insertedAdaptation.provenance === "object" && insertedAdaptation.provenance !== null ? insertedAdaptation.provenance : {}),
+                    audit_status: "INCOMPLETE",
+                    unsubstantiated: true,
+                  },
+                });
+                adaptationWarning = "Source adaptation claims could not be verified in the source content.";
+                if (!statusRes.success) adaptationWarning += ` (warning: audit update failed: ${statusRes.error})`;
+                adaptation = {
+                  ...adaptation,
+                  methods: unverifiedMethods as unknown as SourceAdaptation["methods"],
+                  provenance: {
+                    ...(typeof insertedAdaptation.provenance === "object" && insertedAdaptation.provenance !== null ? (insertedAdaptation.provenance as Record<string, unknown>) : {}),
+                    audit_status: "INCOMPLETE",
+                    unsubstantiated: true,
+                  } as unknown as SourceAdaptation["provenance"],
+                };
+              } else {
+                const { error: citationError } = await supabase.from("pursuit_source_citation").insert(citations);
+                if (citationError) {
+                  // Persistence failure! Do not silently return a successful adaptation with missing citations!
+                  const statusRes = await updateAdaptationAuditStatus(serviceClient, {
+                    adaptationId: insertedAdaptation.id,
+                    ownerUserId: user.id,
+                    pursuitId: id,
+                    summary: `Source saved, but evidence citations could not be persisted: ${citationError.message}`,
+                    methods: unverifiedMethods,
+                    provenance: {
+                      ...(typeof insertedAdaptation.provenance === "object" && insertedAdaptation.provenance !== null ? insertedAdaptation.provenance : {}),
+                      audit_status: "INCOMPLETE",
+                      citation_error: citationError.message,
+                    },
+                  });
+                  adaptationWarning = `Source was saved, but evidence citations could not be persisted: ${citationError.message}`;
+                  if (!statusRes.success) adaptationWarning += ` (warning: audit update failed: ${statusRes.error})`;
+                  adaptation = {
+                    ...adaptation,
+                    methods: unverifiedMethods as unknown as SourceAdaptation["methods"],
+                    provenance: {
+                      ...(typeof insertedAdaptation.provenance === "object" && insertedAdaptation.provenance !== null ? (insertedAdaptation.provenance as Record<string, unknown>) : {}),
+                      audit_status: "INCOMPLETE",
+                      citation_error: citationError.message,
+                    } as unknown as SourceAdaptation["provenance"],
+                  };
+                } else if (citations.length < sourceClaims.length) {
+                  // Mixed claims: only a subset of claims were substantiated
+                  const statusRes = await updateAdaptationAuditStatus(serviceClient, {
+                    adaptationId: insertedAdaptation.id,
+                    ownerUserId: user.id,
+                    pursuitId: id,
+                    summary: `Source adaptation partially verified: ${citations.length} of ${sourceClaims.length} claims were substantiated.`,
+                    methods: unverifiedMethods,
+                    provenance: {
+                      ...(typeof insertedAdaptation.provenance === "object" && insertedAdaptation.provenance !== null ? insertedAdaptation.provenance : {}),
+                      audit_status: "INCOMPLETE",
+                      partial_evidence: true,
+                      substantiated_claims: citations.length,
+                      total_claims: sourceClaims.length,
+                    },
+                  });
+                  adaptationWarning = `Source adaptation partially verified: ${citations.length} of ${sourceClaims.length} claims were substantiated in source text.`;
+                  if (!statusRes.success) adaptationWarning += ` (warning: audit update failed: ${statusRes.error})`;
+                  adaptation = {
+                    ...adaptation,
+                    methods: unverifiedMethods as unknown as SourceAdaptation["methods"],
+                    provenance: {
+                      ...(typeof insertedAdaptation.provenance === "object" && insertedAdaptation.provenance !== null ? (insertedAdaptation.provenance as Record<string, unknown>) : {}),
+                      audit_status: "INCOMPLETE",
+                      partial_evidence: true,
+                      substantiated_claims: citations.length,
+                      total_claims: sourceClaims.length,
+                    } as unknown as SourceAdaptation["provenance"],
+                  };
+                }
+              }
             }
           }
         } catch (error) {

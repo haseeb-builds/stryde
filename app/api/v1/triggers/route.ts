@@ -33,8 +33,26 @@ export async function POST(request: Request) {
     const name = typeof body.name === "string" ? body.name.trim().slice(0, 200) : "";
     const kind = typeof body.trigger_kind === "string" && (TRIGGER_KINDS as readonly string[]).includes(body.trigger_kind) ? body.trigger_kind : null;
     if (!name || !kind) return NextResponse.json({ error: "name and trigger_kind are required" }, { status: 400 });
-    if (typeof body.condition !== "object" || body.condition === null) return NextResponse.json({ error: "condition object is required" }, { status: 400 });
-    if (typeof body.action !== "object" || body.action === null) return NextResponse.json({ error: "action object is required" }, { status: 400 });
+    if (typeof body.condition !== "object" || body.condition === null || Array.isArray(body.condition)) {
+      return NextResponse.json({ error: "condition object is required" }, { status: 400 });
+    }
+    if (typeof body.action !== "object" || body.action === null || Array.isArray(body.action)) {
+      return NextResponse.json({ error: "action object is required" }, { status: 400 });
+    }
+
+    const actionObj = body.action as Record<string, unknown>;
+    const hasWorkerType = typeof actionObj.worker_type === "string" && actionObj.worker_type.trim().length > 0;
+    const hasInstruction = typeof actionObj.instruction === "string" && actionObj.instruction.trim().length > 0;
+    const hasMessage = typeof actionObj.message === "string" && actionObj.message.trim().length > 0;
+    if (hasWorkerType && !hasInstruction) {
+      return NextResponse.json({ error: "worker trigger action requires a non-empty instruction" }, { status: 400 });
+    }
+    if (hasWorkerType && (!body.pursuit_id || typeof body.pursuit_id !== "string")) {
+      return NextResponse.json({ error: "worker trigger action requires pursuit_id" }, { status: 400 });
+    }
+    if (!hasWorkerType && !hasInstruction && !hasMessage) {
+      return NextResponse.json({ error: "action must include instruction, message, or worker_type + instruction" }, { status: 400 });
+    }
 
     if (body.pursuit_id !== undefined && body.pursuit_id !== null) {
       if (typeof body.pursuit_id !== "string") return NextResponse.json({ error: "pursuit_id must be a string" }, { status: 400 });

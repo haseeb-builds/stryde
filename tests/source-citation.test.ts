@@ -5,6 +5,7 @@ import { buildSourceCitation } from "../lib/source-citation.ts";
 
 function locate(content: string, statement: string) {
   const citation = buildSourceCitation({ content, contentSha256: "hash-locator", statement, basis: "EXPLICIT_SOURCE" });
+  assert.ok(citation, "locatable statement must return a citation");
   assert.equal(citation.locator.type, "CHARACTER_RANGE");
   assert.equal(citation.locator.located, true);
   assert.ok(Number.isInteger(citation.locator.start) && Number.isInteger(citation.locator.end), "locator offsets must be integers");
@@ -49,10 +50,10 @@ test("long statements fall back to their distinctive first window", () => {
   assert.equal(content.slice(locator.start, locator.end), statement.slice(0, 120));
 });
 
-test("unlocatable statements keep the full-range fallback with located false", () => {
+test("unlocatable statements return null, never producing an unverified citation", () => {
   const content = "Alpha beta gamma.";
   const citation = buildSourceCitation({ content, contentSha256: "hash-locator", statement: "totally absent phrase", basis: "EXPLICIT_SOURCE" });
-  assert.deepEqual(citation.locator, { type: "CHARACTER_RANGE", start: 0, end: content.length, located: false });
+  assert.equal(citation, null, "unlocatable statement must return null");
 });
 
 test("empty statement still throws", () => {
@@ -62,12 +63,12 @@ test("empty statement still throws", () => {
 
 test("hash, excerpt, and basis passthrough are unchanged by locating", () => {
   const explicit = buildSourceCitation({ content: "before TARGET after", contentSha256: "hash-x", statement: "  TARGET  ", basis: "EXPLICIT_SOURCE" });
-  assert.equal(explicit.source_content_sha256, "hash-x");
-  assert.equal(explicit.excerpt, "TARGET");
-  assert.equal(explicit.basis, "EXPLICIT_SOURCE");
+  assert.equal(explicit!.source_content_sha256, "hash-x");
+  assert.equal(explicit!.excerpt, "TARGET");
+  assert.equal(explicit!.basis, "EXPLICIT_SOURCE");
   const inferred = buildSourceCitation({ content: "before TARGET after", contentSha256: "hash-y", statement: "TARGET", basis: "INFERRED" });
-  assert.equal(inferred.basis, "INFERRED");
-  assert.equal(buildSourceCitation({ content: "before TARGET after", contentSha256: "hash-z", statement: "TARGET", basis: "something-else" }).basis, "INFERRED");
+  assert.equal(inferred!.basis, "INFERRED");
+  assert.equal(buildSourceCitation({ content: "before TARGET after", contentSha256: "hash-z", statement: "TARGET", basis: "something-else" })?.basis, "INFERRED");
 });
 
 test("research-shaped case: an extracted page locates its highlight", () => {

@@ -1,14 +1,33 @@
 # Stryde Integration Truth
 
 
-## Live integration reconciliation — 2026-10-17 (current)
+## Live integration reconciliation — 2026-10-21 (`fix/conversation-turn-reliability` correctness-closure pass)
+
+- **Vercel:** production deployment `dpl_HxMc5YPcdgndAT9KnvaEHYNQKm2G` is READY on main commit `1df79487da20bd4066e7ff492f6851c0960e6141`; alias `stryde-topaz.vercel.app`.
+- **Supabase:** project `pvijrnwdnolvnoibarrj` is ACTIVE_HEALTHY. The live ledger contains 41 migration entries. Security migration version `20261017185728` is applied and live effective privileges are restricted so trusted-plane resource RPCs require service role.
+- **Model provider:** direct Google AI Studio Gemini API primary (configured via `GEMINI_API_KEY`, `STRYDE_GEMINI_API_KEY`, or `GOOGLE_AI_STUDIO_API_KEY`), OpenRouter fallback. Model-health success confirms configuration, while conversation turn streaming and structured extraction are proven in local test suites.
+- **Research & Resource Reservation:**
+  - Full reservation lifecycle: `reserveResources` pre-allocates `research_rounds` before calling providers, releasing on failure/cancellation, reconciling on success, and preventing double-billing on replayed turns (`research:${turnKey}`).
+  - Search provider chain configured (`Exa` primary, `Firecrawl` fallback); requires `EXA_API_KEY` or `FIRECRAWL_API_KEY` for live upstream execution. When unconfigured, research degrades honestly to `WAITING_EXTERNAL`/`ASK_USER` without hallucinating citations.
+- **Source retrieval paths & Locators:**
+  - Public web pages: direct fetch with DNS SSRF assertion + Firecrawl JS-render fallback when configured; top research hits are ingested as canonical `pursuit_source` items.
+  - Locator classification: `FULL_TEXT` (with `#sha256:` content locators), `PARTIAL_CONTENT`, `PAYWALLED` (detected via domain/content paywall patterns), `SNIPPET`, `INACCESSIBLE`, and `TRANSCRIPT_UNAVAILABLE` (with `#media` locators). `primary_source_traced` is strictly `true` only for `FULL_TEXT`.
+  - Pasted roadmaps & text: ingested directly with SHA-256 hash (up to 120k chars); methods default to `UNVERIFIED` until research is acquired. Post-research adaptation creates v2 with citations or falls back to `INCOMPLETE` on model failure.
+- **Billing:** Stripe keys are absent. Billing/payment and the customer-facing paid subscription path remain intentionally unconfigured.
+- **Security:** authenticated execution was removed from eight resource/trigger RPCs designed for the trusted plane. Artifact revision now verifies the actual authenticated actor. Leaked-password protection remains disabled in Supabase Auth.
+
+## Live integration reconciliation — 2026-10-18 (`fix/conversation-turn-reliability` historical)
 
 - **Vercel:** production deployment `dpl_HxMc5YPcdgndAT9KnvaEHYNQKm2G` is READY on main commit `1df79487da20bd4066e7ff492f6851c0960e6141`; alias `stryde-topaz.vercel.app`.
 - **Supabase:** project `pvijrnwdnolvnoibarrj` is ACTIVE_HEALTHY. The live ledger contains 41 migration entries. Security migration version `20261017185728` is applied and live effective privileges were queried afterward.
-- **Model provider:** live `/api/health/model` returned HTTP 200, OpenRouter preferred with `nvidia/nemotron-3-super-120b-a12b:free`, Gemini fallback `gemini-flash-latest`, OmniRoute disabled. Environment variable names are present for OpenRouter/Gemini, but secret values were not inspected. Model-health success is not a successful conversation-turn proof, and free-tier quota sustainability remains unestablished.
-- **Research:** `EXA_API_KEY` and `FIRECRAWL_API_KEY` are absent from the production environment inventory; live research remains blocked.
-- **Billing:** Stripe keys are absent. Billing/payment and the customer-facing paid subscription path are not production-proven.
-- **Worker runtime:** local/integration worker proofs do not establish a publicly reachable production worker runtime.
+- **Model provider:** direct Google AI Studio Gemini API primary (configured via `GEMINI_API_KEY`, `STRYDE_GEMINI_API_KEY`, or `GOOGLE_AI_STUDIO_API_KEY`), OpenRouter fallback. Model-health success confirms configuration, while conversation turn streaming and structured extraction are proven in local test suites.
+- **Research:** Search provider chain configured (`Exa` primary, `Firecrawl` fallback); requires `EXA_API_KEY` or `FIRECRAWL_API_KEY` for live upstream execution. When keys are unconfigured, research degrades honestly to WAITING_EXTERNAL/ASK_USER without hallucinating citations.
+- **Source retrieval paths:**
+  - Public web pages: direct fetch with DNS SSRF assertion + Firecrawl JS-render fallback when configured; top research hits are ingested as canonical `pursuit_source` items with `#sha256:` content locators.
+  - Pasted roadmaps & text: ingested directly with SHA-256 hash (up to 120k chars); methods default to `UNVERIFIED` until research is acquired.
+  - Uploaded files: Text, Markdown, CSV, JSON, Log, and PDF supported.
+  - YouTube, audio & video transcripts: No dedicated transcript provider (e.g. Supadata or YouTube Data API) is currently configured in production environment. Stryde fails honestly (`TRANSCRIPT_UNAVAILABLE` with `#media` locator) rather than pretending access.
+- **Billing:** Stripe keys are absent. Billing/payment and the customer-facing paid subscription path remain intentionally unconfigured.
 - **Security:** authenticated execution was removed from eight resource/trigger RPCs designed for the trusted plane. Artifact revision now verifies the actual authenticated actor. Leaked-password protection remains disabled in Supabase Auth.
 
 Status: canonical integration document

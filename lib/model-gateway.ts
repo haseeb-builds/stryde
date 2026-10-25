@@ -1,7 +1,7 @@
 import { validateModelProposal, type ModelProposal } from "./orchestration.ts";
 import { modelOverrideForTask } from "./model-routing.ts";
 import { WORKING_STATE_SCHEMA, buildWorkControllerPrompt, validateWorkingState, type WorkingState } from "./work-controller.ts";
-import { getModelRouter } from "./model-provider.ts";
+import { getModelRouter, ModelProviderError } from "./model-provider.ts";
 
 const MAX_CONVERSATION_MESSAGES = 16;
 const MAX_MESSAGE_CHARS = 8_000;
@@ -168,37 +168,37 @@ export function validateConversationTurn(value: unknown): ConversationTurn {
   if (typeof value !== "object" || value === null) throw new Error("Conversation turn must be an object");
   const candidate = value as Record<string, unknown>;
   if (typeof candidate.message !== "string" || !candidate.message.trim()) throw new Error("Conversation message is required");
-  if (!Array.isArray(candidate.options)) throw new Error("Conversation options must be an array");
-  const options = candidate.options.slice(0, 5).map((option) => {
-    if (typeof option !== "object" || option === null) throw new Error("Invalid conversation option");
+  const rawOptions = Array.isArray(candidate.options) ? candidate.options : [];
+  const options = rawOptions.slice(0, 5).flatMap((option) => {
+    if (typeof option !== "object" || option === null) return [];
     const item = option as Record<string, unknown>;
-    if (typeof item.label !== "string" || !item.label.trim()) throw new Error("Conversation option label is required");
-    if (typeof item.value !== "string" || !item.value.trim()) throw new Error("Conversation option value is required");
-    return { label: item.label.trim().slice(0, 300), value: item.value.trim().slice(0, 1000) };
+    if (typeof item.label !== "string" || !item.label.trim()) return [];
+    if (typeof item.value !== "string" || !item.value.trim()) return [];
+    return [{ label: item.label.trim().slice(0, 300), value: item.value.trim().slice(0, 1000) }];
   });
   const question = candidate.question === null || candidate.question === undefined ? null : typeof candidate.question === "string" && candidate.question.trim() ? candidate.question.trim().slice(0, 4000) : null;
   const focus = candidate.focus === null || candidate.focus === undefined ? null : typeof candidate.focus === "string" && candidate.focus.trim() ? candidate.focus.trim().slice(0, 2000) : null;
-  if (typeof candidate.ready_for_reasoning !== "boolean") throw new Error("ready_for_reasoning must be boolean");
-  if (!Array.isArray(candidate.memory_candidates)) throw new Error("memory_candidates must be an array");
-  const memory_candidates = candidate.memory_candidates.slice(0, 3).map((item) => {
-    if (typeof item !== "object" || item === null) throw new Error("Invalid memory candidate");
+  const ready_for_reasoning = typeof candidate.ready_for_reasoning === "boolean" ? candidate.ready_for_reasoning : false;
+  const rawMemoryCandidates = Array.isArray(candidate.memory_candidates) ? candidate.memory_candidates : [];
+  const memory_candidates = rawMemoryCandidates.slice(0, 3).flatMap((item) => {
+    if (typeof item !== "object" || item === null) return [];
     const memory = item as Record<string, unknown>;
-    if (memory.scope !== "USER" && memory.scope !== "PURSUIT") throw new Error("Invalid memory candidate scope");
-    if (!["FACT","CONSTRAINT","PREFERENCE","DECISION","COMMITMENT","EXPERIENCE","PATTERN","GOAL"].includes(memory.memory_type as string)) throw new Error("Invalid memory candidate type");
-    if (typeof memory.content !== "string" || !memory.content.trim()) throw new Error("Memory candidate content is required");
-    if (typeof memory.confidence !== "number" || memory.confidence < 0 || memory.confidence > 1) throw new Error("Memory candidate confidence must be between 0 and 1");
-    if (typeof memory.importance !== "number" || memory.importance < 0 || memory.importance > 1) throw new Error("Memory candidate importance must be between 0 and 1");
+    if (memory.scope !== "USER" && memory.scope !== "PURSUIT") return [];
+    if (!["FACT","CONSTRAINT","PREFERENCE","DECISION","COMMITMENT","EXPERIENCE","PATTERN","GOAL"].includes(memory.memory_type as string)) return [];
+    if (typeof memory.content !== "string" || !memory.content.trim()) return [];
+    if (typeof memory.confidence !== "number" || memory.confidence < 0 || memory.confidence > 1) return [];
+    if (typeof memory.importance !== "number" || memory.importance < 0 || memory.importance > 1) return [];
     const revises = Array.isArray(memory.revises_memory_ids)
       ? memory.revises_memory_ids.filter((id): id is string => typeof id === "string" && id.trim().length > 0).slice(0, 3).map((id) => id.trim())
       : [];
-    return {
+    return [{
       scope: memory.scope as ConversationMemoryCandidate["scope"],
       memory_type: memory.memory_type as ConversationMemoryCandidate["memory_type"],
       content: memory.content.trim().slice(0, 600),
       confidence: memory.confidence,
       importance: memory.importance,
       revises_memory_ids: revises,
-    };
+    }];
   });
   const work = validateWorkingState(candidate.work);
   // input_class is requested from the model but its absence or drift must not
@@ -208,7 +208,7 @@ export function validateConversationTurn(value: unknown): ConversationTurn {
     ["MESSAGE", "QUESTION", "CORRECTION", "PROGRESS", "DECISION"].includes(candidate.input_class)
     ? candidate.input_class as ConversationInputClass
     : "MESSAGE";
-  return { message: candidate.message.trim().slice(0, 8000), question, options, ready_for_reasoning: candidate.ready_for_reasoning as boolean, focus, input_class: inputClass, memory_candidates, work };
+  return { message: candidate.message.trim().slice(0, 8000), question, options, ready_for_reasoning, focus, input_class: inputClass, memory_candidates, work };
 }
 
 function buildConversationPrompt(input: {
@@ -279,16 +279,28 @@ export async function streamConversationTurn(
   if (userMessage.length > MAX_MESSAGE_CHARS) throw new Error("userMessage is too long");
 
   const router = getModelRouter();
-  // The router parses each leg's streamed text inside the retry/failover
-  // boundary, so a leg that emits unparseable JSON is retried in place and
-  // then fails over instead of ending the user's turn (same semantics as the
-  // non-streaming path).
-  const result = await router.streamStructured({ schemaName: "stryde_conversation_turn", schema: CONVERSATION_TURN_SCHEMA, prompt: buildConversationPrompt(input), maxOutputTokens: MAX_CONVERSATION_TURN_OUTPUT_TOKENS, signal, onText: () => {} });
-  const streamedTurn = validateConversationTurn(result.parsed);
-  emit({ type: "message_delta", content: streamedTurn.message });
-  emit({ type: "complete", turn: streamedTurn, provider: result.provider, model: result.model });
-  return { turn: streamedTurn, provider: result.provider, model: result.model };
-
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      // The router parses each leg's streamed text inside the retry/failover
+      // boundary, so a leg that emits unparseable JSON is retried in place and
+      // then fails over instead of ending the user's turn (same semantics as the
+      // non-streaming path).
+      const result = await router.streamStructured({ schemaName: "stryde_conversation_turn", schema: CONVERSATION_TURN_SCHEMA, prompt: buildConversationPrompt(input), maxOutputTokens: MAX_CONVERSATION_TURN_OUTPUT_TOKENS, signal, onText: () => {} });
+      const streamedTurn = validateConversationTurn(result.parsed);
+      emit({ type: "message_delta", content: streamedTurn.message });
+      emit({ type: "complete", turn: streamedTurn, provider: result.provider, model: result.model });
+      return { turn: streamedTurn, provider: result.provider, model: result.model };
+    } catch (error) {
+      lastError = error;
+      // Do not amplify provider-level retries: createModelRouter already retried
+      // retryable ModelProviderErrors across the full provider chain and rejected
+      // non-retryable ones. Only retry once if a provider returned parseable JSON
+      // that failed contract validation.
+      if (signal?.aborted || error instanceof ModelProviderError) throw error;
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error("Conversation turn failed");
 }
 
 export async function runConversationTurn(input: {
@@ -304,13 +316,22 @@ export async function runConversationTurn(input: {
 
   const prompt = buildConversationPrompt(input);
 
-  // Must use the same budget as the streaming path. The non-streaming path
-  // previously took the 1,000-token default, which is not enough to emit the
-  // seven-field ConversationTurn contract; providers truncated the reply and the
-  // turn failed validation. Both paths must request the same budget or the
-  // product behaves differently depending on which path served the request.
-  const result = await callStructuredModel("stryde_conversation_turn", CONVERSATION_TURN_SCHEMA, prompt, MAX_CONVERSATION_TURN_OUTPUT_TOKENS);
-  return { turn: validateConversationTurn(result.parsed), provider: result.provider, model: result.model };
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      // Must use the same budget as the streaming path. The non-streaming path
+      // previously took the 1,000-token default, which is not enough to emit the
+      // seven-field ConversationTurn contract; providers truncated the reply and the
+      // turn failed validation. Both paths must request the same budget or the
+      // product behaves differently depending on which path served the request.
+      const result = await callStructuredModel("stryde_conversation_turn", CONVERSATION_TURN_SCHEMA, prompt, MAX_CONVERSATION_TURN_OUTPUT_TOKENS);
+      return { turn: validateConversationTurn(result.parsed), provider: result.provider, model: result.model };
+    } catch (error) {
+      lastError = error;
+      if (error instanceof ModelProviderError) throw error;
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error("Conversation turn failed");
 }
 
 

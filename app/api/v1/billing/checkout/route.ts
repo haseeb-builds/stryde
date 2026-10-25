@@ -1,58 +1,71 @@
 import { NextResponse } from "next/server";
 import { requireAuthenticatedSupabase } from "@/lib/supabase/server";
+import { isPaddleConfigured, createPaddleCheckoutTransaction } from "@/lib/paddle";
 
 export const runtime = "nodejs";
 
-// Founding-access checkout. HONESTY RULE (Issue #6 decision on paid access):
-// if billing credentials are missing, this endpoint says so plainly and no
-// part of the product pretends payment works. When STRIPE_SECRET_KEY and
-// STRIPE_PRICE_ID are configured, a real Stripe Checkout session is created
-// through the platform-native fetch — no SDK.
+/**
+ * Initiates subscription checkout for Stryde.
+ *
+ * Provider: Paddle Billing v2 (Merchant of Record).
+ * Fully supports Pakistani and international SaaS founders with automated
+ * sales tax/VAT compliance, subscription lifecycle, and direct SWIFT/Payoneer payouts.
+ *
+ * Honesty rule:
+ * If billing credentials are missing, this endpoint returns 503 with exact instructions
+ * and never pretends payments succeed.
+ */
 export async function POST(request: Request) {
   try {
     const { user } = await requireAuthenticatedSupabase(request.headers.get("authorization"));
 
-    const secretKey = process.env.STRIPE_SECRET_KEY?.trim();
-    const priceId = process.env.STRIPE_PRICE_ID?.trim();
-    if (!secretKey || !priceId) {
+    if (!isPaddleConfigured()) {
       return NextResponse.json(
         {
-          error: "Billing is not configured yet. Founding access is not open for payment at this moment.",
+          error: "Billing is not configured yet. Paddle credentials (PADDLE_API_KEY, PADDLE_WEBHOOK_SECRET_KEY/PADDLE_WEBHOOK_SECRET, PADDLE_PRO_PRICE_ID/PADDLE_PRICE_ID_PRO) are required.",
           configured: false,
+          provider: "paddle",
+          details: "Stryde uses Paddle Billing as its Merchant of Record to support Pakistan and global operations.",
         },
-        { status: 503 },
+        { status: 503 }
       );
     }
 
-    const origin = process.env.NEXT_PUBLIC_SITE_URL?.trim() || new URL(request.url).origin;
-    const form = new URLSearchParams({
-      mode: "subscription",
-      "line_items[0][price]": priceId,
-      "line_items[0][quantity]": "1",
-      success_url: `${origin}/?founding=success`,
-      cancel_url: `${origin}/?founding=cancelled`,
-      client_reference_id: user.id,
-      "subscription_data[metadata][owner_user_id]": user.id,
-    });
-
-    const response = await fetch("https://api.stripe.com/v1/checkout/sessions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${secretKey}`,
-        "Content-Type": "application/x-www-form-urlencoded",
-      },
-      body: form.toString(),
-      cache: "no-store",
-    });
-    const body = (await response.json()) as { url?: unknown; error?: { message?: unknown } };
-    if (!response.ok || typeof body.url !== "string") {
-      console.error("[billing] stripe checkout failed:", body.error?.message ?? response.status);
-      return NextResponse.json({ error: "The payment provider refused the request." }, { status: 502 });
+    let planId: "pro" | "max" = "pro";
+    try {
+      const body = (await request.json()) as { plan_id?: unknown };
+      if (body.plan_id === "max") planId = "max";
+    } catch {
+      // Body is optional; default to pro
     }
 
-    return NextResponse.json({ checkout_url: body.url, configured: true }, { status: 201 });
+    const origin = process.env.NEXT_PUBLIC_SITE_URL?.trim() || new URL(request.url).origin;
+    const returnUrl = `${origin}/?billing=success`;
+
+    const { checkoutUrl, transactionId } = await createPaddleCheckoutTransaction({
+      ownerUserId: user.id,
+      userEmail: user.email,
+      planId,
+      returnUrl,
+    });
+
+    return NextResponse.json(
+      {
+        checkout_url: checkoutUrl,
+        transaction_id: transactionId,
+        plan_id: planId,
+        configured: true,
+        provider: "paddle",
+      },
+      { status: 201 }
+    );
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unauthorized";
-    return NextResponse.json({ error: message }, { status: message.includes("token") ? 401 : 500 });
+    const message = error instanceof Error ? error.message : "Billing request failed";
+    console.error("[billing/checkout] error:", message);
+    const isAuth = message.includes("token") || message.includes("Unauthorized") || message.includes("auth");
+    return NextResponse.json(
+      { error: message },
+      { status: isAuth ? 401 : 500 }
+    );
   }
 }

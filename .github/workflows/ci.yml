@@ -13,7 +13,7 @@ jobs:
       SUPABASE_SECRET_KEY: ci-placeholder-secret
       SUPABASE_SERVICE_ROLE_KEY: ci-placeholder-service-role
       STRYDE_MODEL_PROVIDER: gemini
-      STRYDE_MODEL_NAME: gemini-2.5-flash
+      STRYDE_MODEL_NAME: gemini-3.8-flash
       STRYDE_MODEL_API_KEY: ci-placeholder
     steps:
       - name: Checkout

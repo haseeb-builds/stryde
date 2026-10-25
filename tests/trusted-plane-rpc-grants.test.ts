@@ -75,3 +75,51 @@ test("the resource-window helper has a fixed, safe search path", async () => {
     "the helper should use pg_catalog rather than a mutable schema search path",
   );
 });
+
+test("authenticated-callable SECURITY DEFINER RPCs bind ownership to auth.uid() and set search_path", async () => {
+  const userCallableDefiners = [
+    {
+      file: "../supabase/migrations/20260915035349_stryde_pursuit_creation_security_hardening.sql",
+      fn: "public.stryde_create_pursuit",
+      ownerCheck: /auth\.uid\(\)/,
+    },
+    {
+      file: "../supabase/migrations/20260926103302_fix_commit_intervention_digest_schema.sql",
+      fn: "stryde_internal.commit_intervention",
+      ownerCheck: /where id = p_pursuit_id and owner_user_id = v_owner for update/,
+    },
+    {
+      file: "../supabase/migrations/20260926120000_adaptive_pursuit_sources_and_human_feedback.sql",
+      fn: "stryde_internal.set_objective_claim",
+      ownerCheck: /where id = p_pursuit_id and owner_user_id = v_owner for update/,
+    },
+    {
+      file: "../supabase/migrations/20260926120000_adaptive_pursuit_sources_and_human_feedback.sql",
+      fn: "stryde_internal.complete_human_action",
+      ownerCheck: /where id = p_action_id and owner_user_id = v_owner for update/,
+    },
+    {
+      file: "../supabase/migrations/20260927083847_restore_conversation_turn_rpc.sql",
+      fn: "public.stryde_record_conversation_user_input",
+      ownerCheck: /where id = p_session_id and owner_user_id = v_actor for update/,
+    },
+    {
+      file: "../supabase/migrations/20260927083847_restore_conversation_turn_rpc.sql",
+      fn: "public.stryde_commit_conversation_turn",
+      ownerCheck: /where id = p_session_id and owner_user_id = v_actor for update/,
+    },
+  ];
+
+  for (const spec of userCallableDefiners) {
+    const raw = await readFile(new URL(spec.file, import.meta.url), "utf8");
+    const sql = normalizedSql(raw);
+    const start = sql.indexOf(`create or replace function ${spec.fn}`);
+    assert.ok(start >= 0, `${spec.fn} must exist in ${spec.file}`);
+    const section = sql.slice(start, start + 3500);
+    assert.match(section, /security definer/, `${spec.fn} must be declared security definer`);
+    assert.match(section, /set search_path =/, `${spec.fn} must pin an explicit search_path`);
+    assert.match(section, /auth\.uid\(\)/, `${spec.fn} must resolve identity from auth.uid()`);
+    assert.match(section, spec.ownerCheck, `${spec.fn} must scope entity mutation to the authenticated owner`);
+  }
+});
+

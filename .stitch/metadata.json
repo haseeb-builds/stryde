@@ -1,0 +1,142 @@
+{
+  "projectTitle": "Stryde — Visual Design Studio",
+  "projectId": null,
+  "status": "prepared_for_import",
+  "generatedAt": "2026-10-24T16:20:00Z",
+  "environment": {
+    "framework": "Next.js 15 (App Router)",
+    "styling": "Tailwind CSS v4 with custom semantic CSS custom properties",
+    "gitBranch": "fix/conversation-turn-reliability",
+    "gitHead": "273847cb302501c09325e5fe1f10d41bb4221a1b"
+  },
+  "baselineDesignSystem": {
+    "name": "Stryde Operational Baseline",
+    "file": "DESIGN.md",
+    "status": "extracted_baseline_only",
+    "note": "Represents the existing implementation baseline, not the desired final redesign."
+  },
+  "contextFiles": [
+    {
+      "file": "PRODUCT_BRIEF.md",
+      "description": "Concise product identity, unified pursuit loop, and target user profiles"
+    },
+    {
+      "file": "ROUTE_SCREEN_INVENTORY.md",
+      "description": "Exhaustive inventory of routes, header shells, cards, and disclosures"
+    },
+    {
+      "file": "BEHAVIOR_AND_STATE_CONSTRAINTS.md",
+      "description": "Immutable state invariants, runner honesty, epistemic hierarchy, and manual fallbacks"
+    },
+    {
+      "file": "ANTI_PATTERNS_REFERENCE.md",
+      "description": "Stryde quality gate rules against generic AI styling and the 3 diagnostic design tests"
+    },
+    {
+      "file": "KNOWN_UX_PROBLEMS.md",
+      "description": "Catalog of grounded UX failure modes and friction points to address in visual design"
+    },
+    {
+      "file": "REFERENCE_COLLECTION.md",
+      "description": "External reference synthesis (SmoothUI, Canvas, Linear, Grok) with transfer boundaries"
+    }
+  ],
+  "screens": [
+    {
+      "id": "01-home-pursuit-index",
+      "title": "Home / Pursuit Index & Active Continuation",
+      "route": "/",
+      "viewport": "1440x900",
+      "state": "authenticated_with_active_pursuits",
+      "description": "Signed-in intake surface showing 'What needs to move?' box, live pursuit search, status filters (All/Active/Done), and active pursuit list with continue indicator.",
+      "files": {
+        "png": "screens/01-home-pursuit-index.png",
+        "html": "screens/01-home-pursuit-index.html"
+      }
+    },
+    {
+      "id": "02-primary-workspace-operational-brief",
+      "title": "Pursuit Workspace / Operational Brief & Record",
+      "route": "/pursuits/[id]",
+      "viewport": "1440x900",
+      "state": "active_pursuit_workspace",
+      "description": "Desktop workspace anchor featuring the Top Operational Brief (state badge, situation summary, current bottleneck, knowns/unknowns), chronological Pursuit Record ledger, and sticky universal composer.",
+      "files": {
+        "png": "screens/02-primary-workspace-operational-brief.png",
+        "html": "screens/02-primary-workspace-operational-brief.html"
+      }
+    },
+    {
+      "id": "03-workspace-human-action",
+      "title": "Active Move / Human Action & Inline Reporting Dock",
+      "route": "/pursuits/[id]",
+      "viewport": "1440x900",
+      "state": "waiting_on_user_action",
+      "description": "Active move card assigned to the user ('Your Next Step') with instructions and inline outcome reporting controls ('Report done' / 'Report blocker') eliminating split-attention distance.",
+      "files": {
+        "png": "screens/03-workspace-human-action.png",
+        "html": "screens/03-workspace-human-action.html"
+      }
+    },
+    {
+      "id": "04-workspace-queued-blocked-worker",
+      "title": "Queued Background Runner & Degraded Recovery State",
+      "route": "/pursuits/[id]",
+      "viewport": "1440x900",
+      "state": "queued_worker_or_stalled_reassessment",
+      "description": "Truthful representation of queued worker execution ('Queued for background runner (not running yet)') or stalled reassessment alert with direct 'Reassess' recovery trigger and manual completion override.",
+      "files": {
+        "png": "screens/04-workspace-queued-blocked-worker.png",
+        "html": "screens/04-workspace-queued-blocked-worker.html"
+      }
+    },
+    {
+      "id": "05-working-artifacts-context",
+      "title": "Working Artifacts / Version Lineage & Reader View",
+      "route": "/pursuits/[id]",
+      "viewport": "1440x900",
+      "state": "artifacts_disclosure_expanded",
+      "description": "Deliverables inspector showing version history tags (Latest, v1..vN) reconstructed from superseded_by lineage, formatted/raw preview reader, and revision draft controls.",
+      "files": {
+        "png": "screens/05-working-artifacts-context.png",
+        "html": "screens/05-working-artifacts-context.html"
+      }
+    },
+    {
+      "id": "06-evidence-sources-claims",
+      "title": "Evidence Ledger / Source Provenance & Bounded Research",
+      "route": "/pursuits/[id]",
+      "viewport": "1440x900",
+      "state": "evidence_and_sources_disclosures_expanded",
+      "description": "Disclosed evidence ledger separating verified, reported, and evidence-linked claims, with cited source snippets, SHA-256 provenance stamps, and bounded research intake.",
+      "files": {
+        "png": "screens/06-evidence-sources-claims.png",
+        "html": "screens/06-evidence-sources-claims.html"
+      }
+    },
+    {
+      "id": "07-mobile-workspace-390x844",
+      "title": "Mobile Pursuit Workspace (390x844)",
+      "route": "/pursuits/[id]",
+      "viewport": "390x844",
+      "state": "mobile_active_workspace",
+      "description": "Single-column mobile view with compact header pursuit switcher ('▾'), single-column Operational Brief, readable Pursuit Record entries, zero horizontal overflow, and touch-friendly bottom composer.",
+      "files": {
+        "png": "screens/07-mobile-workspace-390x844.png",
+        "html": "screens/07-mobile-workspace-390x844.html"
+      }
+    },
+    {
+      "id": "08-empty-landing-or-failure-state",
+      "title": "Operational Landing / Initial Unauthenticated State",
+      "route": "/",
+      "viewport": "1440x900",
+      "state": "unauthenticated_intake_and_sign_in",
+      "description": "Unauthenticated operational split presenting the four-step operating thesis ('Intention → Bottleneck → Next Move → Verified Outcome') alongside focused sign-in and account creation forms.",
+      "files": {
+        "png": "screens/08-empty-landing-or-failure-state.png",
+        "html": "screens/08-empty-landing-or-failure-state.html"
+      }
+    }
+  ]
+}

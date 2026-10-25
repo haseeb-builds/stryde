@@ -5,6 +5,7 @@ import { assembleAdaptiveSituation } from "@/lib/adaptive-situation";
 import { compileForSituation } from "@/lib/context-compiler";
 import { requireAuthenticatedSupabase } from "@/lib/supabase/server";
 import { recordMemory } from "@/lib/memory";
+import { normalizeUserClaims, syncObservedUserClaims } from "@/lib/action-completion";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -26,72 +27,7 @@ type StoredObservation = {
   } | null;
 };
 
-function normalizeUserClaims(value: unknown): string[] {
-  if (!Array.isArray(value)) return [];
-  const seen = new Set<string>();
-  const claims: string[] = [];
-  for (const item of value) {
-    if (typeof item !== "string") continue;
-    const claim = item.trim();
-    if (!claim || claim.length > 2_000 || seen.has(claim)) continue;
-    seen.add(claim);
-    claims.push(claim);
-  }
-  return claims;
-}
 
-async function syncObservedUserClaims(input: {
-  supabase: Awaited<ReturnType<typeof requireAuthenticatedSupabase>>["supabase"];
-  userId: string;
-  pursuitId: string;
-  observationId: string;
-  claims: string[];
-}): Promise<{ created: number; warnings: string[] }> {
-  let created = 0;
-  const warnings: string[] = [];
-
-  for (const claimContent of normalizeUserClaims(input.claims)) {
-    try {
-      const { data: existing, error: existingError } = await input.supabase
-        .from("claim")
-        .select("id")
-        .eq("owner_user_id", input.userId)
-        .eq("pursuit_id", input.pursuitId)
-        .eq("content", claimContent)
-        .limit(1)
-        .maybeSingle();
-      if (existingError) throw new Error("Unable to inspect existing claim");
-
-      let claimId = existing?.id as string | undefined;
-      if (!claimId) {
-        const { data, error } = await input.supabase.rpc("stryde_create_claim", {
-          p_scope: "PURSUIT",
-          p_kind: "OUTCOME",
-          p_content: claimContent,
-          p_pursuit_id: input.pursuitId,
-        });
-        if (error || !data?.id) throw new Error(error?.message || "Unable to create claim");
-        claimId = data.id as string;
-        created += 1;
-      }
-
-      const { error: linkError } = await input.supabase.rpc("stryde_link_claim_observation", {
-        p_claim_id: claimId,
-        p_observation_id: input.observationId,
-        p_relation_type: "SUPPORTS",
-      });
-      if (linkError && !/duplicate|already exists/i.test(linkError.message)) {
-        throw new Error(linkError.message || "Unable to link claim evidence");
-      }
-    } catch (error) {
-      const prefix = claimContent.slice(0, 120) + (claimContent.length > 120 ? "…" : "");
-      const message = error instanceof Error ? error.message : "claim sync failed";
-      warnings.push(prefix + ": " + message);
-    }
-  }
-
-  return { created, warnings };
-}
 function buildActionCompletionMessage(
   observation: ReturnType<typeof fallbackHumanObservation>,
   workingState: Awaited<ReturnType<typeof runAdaptiveWorkController>>["workingState"],
@@ -190,7 +126,7 @@ export async function POST(request: Request, context: RouteContext) {
       const storedClaims = normalizeUserClaims(storedObservation?.content?.result?.interpretation?.user_claims);
       const claimSync = storedObservation && storedClaims.length
         ? await syncObservedUserClaims({
-            supabase,
+            userSupabase: supabase,
             userId: user.id,
             pursuitId: id,
             observationId: storedObservation.id,
@@ -263,14 +199,14 @@ export async function POST(request: Request, context: RouteContext) {
     });
     if (completionError) {
       const message = completionError.message || "Unable to record Action result";
-      return errorResponse(message, /authentication|not found|only HUMAN|not in progress|invalid/i.test(message) ? 400 : 500);
+      return errorResponse(message, /authentication|not found|only HUMAN|not in progress|invalid|active lease/i.test(message) ? 400 : 500);
     }
 
     const completedObservationId = typeof completion?.observation?.id === "string" ? completion.observation.id : null;
     const interpretedUserClaims = normalizeUserClaims(observation.user_claims);
     const claimSync = completedObservationId && interpretedUserClaims.length
       ? await syncObservedUserClaims({
-          supabase,
+          userSupabase: supabase,
           userId: user.id,
           pursuitId: id,
           observationId: completedObservationId,

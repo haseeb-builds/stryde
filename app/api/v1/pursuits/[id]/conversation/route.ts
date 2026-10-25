@@ -10,7 +10,10 @@ import { compileForSituation } from "@/lib/context-compiler";
 import { recordSkillUsage } from "@/lib/skills";
 import { recordFunnelEvent } from "@/lib/instrumentation";
 import { getSupabaseServiceClient } from "@/lib/supabase/service";
-import { recordResourceUsage } from "@/lib/resource-control";
+import { reserveResources, recordResourceUsage, type ReservationGroup } from "@/lib/resource-control";
+import { executeWebResearch } from "@/lib/research-execution";
+import { checkAutoResearch, loadAutonomyPolicy } from "@/lib/autonomy-policy";
+import { executeResearchAndRoadmapOrchestration, detectDeterministicResearchRequirement, buildBlockedResearchTurn } from "@/lib/research-orchestration";
 
 export const runtime = "nodejs";
 // A full turn is TWO real model generations (the streamed ConversationTurn plus
@@ -122,11 +125,39 @@ export async function POST(request: Request, context: RouteContext) {
     if (situationResult.error || !situationResult.situation) {
       return errorResponse(situationResult.error ?? "Unable to assemble adaptive Situation", 500);
     }
+    let currentSituation = situationResult.situation;
+
+    // Research-first deterministic policy: check if user intent or situation
+    // deterministically requires external factual verification or roadmap audit.
+    // If so, execute research pass on trusted plane BEFORE generating/streaming
+    // the turn so no substantive recommendation is streamed prior to evidence.
+    const trustedPlane = getSupabaseServiceClient();
+
+    // Deterministic research policy: check if intent or situation requires external research.
+    const userPolicy = await loadAutonomyPolicy(supabase, user.id);
+
+    const orchestration = await executeResearchAndRoadmapOrchestration({
+      supabase,
+      trustedPlane,
+      ownerUserId: user.id,
+      pursuitId: id,
+      turnKey,
+      message,
+      pursuitTitle: pursuit.title,
+      currentSituation,
+      workingState: (session.working_state ?? null) as Parameters<typeof detectDeterministicResearchRequirement>[0]["workingState"],
+      userPolicy,
+      signal: request.signal,
+    });
+
+    let autonomousResearch = orchestration.autonomousResearch;
+    const researchBlocker = orchestration.researchBlocker;
+    currentSituation = orchestration.updatedSituation;
 
     // The Context Compiler turns the canonical Situation into a task-specific
     // packet for THIS turn. The model never sees the full situation replay;
     // the selection report is persisted so retrieval stays inspectable.
-    const compiled = compileForSituation(situationResult.situation, { userMessage: message });
+    const compiled = compileForSituation(currentSituation, { userMessage: message });
     // Skills that reached this turn's packet count as used: usage tracking is
     // how procedural memory proves it earns its retrieval slot.
     void recordSkillUsage(
@@ -158,7 +189,6 @@ export async function POST(request: Request, context: RouteContext) {
     // Plan metering (server-side, mandatory): a turn costs one model_turn.
     // Exhaustion is an honest 429 before any generation runs; the metering
     // plane itself being down refuses the turn rather than serving unmetered.
-    const trustedPlane = getSupabaseServiceClient();
     const { data: turnsAvailable, error: turnsError } = await trustedPlane
       .rpc("stryde_resource_available", { p_owner: user.id, p_resource: "model_turns" });
     if (turnsError) return errorResponse("Resource control is unavailable; turns are refused rather than unmetered", 503);
@@ -173,6 +203,68 @@ export async function POST(request: Request, context: RouteContext) {
         };
 
         try {
+          // R-4: If required research is blocked, do NOT invoke model generation or stream ungrounded advice.
+          // Stream the honest blocker notification directly and commit consistent state.
+          if (researchBlocker) {
+            const blocked = buildBlockedResearchTurn({
+              blocker: researchBlocker,
+              workingState: (session.working_state ?? null) as Parameters<typeof buildBlockedResearchTurn>[0]["workingState"],
+              pursuitTitle: pursuit.title,
+              autonomousResearch,
+            });
+
+            emit({ type: "message_delta", content: blocked.streamText });
+
+            const commit = createConversationCommitter({
+              commit: async (turn, committedWork) => {
+                const { error } = await supabase.rpc("stryde_commit_conversation_turn", {
+                  p_session_id: sessionId,
+                  p_turn_key: turnKey,
+                  p_content: turn.message,
+                  p_metadata: {
+                    question: turn.question,
+                    options: turn.options,
+                    ready_for_reasoning: turn.ready_for_reasoning,
+                    focus: turn.focus,
+                    input_class: turn.input_class,
+                    work: committedWork,
+                    memory_candidates: [],
+                    universal_input: universalInput,
+                    ...(autonomousResearch ? { autonomous_research: autonomousResearch } : {}),
+                    research_blocker: researchBlocker,
+                    context_selection: {
+                      used_chars: compiled.report.used_chars,
+                      budget_chars: compiled.report.budget_chars,
+                      included: compiled.report.included,
+                      dropped: compiled.report.dropped.slice(0, 50),
+                      truncated: compiled.report.truncated.slice(0, 50),
+                    },
+                  },
+                  p_working_state: committedWork,
+                });
+                if (error) throw new Error("Unable to save Stryde's response");
+              },
+            });
+
+            await commit(blocked.turn, blocked.work);
+
+            void recordResourceUsage(trustedPlane, {
+              ownerUserId: user.id,
+              pursuitId: id,
+              resource: "model_turns",
+              amount: 1,
+              capabilityKey: "conversation.turn",
+            }).catch(() => {});
+
+            controller.enqueue(encoder.encode(streamEvent({
+              type: "complete",
+              turn: blocked.turn,
+              model: null,
+            })));
+            controller.close();
+            return;
+          }
+
           const turnSignal = AbortSignal.any([request.signal, AbortSignal.timeout(TURN_DEADLINE_MS)]);
           const result = await streamConversationTurn({
             pursuitTitle: pursuit.title ?? "Untitled pursuit",
@@ -201,13 +293,125 @@ export async function POST(request: Request, context: RouteContext) {
                 contextPacket: adaptiveCompiled.packet,
                 conversation: conversationWithUser,
                 previousWorkingState: session.working_state as Parameters<typeof runAdaptiveWorkController>[0]["previousWorkingState"],
+                signal: turnSignal,
               });
               work = adaptive.workingState;
               workModel = { provider: adaptive.provider, model: adaptive.model };
             } catch {
-              // Preserve the last safe working state rather than failing the user's conversation
-              // because adaptive reassessment was temporarily unavailable.
-              work = session.working_state as Parameters<typeof runAdaptiveWorkController>[0]["previousWorkingState"] & {};
+              // Preserve the turn's validated working state (or previous working state)
+              // rather than failing the user's conversation because adaptive reassessment
+              // was temporarily unavailable.
+              work = result.turn.work ?? (session.working_state as Parameters<typeof runAdaptiveWorkController>[0]["previousWorkingState"] & {});
+            }
+          }
+
+          if (autonomousResearch && autonomousResearch.provider === "unavailable") {
+            work = {
+              ...work,
+              status: "STALLED",
+              understanding: "Stryde identified a research bottleneck but could not complete the research pass.",
+              bottleneck: "The external research capability was temporarily unavailable.",
+              next_move: {
+                ...(work.next_move ?? {
+                  action_name: null,
+                  confidence: 0.5,
+                  phase: "INVESTIGATION",
+                  risk_level: "LOW",
+                  success_metric: "Resolved research blocker",
+                }),
+                mode: "ASK_USER",
+                actor: "HUMAN",
+                worker_type: null,
+                title: "Choose whether to provide a source or continue later.",
+                why: "The needed research capability was unavailable.",
+                expected_change: "Provide evidence manually or retry when research is available.",
+                stryde_can_do: "Retry the research when the capability is available.",
+                user_needs_to_do: "Provide a source only if you already have one; otherwise you can return later.",
+                completion_condition: "The research question is resolved or intentionally deferred.",
+              },
+            };
+          } else if (
+            !autonomousResearch &&
+            work.next_move &&
+            work.next_move.mode === "RESEARCH_WEB" &&
+            work.next_move.actor === "STRYDE" &&
+            situationResult.situation?.capabilities.web_search
+          ) {
+            const { data: userPolicy } = await supabase
+              .from("user_autonomy_policy")
+              .select("allow_worker_delegation, allowed_worker_types, auto_execute_research")
+              .eq("owner_user_id", user.id)
+              .maybeSingle();
+
+            if (checkAutoResearch(userPolicy)) {
+              const researchTitle = work.next_move.title;
+              const priorMove = work.next_move;
+              const operationKey = `research:${turnKey}:post_turn`;
+              let reservation: ReservationGroup | null = null;
+              try {
+                reservation = await reserveResources(trustedPlane, {
+                  ownerUserId: user.id,
+                  pursuitId: id,
+                  operationKey,
+                  capabilityKey: "research.web",
+                  requests: [{ resource: "research_rounds", expected: 1 }],
+                  ttlSeconds: 900,
+                });
+
+                const execution = await executeWebResearch(
+                  supabase,
+                  user.id,
+                  id,
+                  researchTitle,
+                  trustedPlane,
+                  turnSignal,
+                );
+                autonomousResearch = execution;
+                await reservation.reconcile([{ resource: "research_rounds", expected: 1 }]);
+
+                const refreshedSituation = await assembleAdaptiveSituation(supabase, user.id, id);
+                if (!refreshedSituation.error && refreshedSituation.situation) {
+                  const refreshedCompiled = compileForSituation(refreshedSituation.situation, { userMessage: message });
+                  const reevaluated = await runAdaptiveWorkController({
+                    pursuitTitle: pursuit.title ?? "Untitled pursuit",
+                    contextPacket: refreshedCompiled.packet,
+                    conversation: conversationWithUser,
+                    previousWorkingState: work,
+                    signal: turnSignal,
+                  });
+                  work = reevaluated.workingState;
+                  workModel = { provider: reevaluated.provider, model: reevaluated.model };
+                }
+              } catch (error) {
+                if (reservation) {
+                  await reservation.release().catch(() => {});
+                }
+                autonomousResearch = {
+                  query: researchTitle,
+                  provider: "unavailable",
+                  results: [],
+                  retrieved_sources: [],
+                  observation_id: null,
+                };
+                work = {
+                  ...work,
+                  status: "STALLED",
+                  understanding: "Stryde identified a research bottleneck but could not complete the research pass.",
+                  bottleneck: error instanceof Error ? error.message : "Web research is temporarily unavailable.",
+                  next_move: {
+                    ...priorMove,
+                    mode: "ASK_USER",
+                    actor: "HUMAN",
+                    worker_type: null,
+                    title: "Choose whether to provide a source or continue later.",
+                    why: "The needed research capability was unavailable.",
+                    expected_change: "Provide evidence manually or retry when research is available.",
+                    stryde_can_do: "Retry the research when the capability is available.",
+                    user_needs_to_do: "Provide a source only if you already have one; otherwise you can return later.",
+                    completion_condition: "The research question is resolved or intentionally deferred.",
+                  },
+                };
+              }
             }
           }
 
@@ -284,6 +488,8 @@ export async function POST(request: Request, context: RouteContext) {
                   work: committedWork,
                   memory_candidates: result.turn.memory_candidates,
                   universal_input: universalInput,
+                  ...(autonomousResearch ? { autonomous_research: autonomousResearch } : {}),
+                  ...(researchBlocker ? { research_blocker: researchBlocker } : {}),
                   context_selection: {
                     used_chars: compiled.report.used_chars,
                     budget_chars: compiled.report.budget_chars,
@@ -312,7 +518,12 @@ export async function POST(request: Request, context: RouteContext) {
 
           controller.enqueue(encoder.encode(streamEvent({
             type: "complete",
-            turn: { ...result.turn, work },
+            turn: {
+              ...result.turn,
+              work,
+              ...(autonomousResearch ? { autonomous_research: autonomousResearch } : {}),
+              ...(researchBlocker ? { research_blocker: researchBlocker } : {}),
+            },
             model: workModel,
           })));
           controller.close();

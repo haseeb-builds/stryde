@@ -237,6 +237,7 @@ export async function GET(request: Request) {
       capabilitySyncErrors: catalog.errors,
       triggersEvaluated: triggers.evaluated,
       triggersFired: triggers.fired.length,
+      triggersEnqueued: triggers.fired.filter((f) => f.outcome === "JOB_ENQUEUED").length,
       notificationsDelivered: delivery.delivered,
       notificationsPending: delivery.pending,
     });

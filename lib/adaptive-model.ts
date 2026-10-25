@@ -2,11 +2,11 @@ import {
   ADAPTIVE_WORKING_STATE_SCHEMA,
   buildAdaptiveWorkControllerPrompt,
   validateAdaptiveWorkingState,
-} from "@/lib/adaptive-work-controller";
-import type { WorkingState } from "@/lib/work-controller";
-import { getModelRouter } from "@/lib/model-provider";
-import { WORKER_TYPES } from "@/lib/actor";
-import { modelOverrideForTask } from "@/lib/model-routing";
+} from "./adaptive-work-controller.ts";
+import type { WorkingState } from "./work-controller.ts";
+import { getModelRouter, ModelProviderError } from "./model-provider.ts";
+import { WORKER_TYPES } from "./actor.ts";
+import { modelOverrideForTask } from "./model-routing.ts";
 
 
 export const SOURCE_ADAPTATION_SCHEMA = {
@@ -57,6 +57,7 @@ export const SOURCE_ADAPTATION_SCHEMA = {
           prerequisites: { type: "array", maxItems: 8, items: { type: "string", minLength: 1, maxLength: 500 } },
           expected_change: { type: "string", minLength: 1, maxLength: 800 },
           actionability: { type: "string", enum: ["IMMEDIATE", "PREPARATORY", "REQUIRES_USER_CONTEXT", "NOT_ACTIONABLE_YET"] },
+          audit_status: { type: "string", enum: ["KEEP", "CHANGE", "REMOVE", "MISSING", "UNVERIFIED", "NEEDS_EXPERIMENT"] },
         },
       },
     },
@@ -126,6 +127,7 @@ export type SourceAdaptation = {
     prerequisites: string[];
     expected_change: string;
     actionability: "IMMEDIATE" | "PREPARATORY" | "REQUIRES_USER_CONTEXT" | "NOT_ACTIONABLE_YET";
+    audit_status?: "KEEP" | "CHANGE" | "REMOVE" | "MISSING" | "UNVERIFIED" | "NEEDS_EXPERIMENT";
   }>;
   assumptions: Array<{ statement: string; importance: "BLOCKING" | "MATERIAL" | "MINOR" }>;
   prerequisites: string[];
@@ -149,14 +151,15 @@ async function callStructuredModel(
   schema: object,
   prompt: string,
   maxOutputTokens: number,
+  signal?: AbortSignal,
 ): Promise<{ parsed: unknown; provider: string; model: string }> {
   // Route through the full provider chain (fallback + disabled-provider rules
   // live inside the model boundary), never a single configured leg.
-  const result = await getModelRouter().generateStructured({ schemaName: name, schema, prompt, maxOutputTokens, modelOverride: modelOverrideForTask(name, process.env) });
+  const result = await getModelRouter().generateStructured({ schemaName: name, schema, prompt, maxOutputTokens, signal, modelOverride: modelOverrideForTask(name, process.env) });
   return { parsed: result.parsed, provider: result.provider, model: result.model };
 }
 
-function assertSourceAdaptation(value: unknown): SourceAdaptation {
+export function assertSourceAdaptation(value: unknown): SourceAdaptation {
   if (typeof value !== "object" || value === null) throw new Error("Source adaptation must be an object");
   const candidate = value as Record<string, unknown>;
   const text = (input: unknown, field: string, max = 4000) => {
@@ -198,6 +201,9 @@ function assertSourceAdaptation(value: unknown): SourceAdaptation {
       prerequisites: list(row.prerequisites, `methods[${index}].prerequisites`, 8, 500),
       expected_change: text(row.expected_change, `methods[${index}].expected_change`, 800),
       actionability: parseEnum(row.actionability, ["IMMEDIATE","PREPARATORY","REQUIRES_USER_CONTEXT","NOT_ACTIONABLE_YET"] as const, `methods[${index}].actionability`),
+      ...(typeof row.audit_status === "string" && ["KEEP","CHANGE","REMOVE","MISSING","UNVERIFIED","NEEDS_EXPERIMENT"].includes(row.audit_status)
+        ? { audit_status: row.audit_status as "KEEP" | "CHANGE" | "REMOVE" | "MISSING" | "UNVERIFIED" | "NEEDS_EXPERIMENT" }
+        : {}),
     };
   });
 
@@ -272,6 +278,13 @@ export async function runSourceAdaptation(input: {
     "Do not invent outcomes, evidence, customers, revenue, timelines, credentials, or success rates.",
     "Compare the source to the supplied canonical situation. Identify fit, prerequisites, assumptions, gaps, and conflicts.",
     "Adapt the method to this situation rather than copying it blindly.",
+    "For each method step in an audited roadmap or source, assign an explicit audit_status:",
+    "  KEEP: step is verified, realistic, and necessary for the situation.",
+    "  CHANGE: step is flawed or misordered and requires modification.",
+    "  REMOVE: step is counterproductive, obsolete, or dangerous.",
+    "  MISSING: critical step that the source omitted and Stryde is adding.",
+    "  UNVERIFIED: step relies on unconfirmed claims or lacks empirical evidence.",
+    "  NEEDS_EXPERIMENT: step has high uncertainty and should be tested with a small experiment before large commitment.",
     "Goal candidates are proposals only; the user must explicitly adopt a goal before it becomes canonical.",
     "Every adaptation must remain traceable to source_id and content_sha256.",
     "Return JSON only matching the SourceAdaptation contract.",
@@ -298,6 +311,7 @@ export async function runAdaptiveWorkController(input: {
   contextPacket: unknown;
   conversation: Array<{ role: "user" | "stryde"; content: string }>;
   previousWorkingState: WorkingState | null;
+  signal?: AbortSignal;
 }): Promise<{ workingState: WorkingState; provider: string; model: string }> {
   const prompt = buildAdaptiveWorkControllerPrompt({
     pursuitTitle: input.pursuitTitle,
@@ -305,8 +319,20 @@ export async function runAdaptiveWorkController(input: {
     conversation: input.conversation,
     previousWorkingState: input.previousWorkingState,
   });
-  const result = await callStructuredModel("stryde_adaptive_work_controller", ADAPTIVE_WORKING_STATE_SCHEMA, prompt, 2_600);
-  const workingState = validateAdaptiveWorkingState(result.parsed);
+  let result: { parsed: unknown; provider: string; model: string } | null = null;
+  let workingState: WorkingState | null = null;
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      result = await callStructuredModel("stryde_adaptive_work_controller", ADAPTIVE_WORKING_STATE_SCHEMA, prompt, 2_600, input.signal);
+      workingState = validateAdaptiveWorkingState(result.parsed);
+      break;
+    } catch (error) {
+      lastError = error;
+      if (input.signal?.aborted || error instanceof ModelProviderError) throw error;
+    }
+  }
+  if (!result || !workingState) throw lastError instanceof Error ? lastError : new Error("Adaptive work controller failed");
   const rawWorkers: unknown =
     input.contextPacket && typeof input.contextPacket === "object" && "worker_capabilities" in input.contextPacket
       ? (input.contextPacket as { worker_capabilities?: unknown }).worker_capabilities
