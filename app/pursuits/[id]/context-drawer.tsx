@@ -69,13 +69,13 @@ export default function ContextDrawer(props: {
 
   if (!isOpen) return null;
 
-  const tabs: Array<{ id: ContextDrawerTab; label: string; icon: string }> = [
-    { id: "sources", label: "Sources & Research", icon: "📁" },
-    { id: "claims", label: "Evidence & Claims", icon: "⚖️" },
-    { id: "memory", label: "Memories", icon: "🧠" },
-    { id: "skills", label: "Saved Workflows", icon: "⚡" },
-    { id: "artifacts", label: "Deliverables", icon: "📄" },
-    { id: "autonomy", label: "Automation", icon: "⚙️" }
+  const tabs: Array<{ id: ContextDrawerTab; label: string }> = [
+    { id: "sources", label: "Sources & Files" },
+    { id: "claims", label: "Evidence & Claims" },
+    { id: "memory", label: "Memories" },
+    { id: "artifacts", label: "Deliverables" },
+    { id: "skills", label: "Saved Procedures" },
+    { id: "autonomy", label: "Permissions" }
   ];
 
   return (
@@ -83,26 +83,26 @@ export default function ContextDrawer(props: {
       role="dialog"
       aria-modal="true"
       aria-labelledby="context-drawer-title"
-      className="fixed inset-0 z-40 flex justify-end bg-black/40 backdrop-blur-xs"
+      className="fixed inset-0 z-50 flex justify-end bg-black/35 backdrop-blur-xs"
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
     >
       <div
         ref={drawerRef}
-        className="flex h-full w-full max-w-2xl flex-col border-l border-[var(--rule-strong)] bg-[var(--surface)] shadow-2xl"
+        className="flex h-full w-full max-w-2xl flex-col border-l border-[#E7E7E4] bg-[#F7F7F5] shadow-2xl"
       >
         {/* Drawer Header */}
-        <div className="flex items-center justify-between border-b border-[var(--rule)] px-4 py-3.5 sm:px-6">
+        <div className="flex items-center justify-between border-b border-[#E7E7E4] bg-[#FCFCFB] px-5 py-4 sm:px-6">
           <div>
             <h2
               id="context-drawer-title"
-              className="text-[15px] font-semibold tracking-tight text-[var(--ink)]"
+              className="text-base font-semibold tracking-tight text-[#111111]"
             >
-              Supporting Context &amp; Governance
+              Context, Sources &amp; Deliverables
             </h2>
-            <p className="mt-0.5 text-[12px] text-[var(--ink-secondary)]">
-              Inspect grounded sources, claims, memories, procedures, and autonomy policies.
+            <p className="mt-0.5 text-xs text-[#52525B]">
+              Inspect grounded sources, claims, memories, procedures, and permissions.
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -113,7 +113,7 @@ export default function ContextDrawer(props: {
                   onClose();
                   onOpenAddContext();
                 }}
-                className="rounded-[4px] border border-[var(--rule-strong)] bg-[var(--surface-subtle)] px-2.5 py-1 font-mono text-[11px] font-medium text-[var(--ink)] hover:bg-[#e4e7e2]"
+                className="rounded-full bg-[#111111] px-3.5 py-1.5 text-xs font-medium text-white hover:opacity-90 transition-opacity"
               >
                 + Add context
               </button>
@@ -121,43 +121,42 @@ export default function ContextDrawer(props: {
             <button
               type="button"
               onClick={onClose}
-              aria-label="Close context drawer"
-              className="rounded-[4px] p-1 font-mono text-[14px] text-[var(--ink-muted)] hover:bg-[var(--surface-subtle)] hover:text-[var(--ink)]"
+              aria-label="Close drawer"
+              className="rounded-full bg-[#F3F2EF] px-3 py-1.5 text-xs font-medium text-[#52525B] hover:text-[#111111] transition-colors"
             >
-              ✕
+              Close ✕
             </button>
           </div>
         </div>
 
-        {/* Horizontal Navigation Tabs */}
-        <div className="flex overflow-x-auto border-b border-[var(--rule)] bg-[var(--surface-subtle)] px-2 sm:px-4">
+        {/* Horizontal Navigation Pill Tabs */}
+        <div className="flex overflow-x-auto gap-1.5 border-b border-[#E7E7E4] bg-[#F3F2EF] px-4 py-2.5 sm:px-6">
           {tabs.map((tab) => (
             <button
               key={tab.id}
               type="button"
               onClick={() => setActiveTab(tab.id)}
-              className={`flex shrink-0 items-center gap-1.5 border-b-2 px-3 py-2.5 text-[12.5px] font-medium transition-colors ${
+              className={`shrink-0 rounded-full px-3.5 py-1.5 text-xs font-medium transition-colors ${
                 activeTab === tab.id
-                  ? "border-[var(--ink)] font-semibold text-[var(--ink)] bg-[var(--surface)]"
-                  : "border-transparent text-[var(--ink-secondary)] hover:text-[var(--ink)]"
+                  ? "bg-[#111111] text-white shadow-xs"
+                  : "bg-[#FCFCFB] border border-[#E7E7E4] text-[#52525B] hover:text-[#111111]"
               }`}
             >
-              <span className="text-[12px]">{tab.icon}</span>
-              <span>{tab.label}</span>
+              {tab.label}
             </button>
           ))}
         </div>
 
         {/* Drawer Tab Content */}
-        <div className="flex-1 overflow-y-auto p-4 sm:p-6">
+        <div className="flex-1 overflow-y-auto p-5 sm:p-6 space-y-4">
           {activeTab === "sources" && (
             <div className="space-y-4">
-              <div className="rounded-[4px] border border-[var(--rule)] bg-[var(--surface-subtle)] p-3.5">
-                <h3 className="font-mono text-[11px] font-semibold uppercase tracking-wider text-[var(--ink-secondary)]">
-                  Sources &amp; Method Adaptations
+              <div className="rounded-2xl border border-[#E7E7E4] bg-[#FCFCFB] p-4">
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-[#6B6B6B]">
+                  Sources &amp; Grounded Evidence
                 </h3>
-                <p className="mt-1 text-[12.5px] leading-relaxed text-[var(--ink-secondary)]">
-                  Source material ingested for this pursuit, with methods extracted and audited against your specific constraints.
+                <p className="mt-1 text-xs sm:text-sm text-[#52525B] leading-relaxed">
+                  Source material ingested for this pursuit. Stryde audits claims against your specific constraints.
                 </p>
               </div>
 
@@ -175,12 +174,12 @@ export default function ContextDrawer(props: {
 
           {activeTab === "claims" && (
             <div className="space-y-4">
-              <div className="rounded-[4px] border border-[var(--rule)] bg-[var(--surface-subtle)] p-3.5">
-                <h3 className="font-mono text-[11px] font-semibold uppercase tracking-wider text-[var(--ink-secondary)]">
+              <div className="rounded-2xl border border-[#E7E7E4] bg-[#FCFCFB] p-4">
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-[#6B6B6B]">
                   Evidence &amp; Claims Ledger
                 </h3>
-                <p className="mt-1 text-[12.5px] leading-relaxed text-[var(--ink-secondary)]">
-                  Track assertions and link empirical observations. Self-reported claims remain REPORTED until grounded in evidence.
+                <p className="mt-1 text-xs sm:text-sm text-[#52525B] leading-relaxed">
+                  Assertions and empirical observations. Self-reported claims remain Reported until grounded in evidence.
                 </p>
               </div>
 
@@ -193,12 +192,12 @@ export default function ContextDrawer(props: {
 
           {activeTab === "memory" && (
             <div className="space-y-4">
-              <div className="rounded-[4px] border border-[var(--rule)] bg-[var(--surface-subtle)] p-3.5">
-                <h3 className="font-mono text-[11px] font-semibold uppercase tracking-wider text-[var(--ink-secondary)]">
+              <div className="rounded-2xl border border-[#E7E7E4] bg-[#FCFCFB] p-4">
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-[#6B6B6B]">
                   Pursuit Memories
                 </h3>
-                <p className="mt-1 text-[12.5px] leading-relaxed text-[var(--ink-secondary)]">
-                  Durable knowledge carried across turns. Confirm tentative facts or forget unwanted observations.
+                <p className="mt-1 text-xs sm:text-sm text-[#52525B] leading-relaxed">
+                  Persistent facts, preferences, and verified conclusions remembered across conversation turns.
                 </p>
               </div>
 
@@ -209,32 +208,14 @@ export default function ContextDrawer(props: {
             </div>
           )}
 
-          {activeTab === "skills" && (
-            <div className="space-y-4">
-              <div className="rounded-[4px] border border-[var(--rule)] bg-[var(--surface-subtle)] p-3.5">
-                <h3 className="font-mono text-[11px] font-semibold uppercase tracking-wider text-[var(--ink-secondary)]">
-                  Saved Workflows &amp; Reusable Steps
-                </h3>
-                <p className="mt-1 text-[12.5px] leading-relaxed text-[var(--ink-secondary)]">
-                  Tested multi-step procedures synthesized when a repeatable problem is solved.
-                </p>
-              </div>
-
-              <PursuitSkillsPanel
-                pursuitId={pursuitId}
-                sessionActive={sessionActive}
-              />
-            </div>
-          )}
-
           {activeTab === "artifacts" && (
             <div className="space-y-4">
-              <div className="rounded-[4px] border border-[var(--rule)] bg-[var(--surface-subtle)] p-3.5">
-                <h3 className="font-mono text-[11px] font-semibold uppercase tracking-wider text-[var(--ink-secondary)]">
-                  Deliverables &amp; Output Artifacts
+              <div className="rounded-2xl border border-[#E7E7E4] bg-[#FCFCFB] p-4">
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-[#6B6B6B]">
+                  Deliverables &amp; Artifacts
                 </h3>
-                <p className="mt-1 text-[12.5px] leading-relaxed text-[var(--ink-secondary)]">
-                  Structured documents, code, research dossiers, and reports generated for this pursuit.
+                <p className="mt-1 text-xs sm:text-sm text-[#52525B] leading-relaxed">
+                  Generated documents, code, templates, and roadmaps with full revision history.
                 </p>
               </div>
 
@@ -245,14 +226,32 @@ export default function ContextDrawer(props: {
             </div>
           )}
 
+          {activeTab === "skills" && (
+            <div className="space-y-4">
+              <div className="rounded-2xl border border-[#E7E7E4] bg-[#FCFCFB] p-4">
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-[#6B6B6B]">
+                  Saved Procedures &amp; Reusable Steps
+                </h3>
+                <p className="mt-1 text-xs sm:text-sm text-[#52525B] leading-relaxed">
+                  Proven routines that Stryde can execute reliably for similar tasks.
+                </p>
+              </div>
+
+              <PursuitSkillsPanel
+                pursuitId={pursuitId}
+                sessionActive={sessionActive}
+              />
+            </div>
+          )}
+
           {activeTab === "autonomy" && (
             <div className="space-y-4">
-              <div className="rounded-[4px] border border-[var(--rule)] bg-[var(--surface-subtle)] p-3.5">
-                <h3 className="font-mono text-[11px] font-semibold uppercase tracking-wider text-[var(--ink-secondary)]">
-                  Autonomy &amp; Automation Permissions
+              <div className="rounded-2xl border border-[#E7E7E4] bg-[#FCFCFB] p-4">
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-[#6B6B6B]">
+                  Execution Permissions
                 </h3>
-                <p className="mt-1 text-[12.5px] leading-relaxed text-[var(--ink-secondary)]">
-                  Control what Stryde may prepare or execute autonomously. Consequential worker tasks always require your approval.
+                <p className="mt-1 text-xs sm:text-sm text-[#52525B] leading-relaxed">
+                  Define what Stryde may execute or research autonomously. Consequential actions always ask for authorization.
                 </p>
               </div>
 
@@ -262,6 +261,18 @@ export default function ContextDrawer(props: {
               />
             </div>
           )}
+        </div>
+
+        {/* Drawer Footer */}
+        <div className="border-t border-[#E7E7E4] bg-[#FCFCFB] p-4 px-6 text-xs text-[#52525B] flex items-center justify-between">
+          <span>Stryde verifies outcomes against reality before marking them done.</span>
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-xs font-semibold text-[#111111] hover:underline"
+          >
+            Done
+          </button>
         </div>
       </div>
     </div>

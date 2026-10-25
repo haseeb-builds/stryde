@@ -1,30 +1,31 @@
 @import "tailwindcss";
 
 :root {
-  --canvas: #f6f7f4;
-  --surface: #ffffff;
-  --surface-subtle: #eef0ec;
-  --surface-muted: #e5e8e3;
-  --ink: #161917;
-  --ink-secondary: #3f4742;
-  --ink-muted: #56605a;
-  --rule: #d5dad4;
-  --rule-strong: #9ea79f;
-  --signal: #c84326;
-  --signal-dark: #9e2f17;
-  --signal-soft: #fbeae5;
-  --signal-wash: #fbeae5;
-  --verified: #15603c;
-  --verified-soft: #e1f2e9;
-  --verified-wash: #e1f2e9;
-  --verified-Wash: #e1f2e9;
-  --waiting: #7c5100;
-  --waiting-soft: #f8eed1;
-  --waiting-wash: #f8eed1;
-  --blocked: #a12221;
-  --blocked-soft: #fbe5e4;
-  --blocked-wash: #fbe5e4;
-  --link: #1d46b8;
+  --canvas: #F7F7F5;
+  --surface: #FCFCFB;
+  --surface-pure: #FFFFFF;
+  --surface-subtle: #F3F2EF;
+  --surface-muted: #EBEAE6;
+  --ink: #111111;
+  --ink-secondary: #52525B;
+  --ink-muted: #6B6B6B;
+  --rule: #E7E7E4;
+  --rule-strong: #D4D4D0;
+  --signal: #111111;
+  --signal-dark: #000000;
+  --signal-soft: #F3F2EF;
+  --signal-wash: #F3F2EF;
+  --verified: #059669;
+  --verified-soft: #ECFDF5;
+  --verified-wash: #ECFDF5;
+  --verified-Wash: #ECFDF5;
+  --waiting: #B45309;
+  --waiting-soft: #FFFBEB;
+  --waiting-wash: #FFFBEB;
+  --blocked: #DC2626;
+  --blocked-soft: #FEF2F2;
+  --blocked-wash: #FEF2F2;
+  --link: #111111;
   --background: var(--canvas);
   --foreground: var(--ink);
 }
@@ -44,18 +45,20 @@
   html,
   body {
     min-height: 100%;
-    background: var(--canvas);
-    color: var(--ink);
+    background-color: #F7F7F5;
+    color: #111111;
   }
 
   body {
     margin: 0;
-    background: var(--canvas);
-    color: var(--ink);
+    background-color: #F7F7F5;
+    color: #111111;
     font-family: var(--font-geist-sans), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     font-size: 15px;
     line-height: 1.6;
     text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
 
   button {
@@ -67,13 +70,13 @@
   }
 
   :focus-visible {
-    outline: 2px solid var(--ink);
+    outline: 2px solid #111111;
     outline-offset: 2px;
   }
 
   ::selection {
-    background: var(--ink);
-    color: #ffffff;
+    background-color: #111111;
+    color: #FFFFFF;
   }
 
   details > summary {

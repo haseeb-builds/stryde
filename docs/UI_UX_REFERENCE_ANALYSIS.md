@@ -1,97 +1,67 @@
-# UI/UX Reference Analysis — Instagram: @shai.hq “5 free tools, zero slop”
+# UI/UX Reference Analysis — Founder-Supplied Google Stitch Exports (`Auralis` Light-Mode System)
 
-**Analysis date:** 2026-10-23  
-**Original post:** https://www.instagram.com/p/DdMCJyagZgR/  
-**Creator:** @shai.hq  
-**Original post date:** September 12, 2026 (from indexed page metadata)  
-**Access status:** Partial direct visual inspection; complete tool list cross-checked against a matching public repost. Do not describe this as a direct visual review of all seven original slides.
+**Analysis date:** 2026-10-25  
+**Primary supplied references:** Two Google Stitch export archives uploaded directly by the founder from Stitch project `9193811334822991419`:
+1. **Stitch Export 1 (`zip1`):** `code.html` (378 lines) + `screen.png` — *"Auralis - AI Voice Infrastructure"* (Centered editorial hero + framed stage + 3-column 24px card grid).
+2. **Stitch Export 2 (`zip2` — Selected Primary Foundation):** `code.html` (493 lines) + `screen.png` — *"Auralis - Bringing technology to life"* (ElevenLabs-inspired warm-stone editorial light mode, asymmetric 12-column hero, `rounded-3xl` `#F3F2EF` interactive stage, pill-tagged horizontal section dividers, and `#FCFCFB` bento cards).
 
-## 1. Evidence and access boundaries
+---
 
-**Directly observed in a browser**
-- The original Instagram URL opens a seven-slide carousel page with a logged-out registration overlay. In-page navigation to every slide is blocked by that overlay.
-- A direct media asset linked from the original post's page metadata was opened in a separate browser session. It visibly presents the SmoothUI resource with the labels “01 / COMPONENTS,” “SmoothUI,” the description “130 animated components that drop straight into shadcn. One command each,” a small screenshot of a component explorer, the URL smoothui.dev and a “01 / 05” tool index.
-- Screenshot: `.design-lab/reference-original-carousel-image-2.png`.
+## 1. Evidence and Access Boundaries
 
-**Corroborating public repost**
-- Matching five-tool caption found at https://www.instagram.com/p/Ddp-1aPDn4B/ (account @just.build.apps, published September 23, 2026).
-- Its caption lists the five resource names below in order. This is evidence of the intended list, but the repost is not the original author and its caption alone does not prove the full visual content of slides 3–7 in the original.
-- Repost cover opened and viewed directly. Screenshot: `.design-lab/reference-repost-slide-image-1.png`.
-- Repost tool 1 slide opened and viewed directly. Screenshot: `.design-lab/reference-repost-slide-2.png`.
+**Directly observed and extracted**
+- Both `.zip` archives (`media_1792870948389_03f67568.zip` and `media_1792870948390_f34f4f85.zip`) were extracted and inspected in full (`code.html` source DOM, Tailwind token config, typography scale, CSS rules, and rendered `screen.png` captures).
+- Earlier in the session, direct headless navigation to `https://stitch.withgoogle.com/projects/9193811334822991419` hit a Google authentication gate; the founder then exported and uploaded the exact screen bundles directly, resolving the reference gate with 100% source fidelity.
 
-**Caption from the original page metadata**
-> If you're vibecoding apps using Claude code then these are gold mine of inspiration and libraries. Bookmark these before they disappear. It's time that you stop building AI slops! Also comment “UI” and I'll DM you all the resources.
+---
 
-**Five resources corroborated by the matching repost caption**
-1. SmoothUI — “animated components” — https://smoothui.dev/
-2. shadcn MCP — “the registry, inside your agent” — https://ui.shadcn.com/docs/mcp
-3. DesignMD Directory — “taste for your agent” — https://designmd.directory/
-4. Ora — “is your site agent-ready?” — https://ora.ai/
-5. Bencho — “live UI blocks, weekly” — https://bencho.dev/
+## 2. Observable Visual & Structural System (`zip2/code.html` & `zip1/code.html`)
 
-## 2. Observable visual direction
+### A. Surface & Color Architecture (Warm Stone Light Mode)
+Unlike generic dark-mode "AI terminal" templates or the rejected muted-sage `.design-lab` explorations, the supplied Stitch exports establish a calm, high-contrast **Warm Stone & Pure Ink** light-mode hierarchy:
+- **Canvas Background (`bg-background`):** `#F7F7F5` (Export 2) / `#F9F9F9` (Export 1) — a warm alabaster/stone neutral that avoids clinical blue-white glare while keeping text contrast crisp.
+- **Interactive Stage / Container Surface (`bg-panel`):** `#F3F2EF` — a soft warm-stone container surface used for the centerpiece interactive stage and secondary grouping blocks.
+- **Elevated Card Surface (`bg-card`):** `#FCFCFB` / `#FFFFFF` — crisp off-white cards that sit cleanly on top of `#F7F7F5` or `#F3F2EF`.
+- **Border Hairlines (`border-border`):** `#E7E7E4` — 1px solid stone hairlines (`border-[#E7E7E4]`), paired with subtle hover darkening (`hover:border-zinc-300`).
+- **Primary Ink & Actions (`primary`):** `#111111` / `#000000` with `#FFFFFF` text for primary pill buttons (`rounded-full px-6 py-3.5 text-sm font-medium bg-[#111111] text-white hover:opacity-90`).
+- **Secondary Text (`muted`):** `#6B6B6B` / `#444748` — balanced warm charcoal for body copy and supporting descriptions.
+- **Semantic Status Cues:** Restrained status dots (`w-2 h-2 rounded-full bg-emerald-500`) inside white pill badges (`bg-white border border-[#E7E7E4] px-3 py-1.5 rounded-full text-xs font-medium`) rather than loud multi-colored banners.
 
-### Directly visible in the original SmoothUI slide
-- Near-black field, with no decorative gradient or glow being used as the main composition.
-- Small, dim section index at the top (“01 / COMPONENTS”).
-- A clear, simple white heading and short grey supporting description.
-- A real product/component-browser screenshot is the main visual evidence; it is not a fictional floating dashboard.
-- The source URL and sequence number sit at the bottom of the page, peripheral to the content rather than competing with it.
-- The hierarchy is one topic → what it does → its actual interface → where to find it.
-- The presentation is intentionally spare, but the screenshot supplies product specificity.
+### B. Typography & Scale Hierarchy
+- **Font Family:** `Geist` (`'Geist', -apple-system, BlinkMacSystemFont, sans-serif`) and `Inter` with `font-feature-settings: "cv02", "cv03", "cv04", "cv11"`.
+- **Display Hero Headline (`h1`):** `text-5xl md:text-7xl lg:text-[84px] font-semibold tracking-[-0.04em] leading-[0.95]` — monumental, tightly tracked editorial display type in pure ink (`#111111`), without gradient text or italic serif gimmicks.
+- **Section Headings (`h2`):** `text-4xl md:text-5xl font-semibold tracking-[-0.03em] leading-[1.08]`.
+- **Card Titles (`h3`):** `text-xl` to `text-2xl font-semibold tracking-tight`.
+- **Section Pill Tags:** `text-xs font-semibold uppercase tracking-wider px-3 py-1 rounded-full bg-[#EBEAE6] text-[#111111]`.
 
-### Directly visible in the matching repost cover and first tool slide
-- Portrait 4:5 composition.
-- Cover: warm ivory field; tracked small turquoise eyebrow; very large heavy black headline; contrasting turquoise italic phrase; compact explanatory sentence; one large, illustrative pixel-art robot/rocket panel.
-- Tool slide: the same family retains a light cream field, black heavyweight heading, grey explanation, direct blue underlined source URL, and a large pixel-art visual of a robot assembling components.
-- These visuals are an authored campaign identity. They are not a neutral interface design system for Stryde.
+### C. Layout & Rhythm (`zip2/code.html` — Founder-Selected Foundation)
+1. **Fixed Translucent Navbar (`h-[72px]`):**
+   - `fixed top-0 left-0 right-0 z-50 bg-[#F7F7F5]/80 backdrop-blur-md border-b border-zinc-200/60`.
+   - Left: Brand wordmark + clean navigation links (`text-sm font-medium text-zinc-600 hover:text-black`).
+   - Right: Quiet `Sign in` link + primary black pill button (`rounded-full bg-[#111111] text-white px-4 py-2 text-sm font-medium`).
+2. **Asymmetric 12-Column Hero Header:**
+   - Left 7 columns (`lg:col-span-7`): Massive `84px` headline + two pill CTAs (`bg-[#111111] text-white rounded-full` primary + `bg-white border border-[#E7E7E4] rounded-full` secondary).
+   - Right 4 columns (`lg:col-span-4 lg:col-start-9`): Concise, grounded paragraph explaining the product without buzzword fluff.
+3. **Centerpiece Interactive Product Stage (`rounded-3xl bg-[#F3F2EF] border border-[#E7E7E4] p-6 md:p-8`):**
+   - Immediately below the asymmetric hero text sits a full-width tactile stage (`max-w-[1280px]`).
+   - Top bar of stage: Scenario switcher pills on the left (`bg-[#111111] text-white rounded-full` active, `bg-white border border-[#E7E7E4] text-zinc-600 rounded-full` inactive) and a live status indicator pill on the right (`w-2 h-2 rounded-full bg-emerald-500`).
+   - Center of stage: Interactive product experience (in `Auralis`, an interactive voice canvas; in **Stryde**, our live **"Try-Before-Sign-Up" Pursuit Stage**).
+   - Bottom bar of stage: Quick prompt/capability pills on the left + primary action pill on the right.
+4. **Pill-Tagged Modular Sections:**
+   - Each major section begins with a horizontal rule + pill tag (`<span class="px-3 py-1 rounded-full bg-[#EBEAE6] text-xs font-semibold uppercase tracking-wider">...</span><div class="h-px bg-[#E7E7E4] flex-grow"></div>`).
+   - Followed by a 12-column split header (`lg:col-span-5` H2 on left, `lg:col-span-6 lg:col-start-7` explanation on right) and clean `rounded-2xl` / `rounded-3xl` `#FCFCFB` bento cards.
 
-## 3. What the reference is trying to achieve
+---
 
-**DERIVED, high confidence:** Replace improvised, generic generated interfaces with a repeatable craft process: browse a curated component source, let coding agents discover components, create a design-system file, inspect the finished site’s agent accessibility, and use real interactive blocks where they help.
+## 3. What Transfers to Stryde vs. What Must Be Adapted
 
-The practical lesson is not “use turquoise and pixel-art robots,” nor “install five tools and the design will become distinctive.” It is **give the builder source material and criteria, choose components intentionally, and show real working output instead of dressing up an empty template**.
+### Transfers Directly (Approved by Founder)
+- **Exact Warm-Stone Palette & Surface Tokens:** `#F7F7F5` canvas, `#F3F2EF` interactive stage/containers, `#FCFCFB` elevated cards, `#E7E7E4` borders, `#111111` ink primary & pill buttons.
+- **Exact Typography & Scale:** `Geist` / `Inter` display scale (`84px` `-0.04em` hero H1, `48px` `-0.03em` section H2, crisp body hierarchy) with minimal monospace use (reserved only for real IDs/timestamps, never as the default label font everywhere).
+- **Exact Asymmetric 12-Column Hero + Interactive Stage Composition:** Headlines and actions above, live interactive product stage immediately below.
+- **Pill-Tagged Section Dividers & Clean Card Radii:** `rounded-3xl` (`24px`) for primary stages/briefs, `rounded-2xl` (`16px`) for cards, `rounded-full` for primary buttons and switcher pills.
 
-## 4. What transfers to Stryde
-
-1. **Show the real product object.** In the relevant Stryde screen, use the actual pursuit state, a truthful next-move/action state, actual conversation content, a source excerpt, an artifact revision, or an outcome report. Never invent a screenshot or fabricate a verified outcome.
-2. **One hierarchy per screen.** Let the user understand the goal, the current state and the next meaningful move without making every system subsystem equally prominent.
-3. **Keep utilities peripheral.** Source links, sequence numbers, deeper metadata and secondary controls should be easy to find, but should not become the primary story of the screen.
-4. **Use discovery tools before writing from scratch.** Search actual component source, inspect its props/dependencies/behavior/license and adapt only the useful part.
-5. **Write an explicit visual contract.** DesignMD/Antigravity rules can preserve a Stryde-specific system across sessions; the contract must be built from Stryde's behavior and approved art direction rather than copied from another brand.
-6. **Test the user's actual pathway.** Ora can flag machine-discovery issues on a public site; actual desktop/mobile browser checks and Stryde action-state tests remain necessary for UI/UX quality.
-
-## 5. What should not transfer
-
-- Do not copy the cream/turquoise/pixel-art rocket campaign cover into Stryde's app.
-- Do not copy SmoothUI's dark component-browsing page wholesale as Stryde's workspace.
-- Do not adopt a popular DESIGN.md (Vercel, Linear, shadcn, etc.) as Stryde's full visual system. Use the directory to inspect examples, not to outsource product identity.
-- Do not add motion, cursors, or animations solely because a component library provides them.
-- Do not present an agent-readiness score as a visual quality score.
-- Do not add unauthenticated public API/MCP endpoints merely to raise Ora's score. Stryde currently handles private, user-owned pursuit data; authority and multi-tenancy are stronger product requirements than an arbitrary score.
-
-## 6. Stryde-specific direction to evaluate next
-
-These are hypotheses to test in a new design contract, not an already-approved final visual style:
-
-- Use an **evidence-first pursuit record** as the product-specific concept: a visible history of meaningful changes in reality—user intent, what is known, the selected move, the result reported/observed, and whether the outcome is verified.
-- Let the current move grow out of that real state rather than using an ornamental “hero card” on every turn.
-- Treat the conversation as the way the user and Stryde reason together, not as the entire product. The persistence and evidence of completed moves are what should distinguish Stryde from ordinary chat.
-- Reveal supporting context at the point it materially helps, and give substantial artifacts a dedicated viewing space.
-- Use typography, structural rules, precise alignment and authentic content first. Select palette, typeface and surface materials only after comparing at least two materially different art directions; color alone cannot make the system distinctive.
-- Preserve state semantics: proposed, started, queued/waiting, blocked, failed, user-reported, observed and verified are not interchangeable.
-
-## 7. Source/tool references
-
-- Original post: https://www.instagram.com/p/DdMCJyagZgR/
-- Matching repost containing the five-name caption: https://www.instagram.com/p/Ddp-1aPDn4B/
-- SmoothUI AI integration/MCP reference: https://smoothui.dev/docs/guides/ai-integration
-- SmoothUI installation reference: https://smoothui.dev/docs/guides/installation
-- shadcn MCP reference: https://ui.shadcn.com/docs/mcp
-- DesignMD directory: https://designmd.directory/
-- Ora: https://ora.ai/
-- Bencho: https://bencho.dev/
-
-## 8. Open evidence limits
-
-The logged-out Instagram overlay blocked navigation through all seven original slides. The original SmoothUI slide was independently opened from its post-linked media asset; the cover and tool 1 slide were viewed from the matching repost. Resource names 1–5 are corroborated by the repost's caption. Slides 3–7 from the original were not independently viewed in-page. Do not invent descriptions of their unseen artwork.
+### Adapted Specifically for Stryde's Domain
+- **No Audio Waveforms / Voice Orbs / Fake Telemetry:** `Auralis` is an AI voice platform, so its stage features an audio orb, play button, and voice persona cards (`Adam`, `Dorothy`). Stryde is a **persistent pursuit and execution system**. We replace the audio player with Stryde's **Live "Try-Before-Sign-Up" Pursuit Stage**, where a visitor selects a scenario pill or types their own goal and watches Stryde structure their **Current Situation**, **Active Bottleneck**, and **Single Next Move** in real time.
+- **No Fabricated Enterprise Logos (`Linear`, `Vercel`, `Raycast`, `Loom`, `Scale`) or Fake Metrics (`99.99%`, `<40ms`):** In compliance with `docs/AI_WEBSITE_DESIGN_ANTI_PATTERNS.md` (E4, E5, E6), we omit unverified third-party logos and latency claims, replacing them with real Stryde product capabilities and truthful state semantics (`Proposed`, `In Progress`, `Queued`, `Reported`, `Verified`).
+- **Workspace Continuity:** The exact same Warm-Stone aesthetic (`#F7F7F5` canvas, `#FCFCFB` cards, `#111111` black pill buttons, `rounded-2xl`/`rounded-3xl` geometry) carries directly into the authenticated Pursuits Home (`/`) and Pursuit Workspace (`/pursuits/[id]`), eliminating the jarring visual disconnect between landing page and app.
