@@ -74,7 +74,12 @@ export async function POST(request: Request, context: RouteContext) {
     if (!report) return errorResponse("report is required; tell Stryde what happened", 400);
 
     const terminalStatus = body.terminal_status as "COMPLETED" | "FAILED" | "CANCELLED";
-    const turnKey = typeof body.turn_key === "string" && body.turn_key.trim() ? body.turn_key.trim() : crypto.randomUUID();
+    const idempotencyHeader = request.headers.get("idempotency-key") || request.headers.get("x-idempotency-key");
+    const turnKey = typeof body.turn_key === "string" && body.turn_key.trim()
+      ? body.turn_key.trim()
+      : idempotencyHeader?.trim()
+        ? idempotencyHeader.trim()
+        : crypto.randomUUID();
     const sessionId = body.session_id.trim();
     const { data: pursuit, error: pursuitError } = await supabase
       .from("pursuit")
