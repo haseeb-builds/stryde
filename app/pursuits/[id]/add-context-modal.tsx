@@ -1,4 +1,5 @@
 "use client";
+import { sanitizeUrl } from "../../../lib/sanitization";
 
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
@@ -566,7 +567,7 @@ export default function AddContextModal(props: {
                           <div className="flex items-start justify-between gap-3">
                             <div className="min-w-0 flex-1">
                               <a
-                                href={result.url}
+                                href={sanitizeUrl(result.url)}
                                 target="_blank"
                                 rel="noreferrer"
                                 className="text-[13px] font-semibold text-[var(--ink)] hover:underline"

@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import { sanitizeUrl, stripRawHtml } from "../../../lib/sanitization";
 
 function renderInline(text: string): React.ReactNode[] {
   const nodes: React.ReactNode[] = [];
@@ -28,10 +29,7 @@ function renderInline(text: string): React.ReactNode[] {
       const splitIdx = token.indexOf("](");
       const label = token.slice(1, splitIdx);
       const href = token.slice(splitIdx + 2, -1);
-      const safeHref =
-        href.startsWith("http://") || href.startsWith("https://") || href.startsWith("/")
-          ? href
-          : "#";
+      const safeHref = sanitizeUrl(href);
       nodes.push(
         <a
           key={`inline-${key++}`}
@@ -77,7 +75,8 @@ export function MarkdownContent({
 }) {
   if (!content) return null;
 
-  const lines = content.replace(/\r\n/g, "\n").split("\n");
+  const sanitizedContent = stripRawHtml(content);
+  const lines = sanitizedContent.replace(/\r\n/g, "\n").split("\n");
   const blocks: React.ReactNode[] = [];
   let i = 0;
   let blockKey = 0;

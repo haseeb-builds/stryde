@@ -1,4 +1,5 @@
 "use client";
+import { sanitizeUrl } from "../../../lib/sanitization";
 
 import { useCallback, useEffect, useState } from "react";
 import type { WorkingState } from "@/lib/work-controller";
@@ -733,7 +734,7 @@ export default function PursuitWorkPanels(props: {
                   className="p-3 text-[12.5px]"
                 >
                   <a
-                    href={result.url}
+                    href={sanitizeUrl(result.url)}
                     target="_blank"
                     rel="noreferrer"
                     className="font-semibold text-[var(--ink)] underline decoration-[var(--rule-strong)] underline-offset-2 hover:text-[var(--signal)]"
