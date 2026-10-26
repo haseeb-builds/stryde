@@ -265,7 +265,7 @@ export async function POST(request: Request, context: RouteContext) {
             return;
           }
 
-          const turnSignal = AbortSignal.any([request.signal, AbortSignal.timeout(TURN_DEADLINE_MS)]);
+          const turnSignal = AbortSignal.any([streamAbortController.signal, AbortSignal.timeout(TURN_DEADLINE_MS)]);
           const result = await streamConversationTurn({
             pursuitTitle: pursuit.title ?? "Untitled pursuit",
             contextPacket: compiled.packet,
@@ -528,7 +528,7 @@ export async function POST(request: Request, context: RouteContext) {
           })));
           controller.close();
         } catch (error) {
-          if (!request.signal.aborted) {
+          if (!streamAbortController.signal.aborted) {
             const raw = error instanceof Error ? error.message : "Conversation failed";
             const message = raw === "Aborted"
               ? "This turn exceeded its time budget before the model finished. Your message is saved — send it again to retry."
