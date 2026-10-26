@@ -58,10 +58,10 @@ test("createModelProvider propagates abort signal and aborts upstream fetch", as
 });
 
 test("createModelProvider enforces explicit max_tokens on upstream request body", async () => {
-  let capturedBody: any = null;
+  const holder = { body: null as { max_tokens?: number } | null };
 
   const mockFetch = async (_url: string | URL | Request, init?: RequestInit) => {
-    capturedBody = JSON.parse(init?.body as string);
+    holder.body = JSON.parse(init?.body as string) as { max_tokens?: number };
     return new Response(
       JSON.stringify({
         choices: [{ message: { content: JSON.stringify({ result: "ok" }) } }],
@@ -87,6 +87,6 @@ test("createModelProvider enforces explicit max_tokens on upstream request body"
     maxOutputTokens: 1234,
   });
 
-  assert.ok(capturedBody !== null);
-  assert.equal(capturedBody.max_tokens, 1234, "max_tokens in request body must match maxOutputTokens");
+  assert.ok(holder.body !== null);
+  assert.equal(holder.body?.max_tokens, 1234, "max_tokens in request body must match maxOutputTokens");
 });

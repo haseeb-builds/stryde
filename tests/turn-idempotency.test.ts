@@ -36,7 +36,7 @@ test("duplicate turn submission with same idempotency key returns existing compl
   let modelCallCount = 0;
 
   // Simulated RPC handler representing stryde_record_conversation_user_input
-  const mockRecordUserInputRpc = async (sessionId: string, turnKey: string, content: string) => {
+  const mockRecordUserInputRpc = async (_sessionId: string, turnKey: string, content: string) => {
     rpcCallCount++;
     if (turnKey === "cached-turn-key") {
       return {
@@ -50,7 +50,7 @@ test("duplicate turn submission with same idempotency key returns existing compl
       };
     }
     return {
-      data: { assistant: null },
+      data: { assistant: null, receivedContent: content },
       error: null,
     };
   };
@@ -85,4 +85,5 @@ test("duplicate turn submission with same idempotency key returns existing compl
   assert.equal(res2.message, "Previously generated response for turn");
   // Model call count must NOT increment
   assert.equal(modelCallCount, 1, "Model call must not re-execute on idempotent duplicate");
+  assert.equal(rpcCallCount, 2, "Both calls query the idempotency record");
 });

@@ -195,8 +195,20 @@ export async function POST(request: Request, context: RouteContext) {
     if (turnsError) return errorResponse("Resource control is unavailable; turns are refused rather than unmetered", 503);
     if (turnsAvailable === 0) return errorResponse("Daily plan limit reached for model turns. Your plan resets tomorrow.", 429);
 
+    const streamAbortController = new AbortController();
+    if (request.signal.aborted) {
+      streamAbortController.abort(request.signal.reason);
+    } else {
+      request.signal.addEventListener("abort", () => {
+        streamAbortController.abort(request.signal.reason);
+      });
+    }
+
     const encoder = new TextEncoder();
     const readable = new ReadableStream<Uint8Array>({
+      cancel(reason) {
+        streamAbortController.abort(reason);
+      },
       async start(controller) {
         const emit = (event: ConversationStreamEvent) => {
           if (event.type === "complete") return;
