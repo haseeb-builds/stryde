@@ -443,3 +443,55 @@ export function normalizePaddleSubscriptionEvent(
   }
   return normalizePaddleBillingEvent(event, pricePlanMap);
 }
+
+/**
+ * Cancels an active Paddle Billing v2 subscription.
+ */
+export async function cancelPaddleSubscription(
+  subscriptionRef: string,
+  options?: {
+    effectiveFrom?: "immediately" | "next_billing_period";
+    env?: PaddleEnvSource;
+    fetchImpl?: typeof fetch;
+  }
+): Promise<{ success: boolean; status?: string; error?: string }> {
+  const env = options?.env;
+  if (!isPaddleConfigured(env)) {
+    return { success: false, error: "Paddle is not configured" };
+  }
+  const config = getPaddleConfig(env);
+  const fetchImpl = options?.fetchImpl ?? fetch;
+
+  try {
+    const response = await fetchImpl(
+      `${config.baseUrl}/subscriptions/${encodeURIComponent(subscriptionRef)}/cancel`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${config.apiKey}`,
+        },
+        body: JSON.stringify({
+          effective_from: options?.effectiveFrom ?? "immediately",
+        }),
+        cache: "no-store",
+      }
+    );
+
+    if (!response.ok) {
+      const errText = await response.text();
+      return {
+        success: false,
+        error: `Paddle cancellation returned HTTP ${response.status}: ${errText}`,
+      };
+    }
+
+    const body = (await response.json()) as { data?: { status?: string } };
+    return { success: true, status: body.data?.status ?? "canceled" };
+  } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : "Network error contacting Paddle",
+    };
+  }
+}

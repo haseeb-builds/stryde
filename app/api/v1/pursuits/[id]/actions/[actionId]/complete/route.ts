@@ -6,6 +6,7 @@ import { compileForSituation } from "@/lib/context-compiler";
 import { requireAuthenticatedSupabase } from "@/lib/supabase/server";
 import { recordMemory } from "@/lib/memory";
 import { normalizeUserClaims, syncObservedUserClaims } from "@/lib/action-completion";
+import { resolveTurnKey, validateTurnPayloadMatch } from "@/lib/idempotency";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -74,7 +75,8 @@ export async function POST(request: Request, context: RouteContext) {
     if (!report) return errorResponse("report is required; tell Stryde what happened", 400);
 
     const terminalStatus = body.terminal_status as "COMPLETED" | "FAILED" | "CANCELLED";
-    const turnKey = typeof body.turn_key === "string" && body.turn_key.trim() ? body.turn_key.trim() : crypto.randomUUID();
+    const resolvedTurn = resolveTurnKey(body.turn_key, request.headers);
+    const turnKey = resolvedTurn ? resolvedTurn.uuidKey : crypto.randomUUID();
     const sessionId = body.session_id.trim();
     const { data: pursuit, error: pursuitError } = await supabase
       .from("pursuit")
@@ -111,6 +113,10 @@ export async function POST(request: Request, context: RouteContext) {
       p_content: report,
     });
     if (recordError) return errorResponse("Unable to save your Action report", 500);
+    const existingUser = recorded?.user as { content?: string } | null;
+    if (existingUser?.content && !validateTurnPayloadMatch(existingUser.content, report)) {
+      return errorResponse("Idempotency key was already used with a different report payload", 409);
+    }
     const existingAssistant = recorded?.assistant as { content?: string; metadata?: Record<string, unknown> } | null;
     if (existingAssistant?.content) {
       const { data: storedObservations } = await supabase

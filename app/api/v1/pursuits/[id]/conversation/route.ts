@@ -14,6 +14,7 @@ import { reserveResources, recordResourceUsage, type ReservationGroup } from "@/
 import { executeWebResearch } from "@/lib/research-execution";
 import { checkAutoResearch, loadAutonomyPolicy } from "@/lib/autonomy-policy";
 import { executeResearchAndRoadmapOrchestration, detectDeterministicResearchRequirement, buildBlockedResearchTurn } from "@/lib/research-orchestration";
+import { resolveTurnKey, validateTurnPayloadMatch } from "@/lib/idempotency";
 
 export const runtime = "nodejs";
 // A full turn is TWO real model generations (the streamed ConversationTurn plus
@@ -52,11 +53,12 @@ export async function POST(request: Request, context: RouteContext) {
     const body = (await request.json()) as RequestBody;
     if (typeof body.message !== "string" || !body.message.trim()) return errorResponse("message must be a non-empty string", 400);
     if (typeof body.session_id !== "string" || !body.session_id.trim()) return errorResponse("session_id must be provided", 400);
-    if (typeof body.turn_key !== "string" || !body.turn_key.trim()) return errorResponse("turn_key must be provided", 400);
+    const resolvedTurn = resolveTurnKey(body.turn_key, request.headers);
+    if (!resolvedTurn) return errorResponse("turn_key or Idempotency-Key header must be provided", 400);
 
     const message = body.message.trim().slice(0, 8000);
     const sessionId = body.session_id;
-    const turnKey = body.turn_key;
+    const turnKey = resolvedTurn.uuidKey;
 
     const { data: pursuit, error: pursuitError } = await supabase
       .from("pursuit")
@@ -93,6 +95,10 @@ export async function POST(request: Request, context: RouteContext) {
       p_content: message,
     });
     if (recordError) return errorResponse("Unable to save your message", 500);
+    const existingUser = recorded?.user as { content?: string } | null;
+    if (existingUser?.content && !validateTurnPayloadMatch(existingUser.content, message)) {
+      return errorResponse("Idempotency key was already used with a different message payload", 409);
+    }
     const existingAssistant = recorded?.assistant as { content?: string; metadata?: Record<string, unknown> } | null;
     if (existingAssistant?.content) {
       const metadata = existingAssistant.metadata ?? {};
@@ -194,8 +200,20 @@ export async function POST(request: Request, context: RouteContext) {
     if (turnsError) return errorResponse("Resource control is unavailable; turns are refused rather than unmetered", 503);
     if (turnsAvailable === 0) return errorResponse("Daily plan limit reached for model turns. Your plan resets tomorrow.", 429);
 
+    const streamAbortController = new AbortController();
+    if (request.signal.aborted) {
+      streamAbortController.abort(request.signal.reason);
+    } else {
+      request.signal.addEventListener("abort", () => {
+        streamAbortController.abort(request.signal.reason);
+      });
+    }
+
     const encoder = new TextEncoder();
     const readable = new ReadableStream<Uint8Array>({
+      cancel(reason) {
+        streamAbortController.abort(reason);
+      },
       async start(controller) {
         const emit = (event: ConversationStreamEvent) => {
           if (event.type === "complete") return;
@@ -265,7 +283,7 @@ export async function POST(request: Request, context: RouteContext) {
             return;
           }
 
-          const turnSignal = AbortSignal.any([request.signal, AbortSignal.timeout(TURN_DEADLINE_MS)]);
+          const turnSignal = AbortSignal.any([streamAbortController.signal, AbortSignal.timeout(TURN_DEADLINE_MS)]);
           const result = await streamConversationTurn({
             pursuitTitle: pursuit.title ?? "Untitled pursuit",
             contextPacket: compiled.packet,
@@ -528,7 +546,7 @@ export async function POST(request: Request, context: RouteContext) {
           })));
           controller.close();
         } catch (error) {
-          if (!request.signal.aborted) {
+          if (!streamAbortController.signal.aborted) {
             const raw = error instanceof Error ? error.message : "Conversation failed";
             const message = raw === "Aborted"
               ? "This turn exceeded its time budget before the model finished. Your message is saved — send it again to retry."
