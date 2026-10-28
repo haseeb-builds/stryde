@@ -65,6 +65,7 @@ declare
   v_existing_ledger record;
   v_existing_sub record;
   v_err_msg text;
+  v_user_meta jsonb;
 begin
   -- Step 1: Atomic First-Delivery Claim via INSERT ... ON CONFLICT DO NOTHING
   -- This prevents race conditions on first delivery from throwing uniqueness violations.
@@ -99,19 +100,19 @@ begin
   -- If the row was NOT inserted by this transaction, it pre-existed. Check status & integrity.
   if v_inserted_id is null then
     -- Check Event-ID Payload Integrity: if same event_id arrives with conflicting payload
+    -- CRITICAL PRESERVATION GUARANTEE:
+    -- A conflicting payload delivery MUST NOT overwrite or alter the canonical event's ledger status!
+    -- Specifically, a conflicting delivery must NOT mutate a 'COMPLETED' or 'IGNORED' event
+    -- into 'CONFLICT', because doing so would destroy the canonical completion record and allow
+    -- subsequent retries of the canonical event to be dangerously reprocessed!
     if v_existing_ledger.payload_sha256 is distinct from p_payload_sha256
        or v_existing_ledger.event_type is distinct from p_event_type then
-      update public.billing_webhook_event_ledger
-      set status = 'CONFLICT',
-          error_message = 'Conflicting payload detected for existing event_id',
-          updated_at = now()
-      where event_id = p_event_id;
-
       return jsonb_build_object(
         'success', false,
         'conflict', true,
         'error', 'Conflicting payload detected for existing event_id',
-        'event_id', p_event_id
+        'event_id', p_event_id,
+        'canonical_status', v_existing_ledger.status
       );
     end if;
 
@@ -150,6 +151,30 @@ begin
         updated_at = now(),
         error_message = null
     where event_id = p_event_id;
+  end if;
+
+  -- Step 1b: Account Deletion Write Barrier Guard
+  -- If user account deletion is currently in progress, do not mutate subscription state
+  if p_owner_user_id is not null then
+    select raw_app_meta_data into v_user_meta
+    from auth.users
+    where id = p_owner_user_id;
+
+    if v_user_meta is not null and (v_user_meta->>'deletion_in_progress')::boolean is true then
+      update public.billing_webhook_event_ledger
+      set status = 'IGNORED',
+          error_message = 'account_deletion_in_progress',
+          completed_at = now(),
+          updated_at = now()
+      where event_id = p_event_id;
+
+      return jsonb_build_object(
+        'success', true,
+        'ignored', true,
+        'reason', 'account_deletion_in_progress',
+        'event_id', p_event_id
+      );
+    end if;
   end if;
 
   -- Step 2: Quarantined Event Handling (Unknown Price Plan Safety)

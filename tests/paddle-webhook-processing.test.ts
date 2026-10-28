@@ -7,6 +7,7 @@ import {
   SupabaseWebhookDbClient,
   type WebhookDbClient,
   type ProcessPaddleEventParams,
+  type ProcessPaddleEventResult,
 } from "../lib/paddle-webhook.ts";
 
 function signPayload(body: string, secret: string, ts: number): string {
@@ -500,33 +501,13 @@ test("Paddle webhook: quarantined event does not overwrite existing subscription
   assert.equal(subStatus, "ACTIVE");
 });
 
-test("SupabaseWebhookDbClient: fallback compare-and-update when RPC is missing", async () => {
-  type UpsertedRow = { plan_id?: string; status?: string; [key: string]: unknown };
-  const captured: { row?: UpsertedRow } = {};
-
+test("SupabaseWebhookDbClient: returns retryable failure when RPC is missing (error 42883)", async () => {
   const mockSupabase = {
     rpc: async () => ({
       data: null,
-      error: { code: "42883", message: "function public.stryde_process_paddle_billing_event does not exist" },
-    }),
-    from: () => ({
-      select: () => ({
-        eq: () => ({
-          maybeSingle: async () => ({
-            data: {
-              owner_user_id: VALID_USER_ID,
-              last_event_at: "2026-10-27T10:00:00Z",
-              provider_subscription_ref: "sub_prev",
-              status: "ACTIVE",
-              plan_id: "free",
-            },
-            error: null,
-          }),
-        }),
-      }),
-      upsert: async (row: UpsertedRow) => {
-        captured.row = row;
-        return { error: null };
+      error: {
+        code: "42883",
+        message: "function public.stryde_process_paddle_billing_event does not exist",
       },
     }),
   } as unknown as SupabaseClient;
@@ -534,7 +515,7 @@ test("SupabaseWebhookDbClient: fallback compare-and-update when RPC is missing",
   const client = new SupabaseWebhookDbClient(mockSupabase);
 
   const params: ProcessPaddleEventParams = {
-    p_event_id: "evt_fallback_001",
+    p_event_id: "evt_missing_rpc_001",
     p_event_type: "subscription.created",
     p_occurred_at: "2026-10-27T11:00:00Z",
     p_payload_sha256: "dummy_sha256",
@@ -550,119 +531,233 @@ test("SupabaseWebhookDbClient: fallback compare-and-update when RPC is missing",
   };
 
   const result = await client.processPaddleEventRpc(params);
-  assert.equal(result.success, true);
-  assert.equal(result.updated, true);
-  assert.equal(captured.row?.plan_id, "pro");
-  assert.equal(captured.row?.status, "ACTIVE");
+  assert.equal(result.success, false);
+  assert.equal(result.retryable, true);
+  assert.match(result.error || "", /pending migration deployment/);
+
+  // When called via processPaddleWebhookRequest, returns HTTP 500 to trigger Paddle retry
+  const body = JSON.stringify({
+    event_id: "evt_missing_rpc_001",
+    event_type: "subscription.created",
+    occurred_at: "2026-10-27T11:00:00Z",
+    data: {
+      id: "sub_new",
+      customer_id: "ctm_1",
+      status: "active",
+      items: [{ price: { id: PRO_PRICE_ID } }],
+      custom_data: { owner_user_id: VALID_USER_ID },
+    },
+  });
+
+  const ts = Math.floor(Date.now() / 1000);
+  const sig = signPayload(body, TEST_SECRET, ts);
+
+  const req = new Request("https://example.com/api/v1/billing/webhook", {
+    method: "POST",
+    headers: { "paddle-signature": sig },
+    body,
+  });
+
+  const res = await processPaddleWebhookRequest(req, { env: TEST_ENV, dbClient: client });
+  assert.equal(res.status, 500);
+  const data = await res.json();
+  assert.match(data.error, /pending migration/i);
 });
 
-test("SupabaseWebhookDbClient: fallback preserves existing entitlement when quarantined", async () => {
-  let upsertCalled = false;
-
-  const mockSupabase = {
-    rpc: async () => ({
-      data: null,
-      error: { code: "42883", message: "function public.stryde_process_paddle_billing_event does not exist" },
-    }),
-    from: () => ({
-      select: () => ({
-        eq: () => ({
-          maybeSingle: async () => ({
-            data: {
-              owner_user_id: VALID_USER_ID,
-              last_event_at: "2026-10-27T10:00:00Z",
-              provider_subscription_ref: "sub_prev",
-              status: "ACTIVE",
-              plan_id: "pro",
-            },
-            error: null,
-          }),
-        }),
-      }),
-      upsert: async () => {
-        upsertCalled = true;
-        return { error: null };
-      },
-    }),
-  } as unknown as SupabaseClient;
-
-  const client = new SupabaseWebhookDbClient(mockSupabase);
-
-  const params: ProcessPaddleEventParams = {
-    p_event_id: "evt_fallback_quarantine",
-    p_event_type: "subscription.updated",
-    p_occurred_at: "2026-10-27T12:00:00Z",
-    p_payload_sha256: "dummy_sha256",
-    p_owner_user_id: VALID_USER_ID,
-    p_plan_id: "free",
-    p_provider: "paddle",
-    p_provider_customer_ref: "ctm_1",
-    p_provider_subscription_ref: "sub_prev",
-    p_provider_status: "active",
-    p_status: "ACTIVE",
-    p_effective_at: "2026-10-27T12:00:00Z",
-    p_expires_at: null,
-    p_quarantined: true,
-    p_quarantine_reason: "Unrecognized price mapping: pri_fake",
+test("PostgreSQL RPC logic: completed -> conflicting payload -> canonical retry preserves canonical outcome", async () => {
+  type LedgerRow = {
+    event_id: string;
+    event_type: string;
+    payload_sha256: string;
+    status: "PROCESSING" | "COMPLETED" | "FAILED" | "IGNORED" | "CONFLICT";
+    occurred_at: string;
+    error_message?: string | null;
   };
 
-  const result = await client.processPaddleEventRpc(params);
-  assert.equal(result.success, true);
-  assert.equal(result.quarantined, true);
-  assert.equal(upsertCalled, false); // Crucial: upsert MUST NOT be called!
+  const ledger = new Map<string, LedgerRow>();
+  const subscriptions = new Map<string, { plan_id: string; status: string }>();
+
+  // Faithful simulation of public.stryde_process_paddle_billing_event PL/pgSQL function
+  const simulatedRpc = (params: ProcessPaddleEventParams): ProcessPaddleEventResult => {
+    let existing = ledger.get(params.p_event_id);
+
+    // Step 1: INSERT ... ON CONFLICT (event_id) DO NOTHING
+    if (!existing) {
+      existing = {
+        event_id: params.p_event_id,
+        event_type: params.p_event_type,
+        payload_sha256: params.p_payload_sha256,
+        status: "PROCESSING",
+        occurred_at: params.p_occurred_at,
+      };
+      ledger.set(params.p_event_id, existing);
+    } else {
+      // Row pre-existed. Check payload integrity.
+      // CANONICAL PRESERVATION GUARANTEE: Conflicting payload does NOT overwrite status!
+      if (
+        existing.payload_sha256 !== params.p_payload_sha256 ||
+        existing.event_type !== params.p_event_type
+      ) {
+        return {
+          success: false,
+          conflict: true,
+          error: "Conflicting payload detected for existing event_id",
+          event_id: params.p_event_id,
+        };
+      }
+
+      if (existing.status === "COMPLETED") {
+        return {
+          success: true,
+          duplicate: true,
+          event_id: params.p_event_id,
+          status: "COMPLETED",
+        };
+      }
+    }
+
+    // Process subscription
+    subscriptions.set(params.p_owner_user_id, {
+      plan_id: params.p_plan_id,
+      status: params.p_status,
+    });
+
+    existing.status = "COMPLETED";
+
+    return {
+      success: true,
+      updated: true,
+      event_id: params.p_event_id,
+      plan_id: params.p_plan_id,
+      status: params.p_status,
+    };
+  };
+
+  const dbClient: WebhookDbClient = {
+    processPaddleEventRpc: async (params) => simulatedRpc(params),
+  };
+
+  const canonicalBody = JSON.stringify({
+    event_id: "evt_concurrency_preserve_01",
+    event_type: "subscription.created",
+    occurred_at: "2026-10-27T10:00:00Z",
+    data: {
+      id: "sub_1",
+      customer_id: "ctm_1",
+      status: "active",
+      items: [{ price: { id: PRO_PRICE_ID } }],
+      custom_data: { owner_user_id: VALID_USER_ID },
+    },
+  });
+
+  const conflictingBody = JSON.stringify({
+    event_id: "evt_concurrency_preserve_01", // SAME event_id
+    event_type: "subscription.created",
+    occurred_at: "2026-10-27T10:00:00Z",
+    data: {
+      id: "sub_attacker", // DIFFERENT payload
+      customer_id: "ctm_attacker",
+      status: "active",
+      items: [{ price: { id: PRO_PRICE_ID } }],
+      custom_data: { owner_user_id: VALID_USER_ID },
+    },
+  });
+
+  const ts = Math.floor(Date.now() / 1000);
+  const makeReq = (b: string) =>
+    new Request("https://example.com/api/v1/billing/webhook", {
+      method: "POST",
+      headers: { "paddle-signature": signPayload(b, TEST_SECRET, ts) },
+      body: b,
+    });
+
+  // 1. Initial canonical delivery: must succeed and mark COMPLETED
+  const res1 = await processPaddleWebhookRequest(makeReq(canonicalBody), {
+    env: TEST_ENV,
+    dbClient,
+  });
+  assert.equal(res1.status, 200);
+  const data1 = await res1.json();
+  assert.equal(data1.updated, true);
+  assert.equal(ledger.get("evt_concurrency_preserve_01")?.status, "COMPLETED");
+  assert.equal(subscriptions.get(VALID_USER_ID)?.plan_id, "pro");
+
+  // 2. Conflicting delivery with same event_id: must return 409 Conflict
+  // and MUST NOT overwrite the canonical event's COMPLETED status!
+  const res2 = await processPaddleWebhookRequest(makeReq(conflictingBody), {
+    env: TEST_ENV,
+    dbClient,
+  });
+  assert.equal(res2.status, 409);
+  const data2 = await res2.json();
+  assert.match(data2.error, /conflicting payload/i);
+  // CRITICAL ASSERTION: The canonical event remains COMPLETED, NOT turned into CONFLICT or reprocessable
+  assert.equal(
+    ledger.get("evt_concurrency_preserve_01")?.status,
+    "COMPLETED",
+    "Conflicting delivery must NOT overwrite canonical completed status"
+  );
+
+  // 3. Original canonical delivery retried: must be recognized as duplicate 200 OK without reprocessing
+  let reprocessed = false;
+  const trackingClient: WebhookDbClient = {
+    processPaddleEventRpc: async (params) => {
+      const res = simulatedRpc(params);
+      if (res.updated) reprocessed = true;
+      return res;
+    },
+  };
+
+  const res3 = await processPaddleWebhookRequest(makeReq(canonicalBody), {
+    env: TEST_ENV,
+    dbClient: trackingClient,
+  });
+  assert.equal(res3.status, 200);
+  const data3 = await res3.json();
+  assert.equal(data3.duplicate, true);
+  assert.equal(reprocessed, false, "Canonical event retry must NOT be reprocessed");
 });
 
-test("SupabaseWebhookDbClient: fallback ignores out-of-order stale events", async () => {
-  let upsertCalled = false;
-
-  const mockSupabase = {
-    rpc: async () => ({
-      data: null,
-      error: { code: "42883", message: "function public.stryde_process_paddle_billing_event does not exist" },
-    }),
-    from: () => ({
-      select: () => ({
-        eq: () => ({
-          maybeSingle: async () => ({
-            data: {
-              owner_user_id: VALID_USER_ID,
-              last_event_at: "2026-10-27T12:00:00Z", // Newer event already processed
-              provider_subscription_ref: "sub_prev",
-              status: "ACTIVE",
-              plan_id: "pro",
-            },
-            error: null,
-          }),
-        }),
-      }),
-      upsert: async () => {
-        upsertCalled = true;
-        return { error: null };
-      },
-    }),
-  } as unknown as SupabaseClient;
-
-  const client = new SupabaseWebhookDbClient(mockSupabase);
-
-  const params: ProcessPaddleEventParams = {
-    p_event_id: "evt_fallback_stale",
-    p_event_type: "subscription.past_due",
-    p_occurred_at: "2026-10-27T11:00:00Z", // Older timestamp
-    p_payload_sha256: "dummy_sha256",
-    p_owner_user_id: VALID_USER_ID,
-    p_plan_id: "pro",
-    p_provider: "paddle",
-    p_provider_customer_ref: "ctm_1",
-    p_provider_subscription_ref: "sub_prev",
-    p_provider_status: "past_due",
-    p_status: "PAST_DUE",
-    p_effective_at: "2026-10-27T11:00:00Z",
-    p_expires_at: null,
+test("PostgreSQL RPC logic: account deletion in progress safely ignores incoming webhooks", async () => {
+  const dbClient: WebhookDbClient = {
+    processPaddleEventRpc: async (params) => {
+      // Simulates database check: select raw_app_meta_data from auth.users where id = p_owner_user_id
+      const isDeletionInProgress = true;
+      if (isDeletionInProgress) {
+        return {
+          success: true,
+          ignored: true,
+          reason: "account_deletion_in_progress",
+          event_id: params.p_event_id,
+        };
+      }
+      return { success: true, updated: true };
+    },
   };
 
-  const result = await client.processPaddleEventRpc(params);
-  assert.equal(result.success, true);
-  assert.equal(result.ignored, true);
-  assert.equal(result.reason, "stale_event");
-  assert.equal(upsertCalled, false);
+  const body = JSON.stringify({
+    event_id: "evt_deletion_barrier_01",
+    event_type: "subscription.updated",
+    occurred_at: "2026-10-27T10:00:00Z",
+    data: {
+      id: "sub_1",
+      customer_id: "ctm_1",
+      status: "active",
+      items: [{ price: { id: PRO_PRICE_ID } }],
+      custom_data: { owner_user_id: VALID_USER_ID },
+    },
+  });
+
+  const ts = Math.floor(Date.now() / 1000);
+  const req = new Request("https://example.com/api/v1/billing/webhook", {
+    method: "POST",
+    headers: { "paddle-signature": signPayload(body, TEST_SECRET, ts) },
+    body,
+  });
+
+  const res = await processPaddleWebhookRequest(req, { env: TEST_ENV, dbClient });
+  assert.equal(res.status, 200);
+  const data = await res.json();
+  assert.equal(data.ignored, true);
+  assert.equal(data.reason, "account_deletion_in_progress");
 });

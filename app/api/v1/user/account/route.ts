@@ -14,11 +14,15 @@ export const runtime = "nodejs";
  *
  * Caller identity is derived exclusively from the verified Bearer token;
  * no caller-supplied user ID is accepted as authority.
+ *
+ * Allows deletion when deletion_in_progress is set to ensure the endpoint
+ * is fully idempotent and retryable following an intermediate failure.
  */
 export async function DELETE(request: Request) {
   try {
     const { user } = await requireAuthenticatedSupabase(
-      request.headers.get("authorization")
+      request.headers.get("authorization"),
+      { allowDeletionInProgress: true }
     );
     const serviceClient = getSupabaseServiceClient();
 
@@ -38,6 +42,8 @@ export async function DELETE(request: Request) {
       message.includes("Missing bearer") ||
       message.includes("Authentication required")
         ? 401
+        : message.includes("Account deletion in progress")
+        ? 423
         : 500;
     return NextResponse.json({ error: message }, { status });
   }

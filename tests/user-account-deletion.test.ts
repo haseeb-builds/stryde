@@ -6,6 +6,7 @@ import {
   ORDERED_USER_TABLES,
   shouldCancelSubscription,
   isCancellableSubscriptionStatus,
+  unlockUserAccount,
 } from "../lib/account-deletion.ts";
 
 test("ORDERED_USER_TABLES includes all user-associated tables in topological leaf-first order", () => {
@@ -364,4 +365,99 @@ test("cascadeDeleteUserData fails closed if any database table deletion fails, p
   );
 
   assert.equal(authDeleted, false, "Auth user must NOT be deleted if database table deletion fails");
+});
+
+test("cascadeDeleteUserData establishes write barrier by setting app_metadata.deletion_in_progress before purging", async () => {
+  let barrierSet = false;
+  let barrierSetBeforePurge = false;
+  let purgedCount = 0;
+
+  const mockClient = {
+    from: (table: string) => {
+      if (table === "job") {
+        return {
+          update: () => ({
+            eq: () => ({
+              in: () => Promise.resolve({ error: null }),
+            }),
+          }),
+          delete: () => ({
+            eq: () => {
+              purgedCount++;
+              if (barrierSet) barrierSetBeforePurge = true;
+              return Promise.resolve({ error: null });
+            },
+          }),
+        };
+      }
+      if (table === "subscription_state") {
+        return {
+          select: () => ({
+            eq: () => ({
+              maybeSingle: async () => ({ data: null, error: null }),
+            }),
+          }),
+          delete: () => ({
+            eq: () => {
+              purgedCount++;
+              if (barrierSet) barrierSetBeforePurge = true;
+              return Promise.resolve({ error: null });
+            },
+          }),
+        };
+      }
+      return {
+        delete: () => ({
+          eq: () => {
+            purgedCount++;
+            if (barrierSet) barrierSetBeforePurge = true;
+            return Promise.resolve({ error: null });
+          },
+        }),
+      };
+    },
+    auth: {
+      admin: {
+        updateUserById: async (
+          uid: string,
+          attrs: { app_metadata?: { deletion_in_progress?: boolean; [key: string]: unknown } }
+        ) => {
+          if (attrs.app_metadata?.deletion_in_progress === true) {
+            barrierSet = true;
+          }
+          return { data: { user: { id: uid } }, error: null };
+        },
+        deleteUser: async () => ({ data: {}, error: null }),
+      },
+    },
+  } as unknown as SupabaseClient;
+
+  const result = await cascadeDeleteUserData(mockClient, "user-barrier-test");
+  assert.equal(result.success, true);
+  assert.equal(barrierSet, true, "Write barrier must be set on Auth user metadata");
+  assert.equal(barrierSetBeforePurge, true, "Write barrier must be active before any database table is deleted");
+  assert.equal(purgedCount, 40, "All 40 tables must be purged");
+});
+
+test("unlockUserAccount administrative recovery helper clears deletion_in_progress barrier", async () => {
+  let clearedBarrier = false;
+
+  const mockClient = {
+    auth: {
+      admin: {
+        updateUserById: async (
+          _uid: string,
+          attrs: { app_metadata?: { deletion_in_progress?: boolean; [key: string]: unknown } }
+        ) => {
+          if (attrs.app_metadata?.deletion_in_progress === false) {
+            clearedBarrier = true;
+          }
+          return { data: {}, error: null };
+        },
+      },
+    },
+  } as unknown as SupabaseClient;
+
+  await unlockUserAccount(mockClient, "user-unlock-test");
+  assert.equal(clearedBarrier, true);
 });

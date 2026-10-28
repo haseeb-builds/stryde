@@ -134,6 +134,36 @@ export async function cascadeDeleteUserData(
 
   const cleanUserId = userId.trim();
 
+  // 0. Establish Write Barrier: mark deletion in progress on Auth user metadata
+  // This immediately locks the account so that concurrent requests to any API route
+  // calling requireAuthenticatedSupabase are rejected with AccountDeletionLockedError.
+  if (serviceClient.auth?.admin?.updateUserById) {
+    try {
+      await serviceClient.auth.admin.updateUserById(cleanUserId, {
+        app_metadata: {
+          deletion_in_progress: true,
+          deletion_started_at: new Date().toISOString(),
+        },
+      });
+    } catch (barrierErr) {
+      console.warn(
+        `[account/deletion] write barrier update warning for user ${cleanUserId}:`,
+        barrierErr
+      );
+    }
+  }
+
+  // 0b. Cancel any active or queued background worker jobs for this user
+  try {
+    await serviceClient
+      .from("job")
+      .update({ status: "CANCELLED" })
+      .eq("owner_user_id", cleanUserId)
+      .in("status", ["QUEUED", "RUNNING", "LEASED"]);
+  } catch {
+    // Non-fatal; continue
+  }
+
   // 1. Check for active external billing subscriptions before deleting database records
   const { data: subState, error: subError } = await serviceClient
     .from("subscription_state")
@@ -202,4 +232,22 @@ export async function cascadeDeleteUserData(
     deletedUserId: cleanUserId,
     purgedTables,
   };
+}
+
+/**
+ * Administrative recovery helper to clear the write barrier if an account deletion
+ * was intentionally aborted or repaired by support.
+ */
+export async function unlockUserAccount(
+  serviceClient: SupabaseClient,
+  userId: string
+): Promise<void> {
+  if (serviceClient.auth?.admin?.updateUserById) {
+    await serviceClient.auth.admin.updateUserById(userId.trim(), {
+      app_metadata: {
+        deletion_in_progress: false,
+        deletion_unlocked_at: new Date().toISOString(),
+      },
+    });
+  }
 }

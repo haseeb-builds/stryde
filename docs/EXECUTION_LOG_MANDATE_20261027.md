@@ -104,36 +104,46 @@
   - Structured prompt framing with `<<<UNTRUSTED_INPUT_DATA>>>` and escaping of delimiters in untrusted context.
 - **Verification:** `tests/prompt-injection-guard.test.ts` (2/2 pass), `tests/model-provider-retry.test.ts` (7/7 pass).
 
-### 4.3 Account Deletion (`lib/account-deletion.ts`, `app/api/v1/user/account/route.ts`)
+### 4.3 Account Deletion (`lib/account-deletion.ts`, `app/api/v1/user/account/route.ts`, `lib/supabase/server.ts`)
 - **Problem:**
   - PR #14 swallowed database deletion errors in a `try/catch` and returned `success: true`.
   - It deleted the Auth user even if table deletes failed, leaving orphaned records without owner access.
   - It checked only lowercase `"active"` and omitted Paddle subscriptions in `ACTIVE`, `TRIALING`, `PAST_DUE`, `PAUSED`, or quarantined `UNKNOWN` states, leaving users being billed after deletion.
-  - Its table list contained 8 hallucinated non-existent tables (`claim_evidence`, `claim_observation`, `claim_edge`, `pursuit_claim`, `user_skill`, `resource_reservation`, `resource_ledger`, `event_log`) causing DB errors, and missed real tables.
+  - Its table list contained 8 hallucinated non-existent tables causing DB errors, and missed real tables.
+  - **Concurrent Write Race Condition:** While `cascadeDeleteUserData` sequentially purges 40 tables over multiple network round-trips, incoming client API calls or background workers could insert new records into already-purged tables, causing foreign key violations or orphaned data.
 - **Solution:**
   - `ORDERED_USER_TABLES`: Topological leaf-to-root purge of all 40 verified user-scoped tables based on database foreign key dependencies.
   - `shouldCancelSubscription` / `isCancellableSubscriptionStatus`: Identifies all billable, retryable, and active states (`ACTIVE`, `TRIALING`, `PAST_DUE`, `PAUSED`, `UNKNOWN`) case-insensitively while skipping terminal states (`CANCELLED`, `EXPIRED`, `CANCELED`).
   - `cancelPaddleSubscription`: Cancels active subscription via Paddle API before table deletion, handling idempotent already-cancelled responses gracefully.
-  - Fail-closed: Auth user identity deleted ONLY after all table purges succeed. If any step fails, operation aborts and auth identity is preserved.
+  - **Write Barrier (`app_metadata.deletion_in_progress`):**
+    - Step 0 of `cascadeDeleteUserData` marks `auth.admin.updateUserById(cleanUserId, { app_metadata: { deletion_in_progress: true } })`.
+    - `requireAuthenticatedSupabase` checks `user.app_metadata?.deletion_in_progress`. Any concurrent API request to `/api/v1/...` throws `AccountDeletionLockedError` (HTTP 423 Locked / 403 Forbidden).
+    - Step 0b cancels any active/queued worker jobs in `job` (`QUEUED`, `RUNNING`, `LEASED`).
+    - The deletion route `DELETE /api/v1/user/account` passes `{ allowDeletionInProgress: true }`, ensuring full idempotency and retryability if an intermediate step fails.
+    - Added `unlockUserAccount` administrative recovery helper to clear the write barrier if an aborted deletion needs support intervention.
+  - Fail-closed: Auth user identity deleted ONLY after all 40 table purges succeed. If any step fails, operation aborts and auth identity is preserved in locked state.
   - Self-only caller verification: user ID derived strictly from validated Bearer session.
-- **Verification:** `tests/user-account-deletion.test.ts` (7/7 pass).
+- **Verification:** `tests/user-account-deletion.test.ts` (9/9 pass), `tests/authorization-cross-tenant.test.ts` (6/6 pass).
 
 ### 4.4 Paddle Webhook Atomic Deduplication & Ordering (`lib/paddle-webhook.ts`)
 - **Problem:**
   - In-application read-then-upsert had a race condition under concurrent duplicate webhook delivery.
   - Out-of-order events could overwrite newer subscription state with stale data.
-  - Conflicting payloads submitted with the same event ID were not flagged.
   - Caught processing exceptions rolled back without persisting failure state to the ledger.
   - Unknown price IDs could overwrite or destroy existing active paid subscriptions.
+  - **Canonical Completion Invalidation:** Overwriting ledger status to `CONFLICT` upon receiving a conflicting payload for an already completed event would turn a completed event into one eligible for re-processing upon subsequent canonical retries.
+  - **Unsafe Application Fallback:** Silently falling back to read-then-upsert when the atomic RPC was missing in the database bypassed all atomic ledger guarantees.
 - **Solution:**
   - Migration `20261027180000_billing_webhook_atomic_ledger.sql`:
     - First-delivery atomic claim via `INSERT ... ON CONFLICT (event_id) DO NOTHING` followed by `SELECT ... FOR UPDATE` serialization.
     - Payload SHA-256 integrity validation: detects payload drift and flags `CONFLICT` (HTTP 409).
+    - **Canonical Outcome Preservation:** Conflicting payload deliveries return HTTP 409 Conflict WITHOUT modifying the existing ledger row (`status = 'COMPLETED'` remains intact). Subsequent retries of the canonical payload return duplicate (HTTP 200) without re-processing!
     - Subtransaction error boundary (`BEGIN ... EXCEPTION`): updates ledger status to `FAILED` durably on error so failure is recorded and retryable without outer transaction rollback.
-    - Safe quarantine: unmapped price plans never overwrite or revoke valid existing paid entitlements in DB RPC or application fallback.
+    - Safe quarantine: unmapped price plans never overwrite or revoke valid existing paid entitlements in DB RPC.
+    - Account deletion write barrier: rejects/ignores incoming webhooks if `auth.users.raw_app_meta_data->>'deletion_in_progress' = 'true'`.
+  - **Fail-Retryable Missing RPC:** Removed unsafe application read-then-upsert fallback from `SupabaseWebhookDbClient`. If `stryde_process_paddle_billing_event` is missing (code 42883) or throws, it returns a retryable failure (`retryable: true`, HTTP 500) so Paddle retries with backoff instead of bypassing atomic processing.
   - Concurrent requests return HTTP 409 with `Retry-After: 5`.
   - Out-of-order events (`occurred_at < last_event_at`) are marked `IGNORED` and do not mutate state.
-  - Application fallback `SupabaseWebhookDbClient` implements compare-and-update and quarantine protection for environments where the RPC migration is pending.
   - Zero secrets or sensitive payloads logged.
 - **Verification:** `tests/paddle-webhook-processing.test.ts` (14/14 pass).
 
@@ -168,11 +178,11 @@
 | Turn Idempotency | `tests/turn-idempotency.test.ts` | 10 | **PASS** |
 | AI Prompt Delimiters | `tests/prompt-injection-guard.test.ts` | 2 | **PASS** |
 | AI Request Boundaries | `tests/model-provider-retry.test.ts` | 7 | **PASS** |
-| Account Deletion | `tests/user-account-deletion.test.ts` | 7 | **PASS** |
+| Account Deletion | `tests/user-account-deletion.test.ts` | 9 | **PASS** |
 | Markdown Sanitization | `tests/markdown-sanitization.test.ts` | 6 | **PASS** |
 | Webhook Processing | `tests/paddle-webhook-processing.test.ts` | 14 | **PASS** |
-| Cross-Tenant Auth | `tests/authorization-cross-tenant.test.ts` | 5 | **PASS** |
-| Complete Suite | All 52 test suites (`npm test`) | 413 | **PASS** (413 passed, 0 failed) |
+| Cross-Tenant Auth & Write Barrier | `tests/authorization-cross-tenant.test.ts` | 6 | **PASS** |
+| Complete Suite | All 52 test suites (`npm test`) | 416 | **PASS** (416 passed, 0 failed) |
 | TypeScript | `npx tsc --noEmit` | - | **PASS** (0 errors) |
 | ESLint | `npm run lint` | - | **PASS** (0 errors, 0 warnings) |
 | Dependency Audit | `npm audit --omit=dev` | - | **PASS** (0 vulnerabilities) |

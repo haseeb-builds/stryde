@@ -67,106 +67,32 @@ export class SupabaseWebhookDbClient implements WebhookDbClient {
       return data as ProcessPaddleEventResult;
     }
 
-    // If RPC does not exist (e.g. migration pending in local/test environment), fall back to
-    // compare-and-update logic on subscription_state.
     const isUndefinedFunction =
       error?.code === "42883" ||
       error?.message?.includes("function public.stryde_process_paddle_billing_event") ||
       error?.message?.includes("Could not find the function");
 
     if (isUndefinedFunction) {
-      return this.fallbackCompareAndUpdate(supabase, params);
-    }
-
-    throw new Error(error?.message || "Failed to execute stryde_process_paddle_billing_event");
-  }
-
-  private async fallbackCompareAndUpdate(
-    supabase: ReturnType<typeof getSupabaseServiceClient>,
-    params: ProcessPaddleEventParams
-  ): Promise<ProcessPaddleEventResult> {
-    // If quarantined due to unrecognized price ID, do not overwrite existing paid entitlement
-    if (params.p_quarantined) {
+      console.error(
+        "[billing/webhook] stryde_process_paddle_billing_event RPC not found in database. Failing with retryable error to await migration deployment."
+      );
       return {
-        success: true,
-        quarantined: true,
+        success: false,
+        retryable: true,
+        error: "stryde_process_paddle_billing_event RPC not found in database; pending migration deployment",
         event_id: params.p_event_id,
-        reason:
-          params.p_quarantine_reason ||
-          "Unrecognized price plan quarantined; existing subscription preserved",
       };
     }
 
-    const { data: existing, error: queryError } = await supabase
-      .from("subscription_state")
-      .select("owner_user_id, last_event_at, provider_subscription_ref, status, plan_id")
-      .eq("owner_user_id", params.p_owner_user_id)
-      .maybeSingle();
-
-    if (queryError) {
-      throw queryError;
-    }
-
-    if (existing?.last_event_at) {
-      const existingTime = new Date(existing.last_event_at).getTime();
-      const incomingTime = new Date(params.p_occurred_at).getTime();
-
-      // Duplicate delivery check
-      if (
-        existingTime === incomingTime &&
-        existing.provider_subscription_ref === params.p_provider_subscription_ref &&
-        existing.status === params.p_status &&
-        existing.plan_id === params.p_plan_id
-      ) {
-        return {
-          success: true,
-          duplicate: true,
-          event_id: params.p_event_id,
-        };
-      }
-
-      // Out-of-order stale event protection
-      if (incomingTime < existingTime) {
-        return {
-          success: true,
-          ignored: true,
-          reason: "stale_event",
-          occurred_at: params.p_occurred_at,
-          current_last_event_at: existing.last_event_at,
-        };
-      }
-    }
-
-    const { error: dbError } = await supabase.from("subscription_state").upsert(
-      {
-        owner_user_id: params.p_owner_user_id,
-        plan_id: params.p_plan_id,
-        provider: params.p_provider,
-        provider_customer_ref: params.p_provider_customer_ref,
-        provider_subscription_ref: params.p_provider_subscription_ref,
-        provider_status: params.p_provider_status,
-        status: params.p_status,
-        source: "BILLING_WEBHOOK",
-        effective_at: params.p_effective_at,
-        expires_at: params.p_expires_at,
-        last_event_at: params.p_occurred_at,
-        reconciled_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: "owner_user_id" }
+    console.error(
+      "[billing/webhook] error executing stryde_process_paddle_billing_event RPC:",
+      error?.message
     );
-
-    if (dbError) {
-      throw dbError;
-    }
-
     return {
-      success: true,
-      updated: true,
+      success: false,
+      retryable: true,
+      error: error?.message || "Failed to execute stryde_process_paddle_billing_event",
       event_id: params.p_event_id,
-      plan_id: params.p_plan_id,
-      status: params.p_status,
-      quarantined: params.p_quarantined ?? false,
     };
   }
 }
