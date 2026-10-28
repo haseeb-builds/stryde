@@ -1,14 +1,14 @@
 # Stryde Integration Truth
 
 
-## Live integration reconciliation — 2026-10-27 (`ops/agent-maintainability-production-readiness` mandate execution)
+## Live integration reconciliation — 2026-10-28 (`ops/agent-maintainability-production-readiness` mandate execution)
 
 - **Vercel:** Production alias `https://stryde-topaz.vercel.app` on `origin/main` commit `f1d2cd0161cfa7f5189f6e363a0e87818145589b`. CI workflow updated to Node 24 (`node-version: 24` in `.github/workflows/ci.yml`) matching Vercel production runtime.
-- **Supabase:** Project `pvijrnwdnolvnoibarrj`, status `ACTIVE_HEALTHY`. 42 historical migrations. Prepared migration `20261027180000_billing_webhook_atomic_ledger.sql` providing atomic ledger table `billing_webhook_event_ledger` and `stryde_process_paddle_billing_event` compare-and-update RPC with row locking (`FOR UPDATE`).
-- **Billing (Paddle Billing v2):** Paddle Billing v2 is the canonical merchant of record. Integration includes `lib/paddle.ts` and `lib/paddle-webhook.ts`. Supported: checkout transaction creation, webhook HMAC-SHA256 signature verification, replay protection (300s window), atomic duplicate event deduplication, out-of-order event protection, fail-closed price mapping quarantine, and subscription cancellation via Billing v2 API (`POST /subscriptions/{id}/cancel`) during account deletion (`DELETE /api/v1/user/account`). Stripe is not used.
+- **Supabase:** Project `pvijrnwdnolvnoibarrj`, status `ACTIVE_HEALTHY`. 42 historical migrations. Prepared migration `20261027180000_billing_webhook_atomic_ledger.sql` providing atomic ledger table `billing_webhook_event_ledger` and `stryde_process_paddle_billing_event` compare-and-update RPC with first-delivery `INSERT ... ON CONFLICT DO NOTHING`, row locking (`FOR UPDATE`), payload SHA-256 conflict detection, subtransaction failure persistence (`status = 'FAILED'`), and safe quarantine preserving existing paid entitlements.
+- **Billing (Paddle Billing v2):** Paddle Billing v2 is the canonical merchant of record. Integration includes `lib/paddle.ts` and `lib/paddle-webhook.ts`. Supported: checkout transaction creation, webhook HMAC-SHA256 signature verification, replay protection (300s window), atomic duplicate event deduplication, out-of-order event protection, fail-closed price mapping quarantine, idempotent already-cancelled handling, and subscription cancellation across all active/billable states (`ACTIVE`, `TRIALING`, `PAST_DUE`, `PAUSED`, `UNKNOWN`) via Billing v2 API (`POST /subscriptions/{id}/cancel`) during account deletion (`DELETE /api/v1/user/account`). Stripe is not used.
 - **Model Providers:** Direct Google AI Studio Gemini API primary (`gemini-3.8-flash`), OpenRouter fallback. Hard prompt length limit (`120_000` chars), stream abort propagation via AbortController, and boundary delimiters (`<<<UNTRUSTED_INPUT_DATA>>>`) protecting against prompt injection. Probe cache in `/api/health/model` has 60s TTL and maxOutputTokens 50.
 - **Search & Research:** Exa primary, Firecrawl fallback. Web page fetching uses SSRF defenses rejecting private/loopback IP ranges and URL scheme allowlists.
-- **Account Deletion:** `DELETE /api/v1/user/account` cancels Paddle subscriptions first, purges user data across all 30 user tables in topological leaf-to-root order, and only removes auth identity upon verified database purge success.
+- **Account Deletion:** `DELETE /api/v1/user/account` cancels Paddle subscriptions first, purges user data across all 40 verified user tables in topological leaf-to-root order, and only removes auth identity upon verified database purge success. Fail-closed on any failure.
 
 ## Live integration reconciliation — 2026-10-21 (`fix/conversation-turn-reliability` correctness-closure pass)
 

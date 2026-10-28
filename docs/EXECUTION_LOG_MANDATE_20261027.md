@@ -108,26 +108,34 @@
 - **Problem:**
   - PR #14 swallowed database deletion errors in a `try/catch` and returned `success: true`.
   - It deleted the Auth user even if table deletes failed, leaving orphaned records without owner access.
-  - It never called Paddle to cancel active subscriptions, continuing to bill deleted users.
+  - It checked only lowercase `"active"` and omitted Paddle subscriptions in `ACTIVE`, `TRIALING`, `PAST_DUE`, `PAUSED`, or quarantined `UNKNOWN` states, leaving users being billed after deletion.
+  - Its table list contained 8 hallucinated non-existent tables (`claim_evidence`, `claim_observation`, `claim_edge`, `pursuit_claim`, `user_skill`, `resource_reservation`, `resource_ledger`, `event_log`) causing DB errors, and missed real tables.
 - **Solution:**
-  - `ORDERED_USER_TABLES`: Topological leaf-to-root purge of all 30 user-scoped tables.
-  - `cancelPaddleSubscription`: Cancels active subscription via Paddle API before table deletion.
-  - Fail-closed: Auth user identity deleted ONLY after all table purges succeed.
+  - `ORDERED_USER_TABLES`: Topological leaf-to-root purge of all 40 verified user-scoped tables based on database foreign key dependencies.
+  - `shouldCancelSubscription` / `isCancellableSubscriptionStatus`: Identifies all billable, retryable, and active states (`ACTIVE`, `TRIALING`, `PAST_DUE`, `PAUSED`, `UNKNOWN`) case-insensitively while skipping terminal states (`CANCELLED`, `EXPIRED`, `CANCELED`).
+  - `cancelPaddleSubscription`: Cancels active subscription via Paddle API before table deletion, handling idempotent already-cancelled responses gracefully.
+  - Fail-closed: Auth user identity deleted ONLY after all table purges succeed. If any step fails, operation aborts and auth identity is preserved.
   - Self-only caller verification: user ID derived strictly from validated Bearer session.
-- **Verification:** `tests/user-account-deletion.test.ts` (6/6 pass).
+- **Verification:** `tests/user-account-deletion.test.ts` (7/7 pass).
 
 ### 4.4 Paddle Webhook Atomic Deduplication & Ordering (`lib/paddle-webhook.ts`)
 - **Problem:**
   - In-application read-then-upsert had a race condition under concurrent duplicate webhook delivery.
   - Out-of-order events could overwrite newer subscription state with stale data.
-  - Unknown price IDs could mistakenly elevate users.
+  - Conflicting payloads submitted with the same event ID were not flagged.
+  - Caught processing exceptions rolled back without persisting failure state to the ledger.
+  - Unknown price IDs could overwrite or destroy existing active paid subscriptions.
 - **Solution:**
-  - Migration `20261027180000_billing_webhook_atomic_ledger.sql`: Creates `billing_webhook_event_ledger` table and `stryde_process_paddle_billing_event` RPC with row locking (`FOR UPDATE`).
+  - Migration `20261027180000_billing_webhook_atomic_ledger.sql`:
+    - First-delivery atomic claim via `INSERT ... ON CONFLICT (event_id) DO NOTHING` followed by `SELECT ... FOR UPDATE` serialization.
+    - Payload SHA-256 integrity validation: detects payload drift and flags `CONFLICT` (HTTP 409).
+    - Subtransaction error boundary (`BEGIN ... EXCEPTION`): updates ledger status to `FAILED` durably on error so failure is recorded and retryable without outer transaction rollback.
+    - Safe quarantine: unmapped price plans never overwrite or revoke valid existing paid entitlements in DB RPC or application fallback.
   - Concurrent requests return HTTP 409 with `Retry-After: 5`.
   - Out-of-order events (`occurred_at < last_event_at`) are marked `IGNORED` and do not mutate state.
-  - Unknown price IDs are quarantined with plan `free` and status `UNKNOWN`.
+  - Application fallback `SupabaseWebhookDbClient` implements compare-and-update and quarantine protection for environments where the RPC migration is pending.
   - Zero secrets or sensitive payloads logged.
-- **Verification:** `tests/paddle-webhook-processing.test.ts` (8/8 pass).
+- **Verification:** `tests/paddle-webhook-processing.test.ts` (14/14 pass).
 
 ### 4.5 URL & Markdown Sanitization (`lib/sanitization.ts`)
 - **Problem:**
@@ -160,12 +168,12 @@
 | Turn Idempotency | `tests/turn-idempotency.test.ts` | 10 | **PASS** |
 | AI Prompt Delimiters | `tests/prompt-injection-guard.test.ts` | 2 | **PASS** |
 | AI Request Boundaries | `tests/model-provider-retry.test.ts` | 7 | **PASS** |
-| Account Deletion | `tests/user-account-deletion.test.ts` | 6 | **PASS** |
+| Account Deletion | `tests/user-account-deletion.test.ts` | 7 | **PASS** |
 | Markdown Sanitization | `tests/markdown-sanitization.test.ts` | 6 | **PASS** |
-| Webhook Processing | `tests/paddle-webhook-processing.test.ts` | 8 | **PASS** |
+| Webhook Processing | `tests/paddle-webhook-processing.test.ts` | 14 | **PASS** |
 | Cross-Tenant Auth | `tests/authorization-cross-tenant.test.ts` | 5 | **PASS** |
-| Complete Suite | All 52 test suites (`npm test`) | 406 | **PASS** (406 passed, 0 failed) |
+| Complete Suite | All 52 test suites (`npm test`) | 413 | **PASS** (413 passed, 0 failed) |
 | TypeScript | `npx tsc --noEmit` | - | **PASS** (0 errors) |
 | ESLint | `npm run lint` | - | **PASS** (0 errors, 0 warnings) |
 | Dependency Audit | `npm audit --omit=dev` | - | **PASS** (0 vulnerabilities) |
-| Next.js Build | `npm run build` | 28 routes | **PASS** (Turbopack compile clean) |
+| Next.js Build | `npm run build` | 32 routes | **PASS** (Turbopack compile clean) |

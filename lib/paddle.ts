@@ -480,6 +480,18 @@ export async function cancelPaddleSubscription(
 
     if (!response.ok) {
       const errText = await response.text();
+      const lower = errText.toLowerCase();
+      // If the subscription is already canceled/cancelled in Paddle, acknowledge as idempotent success
+      if (
+        lower.includes("already_canceled") ||
+        lower.includes("already_cancelled") ||
+        lower.includes("subscription_canceled") ||
+        lower.includes("subscription_cancelled") ||
+        lower.includes("subscription is already canceled") ||
+        lower.includes("subscription is already cancelled")
+      ) {
+        return { success: true, status: "canceled" };
+      }
       return {
         success: false,
         error: `Paddle cancellation returned HTTP ${response.status}: ${errText}`,

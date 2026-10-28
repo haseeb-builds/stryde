@@ -1,9 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   processPaddleWebhookRequest,
+  SupabaseWebhookDbClient,
   type WebhookDbClient,
+  type ProcessPaddleEventParams,
 } from "../lib/paddle-webhook.ts";
 
 function signPayload(body: string, secret: string, ts: number): string {
@@ -306,7 +309,7 @@ test("Paddle webhook: unknown price mapping fails closed and is quarantined", as
   assert.equal(res.status, 200);
   const data = await res.json();
   assert.equal(data.quarantined, true);
-  assert.equal(data.plan_id, "free");
+  assert.equal(data.received, true);
   assert.equal(capturedQuarantine, true);
   assert.equal(capturedPlanId, "free");
 });
@@ -361,4 +364,305 @@ test("Paddle webhook: retry after failure succeeds", async () => {
   assert.equal(res2.status, 200);
   const data2 = await res2.json();
   assert.equal(data2.updated, true);
+});
+
+test("Paddle webhook: conflicting payload detected for same event_id returns 409 Conflict", async () => {
+  const mockDb: WebhookDbClient = {
+    async processPaddleEventRpc(params) {
+      return {
+        success: false,
+        conflict: true,
+        error: "Conflicting payload detected for existing event_id",
+        event_id: params.p_event_id,
+      };
+    },
+  };
+
+  const body = JSON.stringify({
+    event_id: "evt_conflict_001",
+    event_type: "subscription.created",
+    occurred_at: "2026-10-27T12:00:00Z",
+    data: {
+      id: "sub_001",
+      customer_id: "ctm_001",
+      status: "active",
+      items: [{ price: { id: PRO_PRICE_ID } }],
+      custom_data: { owner_user_id: VALID_USER_ID },
+    },
+  });
+
+  const ts = Math.floor(Date.now() / 1000);
+  const sig = signPayload(body, TEST_SECRET, ts);
+
+  const req = new Request("https://example.com/api/v1/billing/webhook", {
+    method: "POST",
+    headers: { "paddle-signature": sig },
+    body,
+  });
+
+  const res = await processPaddleWebhookRequest(req, { env: TEST_ENV, dbClient: mockDb });
+  assert.equal(res.status, 409);
+  const data = await res.json();
+  assert.match(data.error, /conflicting payload/i);
+});
+
+test("Paddle webhook: retryable error returns 500", async () => {
+  const mockDb: WebhookDbClient = {
+    async processPaddleEventRpc(params) {
+      return {
+        success: false,
+        retryable: true,
+        error: "Database lock timeout",
+        event_id: params.p_event_id,
+      };
+    },
+  };
+
+  const body = JSON.stringify({
+    event_id: "evt_retryable_001",
+    event_type: "subscription.created",
+    occurred_at: "2026-10-27T12:00:00Z",
+    data: {
+      id: "sub_001",
+      customer_id: "ctm_001",
+      status: "active",
+      items: [{ price: { id: PRO_PRICE_ID } }],
+      custom_data: { owner_user_id: VALID_USER_ID },
+    },
+  });
+
+  const ts = Math.floor(Date.now() / 1000);
+  const sig = signPayload(body, TEST_SECRET, ts);
+
+  const req = new Request("https://example.com/api/v1/billing/webhook", {
+    method: "POST",
+    headers: { "paddle-signature": sig },
+    body,
+  });
+
+  const res = await processPaddleWebhookRequest(req, { env: TEST_ENV, dbClient: mockDb });
+  assert.equal(res.status, 500);
+  const data = await res.json();
+  assert.match(data.error, /database lock timeout/i);
+});
+
+test("Paddle webhook: quarantined event does not overwrite existing subscription in DB", async () => {
+  // Existing subscription is Pro
+  let subPlan = "pro";
+  let subStatus = "ACTIVE";
+
+  const mockDb: WebhookDbClient = {
+    async processPaddleEventRpc(params) {
+      if (params.p_quarantined) {
+        // Safe quarantine: do not touch subPlan or subStatus
+        return {
+          success: true,
+          quarantined: true,
+          event_id: params.p_event_id,
+          reason: params.p_quarantine_reason || "quarantined",
+        };
+      }
+      subPlan = params.p_plan_id;
+      subStatus = params.p_status;
+      return { success: true, updated: true };
+    },
+  };
+
+  // Malicious or unrecognized price webhook arrives
+  const body = JSON.stringify({
+    event_id: "evt_quarantine_preserves_sub",
+    event_type: "subscription.updated",
+    occurred_at: "2026-10-27T13:00:00Z",
+    data: {
+      id: "sub_001",
+      customer_id: "ctm_001",
+      status: "active",
+      items: [{ price: { id: "pri_unrecognized_custom" } }],
+      custom_data: { owner_user_id: VALID_USER_ID },
+    },
+  });
+
+  const ts = Math.floor(Date.now() / 1000);
+  const sig = signPayload(body, TEST_SECRET, ts);
+
+  const req = new Request("https://example.com/api/v1/billing/webhook", {
+    method: "POST",
+    headers: { "paddle-signature": sig },
+    body,
+  });
+
+  const res = await processPaddleWebhookRequest(req, { env: TEST_ENV, dbClient: mockDb });
+  assert.equal(res.status, 200);
+  const data = await res.json();
+  assert.equal(data.quarantined, true);
+  // Verified: existing Pro plan was NOT downgraded or altered
+  assert.equal(subPlan, "pro");
+  assert.equal(subStatus, "ACTIVE");
+});
+
+test("SupabaseWebhookDbClient: fallback compare-and-update when RPC is missing", async () => {
+  type UpsertedRow = { plan_id?: string; status?: string; [key: string]: unknown };
+  const captured: { row?: UpsertedRow } = {};
+
+  const mockSupabase = {
+    rpc: async () => ({
+      data: null,
+      error: { code: "42883", message: "function public.stryde_process_paddle_billing_event does not exist" },
+    }),
+    from: () => ({
+      select: () => ({
+        eq: () => ({
+          maybeSingle: async () => ({
+            data: {
+              owner_user_id: VALID_USER_ID,
+              last_event_at: "2026-10-27T10:00:00Z",
+              provider_subscription_ref: "sub_prev",
+              status: "ACTIVE",
+              plan_id: "free",
+            },
+            error: null,
+          }),
+        }),
+      }),
+      upsert: async (row: UpsertedRow) => {
+        captured.row = row;
+        return { error: null };
+      },
+    }),
+  } as unknown as SupabaseClient;
+
+  const client = new SupabaseWebhookDbClient(mockSupabase);
+
+  const params: ProcessPaddleEventParams = {
+    p_event_id: "evt_fallback_001",
+    p_event_type: "subscription.created",
+    p_occurred_at: "2026-10-27T11:00:00Z",
+    p_payload_sha256: "dummy_sha256",
+    p_owner_user_id: VALID_USER_ID,
+    p_plan_id: "pro",
+    p_provider: "paddle",
+    p_provider_customer_ref: "ctm_1",
+    p_provider_subscription_ref: "sub_new",
+    p_provider_status: "active",
+    p_status: "ACTIVE",
+    p_effective_at: "2026-10-27T11:00:00Z",
+    p_expires_at: null,
+  };
+
+  const result = await client.processPaddleEventRpc(params);
+  assert.equal(result.success, true);
+  assert.equal(result.updated, true);
+  assert.equal(captured.row?.plan_id, "pro");
+  assert.equal(captured.row?.status, "ACTIVE");
+});
+
+test("SupabaseWebhookDbClient: fallback preserves existing entitlement when quarantined", async () => {
+  let upsertCalled = false;
+
+  const mockSupabase = {
+    rpc: async () => ({
+      data: null,
+      error: { code: "42883", message: "function public.stryde_process_paddle_billing_event does not exist" },
+    }),
+    from: () => ({
+      select: () => ({
+        eq: () => ({
+          maybeSingle: async () => ({
+            data: {
+              owner_user_id: VALID_USER_ID,
+              last_event_at: "2026-10-27T10:00:00Z",
+              provider_subscription_ref: "sub_prev",
+              status: "ACTIVE",
+              plan_id: "pro",
+            },
+            error: null,
+          }),
+        }),
+      }),
+      upsert: async () => {
+        upsertCalled = true;
+        return { error: null };
+      },
+    }),
+  } as unknown as SupabaseClient;
+
+  const client = new SupabaseWebhookDbClient(mockSupabase);
+
+  const params: ProcessPaddleEventParams = {
+    p_event_id: "evt_fallback_quarantine",
+    p_event_type: "subscription.updated",
+    p_occurred_at: "2026-10-27T12:00:00Z",
+    p_payload_sha256: "dummy_sha256",
+    p_owner_user_id: VALID_USER_ID,
+    p_plan_id: "free",
+    p_provider: "paddle",
+    p_provider_customer_ref: "ctm_1",
+    p_provider_subscription_ref: "sub_prev",
+    p_provider_status: "active",
+    p_status: "ACTIVE",
+    p_effective_at: "2026-10-27T12:00:00Z",
+    p_expires_at: null,
+    p_quarantined: true,
+    p_quarantine_reason: "Unrecognized price mapping: pri_fake",
+  };
+
+  const result = await client.processPaddleEventRpc(params);
+  assert.equal(result.success, true);
+  assert.equal(result.quarantined, true);
+  assert.equal(upsertCalled, false); // Crucial: upsert MUST NOT be called!
+});
+
+test("SupabaseWebhookDbClient: fallback ignores out-of-order stale events", async () => {
+  let upsertCalled = false;
+
+  const mockSupabase = {
+    rpc: async () => ({
+      data: null,
+      error: { code: "42883", message: "function public.stryde_process_paddle_billing_event does not exist" },
+    }),
+    from: () => ({
+      select: () => ({
+        eq: () => ({
+          maybeSingle: async () => ({
+            data: {
+              owner_user_id: VALID_USER_ID,
+              last_event_at: "2026-10-27T12:00:00Z", // Newer event already processed
+              provider_subscription_ref: "sub_prev",
+              status: "ACTIVE",
+              plan_id: "pro",
+            },
+            error: null,
+          }),
+        }),
+      }),
+      upsert: async () => {
+        upsertCalled = true;
+        return { error: null };
+      },
+    }),
+  } as unknown as SupabaseClient;
+
+  const client = new SupabaseWebhookDbClient(mockSupabase);
+
+  const params: ProcessPaddleEventParams = {
+    p_event_id: "evt_fallback_stale",
+    p_event_type: "subscription.past_due",
+    p_occurred_at: "2026-10-27T11:00:00Z", // Older timestamp
+    p_payload_sha256: "dummy_sha256",
+    p_owner_user_id: VALID_USER_ID,
+    p_plan_id: "pro",
+    p_provider: "paddle",
+    p_provider_customer_ref: "ctm_1",
+    p_provider_subscription_ref: "sub_prev",
+    p_provider_status: "past_due",
+    p_status: "PAST_DUE",
+    p_effective_at: "2026-10-27T11:00:00Z",
+    p_expires_at: null,
+  };
+
+  const result = await client.processPaddleEventRpc(params);
+  assert.equal(result.success, true);
+  assert.equal(result.ignored, true);
+  assert.equal(result.reason, "stale_event");
+  assert.equal(upsertCalled, false);
 });

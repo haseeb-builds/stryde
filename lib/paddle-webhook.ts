@@ -33,6 +33,8 @@ export type ProcessPaddleEventResult = {
   updated?: boolean;
   duplicate?: boolean;
   ignored?: boolean;
+  conflict?: boolean;
+  retryable?: boolean;
   concurrent_processing?: boolean;
   reason?: string;
   occurred_at?: string;
@@ -49,8 +51,14 @@ export interface WebhookDbClient {
 }
 
 export class SupabaseWebhookDbClient implements WebhookDbClient {
+  private customSupabase?: ReturnType<typeof getSupabaseServiceClient>;
+
+  constructor(customSupabase?: ReturnType<typeof getSupabaseServiceClient>) {
+    this.customSupabase = customSupabase;
+  }
+
   async processPaddleEventRpc(params: ProcessPaddleEventParams): Promise<ProcessPaddleEventResult> {
-    const supabase = getSupabaseServiceClient();
+    const supabase = this.customSupabase || getSupabaseServiceClient();
 
     // Call atomic RPC
     const { data, error } = await supabase.rpc("stryde_process_paddle_billing_event", params);
@@ -77,6 +85,18 @@ export class SupabaseWebhookDbClient implements WebhookDbClient {
     supabase: ReturnType<typeof getSupabaseServiceClient>,
     params: ProcessPaddleEventParams
   ): Promise<ProcessPaddleEventResult> {
+    // If quarantined due to unrecognized price ID, do not overwrite existing paid entitlement
+    if (params.p_quarantined) {
+      return {
+        success: true,
+        quarantined: true,
+        event_id: params.p_event_id,
+        reason:
+          params.p_quarantine_reason ||
+          "Unrecognized price plan quarantined; existing subscription preserved",
+      };
+    }
+
     const { data: existing, error: queryError } = await supabase
       .from("subscription_state")
       .select("owner_user_id, last_event_at, provider_subscription_ref, status, plan_id")
@@ -249,6 +269,14 @@ export async function processPaddleWebhookRequest(
       p_quarantine_reason: update.quarantineReason || null,
     });
 
+    if (result.conflict) {
+      console.warn(`[billing/webhook] conflicting payload detected for event ${event.event_id}`);
+      return Response.json(
+        { error: "Conflicting payload detected for existing event_id" },
+        { status: 409 }
+      );
+    }
+
     if (result.concurrent_processing) {
       console.warn(`[billing/webhook] concurrent processing in progress for event ${event.event_id}`);
       return Response.json(
@@ -257,11 +285,33 @@ export async function processPaddleWebhookRequest(
       );
     }
 
+    if (result.retryable || (!result.success && result.error)) {
+      console.error(
+        `[billing/webhook] retryable error processing event ${event.event_id}:`,
+        result.error
+      );
+      return Response.json(
+        { error: result.error || "Retryable processing failure" },
+        { status: 500 }
+      );
+    }
+
     if (result.duplicate) {
       return Response.json({
         received: true,
         duplicate: true,
         event_id: event.event_id,
+      });
+    }
+
+    if (result.quarantined) {
+      return Response.json({
+        received: true,
+        quarantined: true,
+        event_id: event.event_id,
+        reason:
+          result.reason ||
+          "Unrecognized price plan quarantined; existing subscription preserved",
       });
     }
 
