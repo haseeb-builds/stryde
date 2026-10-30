@@ -1,3 +1,55 @@
+## 2026-10-30 — Stryde Pre-Launch Verification, AppSec Hardening & Legal Compliance Mandate Complete (`ops/agent-maintainability-production-readiness`)
+
+### Branch status
+- Branch: `ops/agent-maintainability-production-readiness` on [PR #15](https://github.com/haseeb-builds/stryde/pull/15), base `main` at `f1d2cd0161cfa7f5189f6e363a0e87818145589b`.
+- **Pre-Launch Engineering, Legal & AppSec Outcomes:**
+  - **Statutory Legal & Privacy Compliance Harmonization:**
+    - Corrected table count in `app/privacy/page.tsx` from outdated 30 to 40 verified user-scoped tables matching `lib/account-deletion.ts` (`ORDERED_USER_TABLES`).
+    - Added statutory financial tax retention clause documenting mandatory 7-year invoice retention under UK HMRC / EU VAT laws for Paddle.com (Merchant of Record).
+    - Added essential authentication cookies and local storage disclosures (`sb-*-auth-token`).
+    - Added COPPA & GDPR Art. 8 age restrictions (13+ US, 16+ EEA/UK).
+    - Clarified transient model data processing with zero foundation model training under commercial enterprise API terms.
+    - Added Data Subject Access Request (DSAR) and portability procedure with 30-day statutory response timeline via `privacy@stryde.dev`.
+    - Added Delaware governing law, informal dispute resolution, AAA binding individual arbitration, class action waiver, and comprehensive limitation of liability in `app/terms/page.tsx`.
+    - Added visible landing page and workspace footers linking to `/terms`, `/privacy`, and `privacy@stryde.dev` (required for Paddle Merchant-of-Record underwriting), a legal consent notice in the auth modal, a confirmation-gated (`DELETE`) self-serve account deletion UI modal in the workspace wired to `DELETE /api/v1/user/account`, and removed internal founder payout/script notes from customer-facing copy in `app/page.tsx`.
+    - Verified by new test suite `tests/legal-compliance-disclosures.test.ts` (4/4 pass).
+  - **AppSec Hardening (0 to 100):**
+    - Hardened SSRF defense in `lib/sanitization.ts` and `lib/ssrf.ts`: comprehensive detection and rejection of private IPv4 (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 127.0.0.0/8, 169.254.0.0/16 metadata, 0.0.0.0/8, CGNAT 100.64.0.0/10, multicast/reserved), decimal/hex/octal encoded IP bypasses (e.g. 2130706433, 0x7f000001, 0177.0.0.1), IPv6 loopback (::1, ::), IPv4-mapped IPv6 hex variations (::ffff:7f00:1), unique local (fc00::/7), link-local (fe80::/10), internal TLDs (`.local`, `.internal`, `.localhost`, `.lan`, `.localdomain`, `.home.arpa`), and FQDN trailing-dot bypasses (`localhost.`, `metadata.google.internal.`).
+    - Enforced strict fail-closed write barrier verification in `lib/account-deletion.ts` so account purge aborts immediately if `auth.admin.updateUserById` returns an error or throws.
+    - Added global HTTP security headers (`X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: strict-origin-when-cross-origin`, `Permissions-Policy: camera=(), microphone=(), geolocation=()`) in `next.config.ts`.
+    - Verified by `tests/markdown-sanitization.test.ts` (11/11 pass), `tests/page-fetch-ssrf.test.ts` (3/3 pass), and `tests/user-account-deletion.test.ts` (10/10 pass).
+  - **Rendered Visual QA (Real Browser Verification):**
+    - Rendered live application via Puppeteer across desktop (1440×900), common laptop (1280×800), and mobile (390×844).
+    - Verified intake composer, live goal input, accessible auth modal with backdrop blur and form controls, `/privacy`, `/terms`, mobile 390px navbar button layout (`whitespace-nowrap`), and `Escape` key modal dismissal.
+    - Checked against `docs/AI_WEBSITE_DESIGN_ANTI_PATTERNS.md` (high contrast WCAG AA, no generic violet gradients, no fake controls, zero horizontal clipping).
+  - **Verification Matrix:**
+    - Full test suite: **426 passed, 0 failed across 53 test suites**.
+    - TypeScript: **0 errors** (`npx tsc --noEmit`).
+    - ESLint: **0 errors, 0 warnings** (`npm run lint`).
+    - Supply chain audit: **0 vulnerabilities** (`npm audit --omit=dev`).
+    - Production build: **Clean Turbopack compile across all 32 static/dynamic routes** (`npm run build`).
+
+## 2026-10-28 — Stryde Agent-Maintainability and Production-Readiness Mandate Final Verification Complete (`ops/agent-maintainability-production-readiness`)
+
+### Branch status
+- Branch: `ops/agent-maintainability-production-readiness` on [PR #15](https://github.com/haseeb-builds/stryde/pull/15), base `main` at `f1d2cd0161cfa7f5189f6e363a0e87818145589b`.
+- **Engineering Outcome:**
+  - Full execution of `docs/AGENT_MAINTAINABILITY_AND_PRODUCTION_READINESS_MANDATE.md` complete and verified.
+  - Durable progress ledger maintained at `docs/EXECUTION_LOG_MANDATE_20261027.md`.
+  - 416/416 unit/integration tests passing across 52 test suites (0 failed).
+  - TypeScript clean (`npx tsc --noEmit`), ESLint clean (`npm run lint`), zero production CVEs (`npm audit --omit=dev`), Next.js Turbopack build clean (32 static/dynamic routes compiled).
+  - CodeRabbit PR #14 findings (all 24 threads) triaged, resolved, and verified.
+  - **Correctness & Security Remediations Delivered (TDD):**
+    1. Turn Idempotency (`lib/idempotency.ts`): Deterministic RFC 4122 v5 UUID mapping over fixed namespace preventing Postgres UUID cast crashes, header/body precedence resolution, duplicate vs conflicting payload 409 handling.
+    2. Model Provider & AI Request Boundaries (`lib/model-provider.ts`, `lib/model-gateway.ts`): Stream cancellation propagation via AbortController, `120_000` chars assembled prompt limit, structured prompt injection delimiters (`<<<UNTRUSTED_INPUT_DATA>>>`) and escaping.
+    3. Account Deletion & Concurrent Write Barrier (`lib/account-deletion.ts`, `app/api/v1/user/account/route.ts`, `lib/supabase/server.ts`): Write barrier enforced via `auth.admin.updateUserById(cleanUserId, { app_metadata: { deletion_in_progress: true } })` locking out concurrent user API requests (`AccountDeletionLockedError` / HTTP 423), cancellation of queued/leased worker jobs, Paddle Billing v2 subscription cancellation first across all active/billable/retryable states (`ACTIVE`, `TRIALING`, `PAST_DUE`, `PAUSED`, `UNKNOWN`), topological leaf-to-root purge of 40 real user-scoped tables, retryable via `{ allowDeletionInProgress: true }`, fail-closed auth identity retention.
+    4. Paddle Webhook Atomic Deduplication & Ordering (`supabase/migrations/20261027180000_billing_webhook_atomic_ledger.sql`, `lib/paddle-webhook.ts`): Durable ledger table, first-delivery atomic claim via `INSERT ... ON CONFLICT DO NOTHING`, payload SHA-256 conflict detection (HTTP 409), canonical outcome preservation (conflicting deliveries do NOT overwrite completed events, preventing re-processing), subtransaction failure persistence, safe quarantine preserving existing paid entitlements, removal of unsafe read-then-upsert fallback (fails retryable HTTP 500 when RPC is missing to await migration), 409 Conflict with Retry-After on concurrent delivery, stale event rejection.
+    5. URL & Markdown Sanitization (`lib/sanitization.ts`, `markdown-content.tsx`): Strict blocking of protocol-relative backslash variations (`/\`, `\\`, `/\\`), code block protection during HTML tag stripping.
+    6. Cross-Tenant Authorization: Verified `auth.uid()` caller validation across 5 `SECURITY DEFINER` functions, documented `public.loops` as intentionally deny-all.
+    7. Privacy & Terms Pages: Created `app/privacy/page.tsx` and `app/terms/page.tsx` strictly based on verified data flows and actual subprocessors.
+    8. Health Check: Added `app/api/health/route.ts` lightweight probe; verified `app/api/health/model/route.ts` has zero secret leakage and bounded 60s probe caching.
+    9. CI Alignment: Updated `.github/workflows/ci.yml` from Node 22 to Node 24 matching Vercel and local environments.
+
 ## 2026-10-22 — Engineering-Complete V1 Candidate & Google Stitch Handoff Pack (`fix/conversation-turn-reliability`)
 
 ### Branch status
