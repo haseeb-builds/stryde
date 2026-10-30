@@ -179,11 +179,13 @@
 | AI Prompt Delimiters | `tests/prompt-injection-guard.test.ts` | 2 | **PASS** |
 | AI Request Boundaries | `tests/model-provider-retry.test.ts` | 7 | **PASS** |
 | Account Deletion | `tests/user-account-deletion.test.ts` | 9 | **PASS** |
-| Markdown Sanitization | `tests/markdown-sanitization.test.ts` | 6 | **PASS** |
+| Markdown Sanitization & SSRF | `tests/markdown-sanitization.test.ts` | 11 | **PASS** |
+| Legal & Statutory Disclosures | `tests/legal-compliance-disclosures.test.ts` | 3 | **PASS** |
 | Webhook Processing | `tests/paddle-webhook-processing.test.ts` | 14 | **PASS** |
 | Cross-Tenant Auth & Write Barrier | `tests/authorization-cross-tenant.test.ts` | 6 | **PASS** |
-| Complete Suite | All 52 test suites (`npm test`) | 416 | **PASS** (416 passed, 0 failed) |
+| Complete Suite | All 53 test suites (`npm test`) | 424 | **PASS** (424 passed, 0 failed) |
 | TypeScript | `npx tsc --noEmit` | - | **PASS** (0 errors) |
 | ESLint | `npm run lint` | - | **PASS** (0 errors, 0 warnings) |
 | Dependency Audit | `npm audit --omit=dev` | - | **PASS** (0 vulnerabilities) |
 | Next.js Build | `npm run build` | 32 routes | **PASS** (Turbopack compile clean) |
+| Visual QA (Puppeteer Browser) | 7 viewports / routes (1440x900, 1280x800, 390x844) | 10 screenshots | **PASS** (Verified rendering, modal, form) |
