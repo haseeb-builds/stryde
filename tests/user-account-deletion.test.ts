@@ -461,3 +461,36 @@ test("unlockUserAccount administrative recovery helper clears deletion_in_progre
   await unlockUserAccount(mockClient, "user-unlock-test");
   assert.equal(clearedBarrier, true);
 });
+
+test("cascadeDeleteUserData fails closed if write barrier updateUserById returns an error", async () => {
+  let deletedAnyTable = false;
+
+  const mockClient = {
+    from: () => ({
+      delete: () => ({
+        eq: async () => {
+          deletedAnyTable = true;
+          return { error: null };
+        },
+      }),
+    }),
+    auth: {
+      admin: {
+        updateUserById: async () => ({
+          data: null,
+          error: { message: "Auth admin service unavailable" },
+        }),
+      },
+    },
+  } as unknown as SupabaseClient;
+
+  await assert.rejects(
+    () => cascadeDeleteUserData(mockClient, "user-barrier-fail"),
+    /Failed to establish account deletion write barrier: Auth admin service unavailable/
+  );
+  assert.equal(
+    deletedAnyTable,
+    false,
+    "Zero user tables may be deleted when write barrier fails"
+  );
+});

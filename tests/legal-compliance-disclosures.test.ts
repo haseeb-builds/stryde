@@ -146,3 +146,30 @@ test("Terms of Service contains required pre-launch liability protections", () =
     "Must prohibit attempts to bypass multi-tenant security",
   );
 });
+
+test("Landing page and workspace surface legal links, self-serve account deletion, and clean customer copy", () => {
+  const homePath = path.join(process.cwd(), "app/page.tsx");
+  const homeContent = fs.readFileSync(homePath, "utf-8");
+
+  // 1. Links to Terms of Service and Privacy Policy (required for Paddle MoR & GDPR)
+  assert.ok(
+    homeContent.includes('href="/terms"') && homeContent.includes('href="/privacy"'),
+    "Home page must link visibly to /terms and /privacy",
+  );
+
+  // 2. Self-serve account deletion UI wired to DELETE /api/v1/user/account
+  assert.ok(
+    homeContent.includes("/api/v1/user/account") && homeContent.includes('method: "DELETE"'),
+    "Authenticated workspace must provide self-serve account deletion UI wired to DELETE /api/v1/user/account",
+  );
+
+  // 3. No leaked internal founder payout notes or internal repo script names
+  assert.ok(
+    !homeContent.includes("Payoneer") && !homeContent.includes("supporting Pakistani"),
+    "Customer-facing pricing copy must not leak internal founder payout notes",
+  );
+  assert.ok(
+    !homeContent.includes("probe-research") && !homeContent.includes("probe-paddle"),
+    "Public demo scenarios must not leak internal repository script names",
+  );
+});

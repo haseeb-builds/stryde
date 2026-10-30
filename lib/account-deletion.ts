@@ -137,18 +137,27 @@ export async function cascadeDeleteUserData(
   // 0. Establish Write Barrier: mark deletion in progress on Auth user metadata
   // This immediately locks the account so that concurrent requests to any API route
   // calling requireAuthenticatedSupabase are rejected with AccountDeletionLockedError.
+  // Fail-closed: if the write barrier cannot be established, abort before deleting tables.
   if (serviceClient.auth?.admin?.updateUserById) {
+    let barrierErrorMsg: string | null = null;
     try {
-      await serviceClient.auth.admin.updateUserById(cleanUserId, {
+      const barrierResult = await serviceClient.auth.admin.updateUserById(cleanUserId, {
         app_metadata: {
           deletion_in_progress: true,
           deletion_started_at: new Date().toISOString(),
         },
       });
+      if (barrierResult?.error) {
+        barrierErrorMsg = barrierResult.error.message || "Auth metadata update error";
+      }
     } catch (barrierErr) {
-      console.warn(
-        `[account/deletion] write barrier update warning for user ${cleanUserId}:`,
-        barrierErr
+      barrierErrorMsg =
+        barrierErr instanceof Error ? barrierErr.message : String(barrierErr);
+    }
+
+    if (barrierErrorMsg) {
+      throw new Error(
+        `Failed to establish account deletion write barrier: ${barrierErrorMsg}. Deletion aborted before modifying user data.`
       );
     }
   }

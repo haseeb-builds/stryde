@@ -126,6 +126,11 @@ test("SSRF Defense: sanitizeUrl strictly blocks internal and local hostnames", (
     "http://nas.lan",
     "http://database.localdomain",
     "http://printer.home.arpa",
+    // Trailing-dot FQDN root-zone bypass vectors
+    "http://localhost./admin",
+    "http://metadata.google.internal./computeMetadata/v1",
+    "http://router.local./",
+    "http://127.0.0.1./admin",
   ];
 
   for (const url of internalHosts) {

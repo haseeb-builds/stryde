@@ -147,14 +147,26 @@
   - Zero secrets or sensitive payloads logged.
 - **Verification:** `tests/paddle-webhook-processing.test.ts` (14/14 pass).
 
-### 4.5 URL & Markdown Sanitization (`lib/sanitization.ts`)
+### 4.5 URL, Markdown Sanitization, SSRF & HTTP Security Headers (`lib/sanitization.ts`, `next.config.ts`)
 - **Problem:**
   - Browsers interpret `/\attacker.com` or `/\\attacker.com` as protocol-relative URLs (`//attacker.com`). A simple `.startsWith("/")` check allowed open redirect and SSRF bypass.
+  - Fully-qualified domain names with a trailing root dot (e.g., `http://localhost./admin`, `http://metadata.google.internal./`) bypassed exact hostname and `.endsWith(".internal")` checks.
   - Raw HTML stripping stripped harmless HTML tags inside fenced code blocks.
+  - Missing global browser hardening headers (`X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy`) in `next.config.ts`.
 - **Solution:**
-  - `sanitizeUrl`: Strictly rejects backslash variations (`/\`, `\\`, `/\\`) and non-allowlisted schemes.
+  - `sanitizeUrl` & `isPrivateHost`: Strictly rejects backslash variations (`/\`, `\\`, `/\\`), strips trailing root dots (`.replace(/\.+$/, "")`), decodes hex/octal/decimal IPv4 and IPv4-mapped IPv6 (`::ffff:7f00:1`), and blocks all loopback, private, link-local, metadata, and internal TLD targets.
   - `stripRawHtmlPreservingCode`: Extracts code spans and fenced blocks into placeholders before stripping HTML, then restores them intact.
-- **Verification:** `tests/markdown-sanitization.test.ts` (6/6 pass).
+  - `next.config.ts`: Added global HTTP security headers (`X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: strict-origin-when-cross-origin`, `Permissions-Policy: camera=(), microphone=(), geolocation=()`).
+- **Verification:** `tests/markdown-sanitization.test.ts` (11/11 pass).
+
+### 4.6 Pre-Launch UI, Legal & Underwriting Hardening (`app/page.tsx`, `lib/account-deletion.ts`)
+- **Problem:**
+  - `serviceClient.auth.admin.updateUserById` in `lib/account-deletion.ts` returns `{ data, error }` rather than throwing on error, and the previous `try/catch` only logged `console.warn`, allowing account deletion to proceed without a write barrier if the metadata update failed.
+  - `app/page.tsx` lacked visible footer links to `/terms` and `/privacy` (a mandatory Paddle Merchant-of-Record underwriting requirement), lacked a self-serve "Delete account & erase data" UI button in the authenticated workspace, leaked internal founder payout notes (`"supporting Pakistani software businesses with direct SWIFT and Payoneer payouts"`), leaked internal test script names (`probe-research & probe-paddle`), and wrapped navbar CTA buttons onto two lines on 390px mobile screens.
+- **Solution:**
+  - `lib/account-deletion.ts`: Enforced strict fail-closed write barrier verification (`if (barrierResult?.error) throw ...`) before any table purge begins.
+  - `app/page.tsx`: Added landing and workspace footers linking to `/terms`, `/privacy`, and `privacy@stryde.dev`; added legal notice inside the auth modal; added a confirmation-gated (`DELETE`) self-serve account deletion modal wired to `DELETE /api/v1/user/account`; replaced internal founder/repo copy with clean customer-facing B2B copy; fixed 390px mobile navbar wrapping and added `Escape` key modal dismissal.
+- **Verification:** `tests/user-account-deletion.test.ts` (10/10 pass) and `tests/legal-compliance-disclosures.test.ts` (4/4 pass).
 
 ---
 
@@ -178,12 +190,12 @@
 | Turn Idempotency | `tests/turn-idempotency.test.ts` | 10 | **PASS** |
 | AI Prompt Delimiters | `tests/prompt-injection-guard.test.ts` | 2 | **PASS** |
 | AI Request Boundaries | `tests/model-provider-retry.test.ts` | 7 | **PASS** |
-| Account Deletion | `tests/user-account-deletion.test.ts` | 9 | **PASS** |
+| Account Deletion & Fail-Closed Barrier | `tests/user-account-deletion.test.ts` | 10 | **PASS** |
 | Markdown Sanitization & SSRF | `tests/markdown-sanitization.test.ts` | 11 | **PASS** |
-| Legal & Statutory Disclosures | `tests/legal-compliance-disclosures.test.ts` | 3 | **PASS** |
+| Legal, Underwriting & UI Disclosures | `tests/legal-compliance-disclosures.test.ts` | 4 | **PASS** |
 | Webhook Processing | `tests/paddle-webhook-processing.test.ts` | 14 | **PASS** |
 | Cross-Tenant Auth & Write Barrier | `tests/authorization-cross-tenant.test.ts` | 6 | **PASS** |
-| Complete Suite | All 53 test suites (`npm test`) | 424 | **PASS** (424 passed, 0 failed) |
+| Complete Suite | All 53 test suites (`npm test`) | 426 | **PASS** (426 passed, 0 failed) |
 | TypeScript | `npx tsc --noEmit` | - | **PASS** (0 errors) |
 | ESLint | `npm run lint` | - | **PASS** (0 errors, 0 warnings) |
 | Dependency Audit | `npm audit --omit=dev` | - | **PASS** (0 vulnerabilities) |

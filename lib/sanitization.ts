@@ -13,7 +13,9 @@
  */
 export function isPrivateHost(hostname: string): boolean {
   if (!hostname) return false;
-  const host = hostname.toLowerCase().trim().replace(/^\[|\]$/g, "");
+  // Strip IPv6 brackets and trailing FQDN root dots (e.g. "localhost." or "metadata.google.internal.")
+  const host = hostname.toLowerCase().trim().replace(/^\[|\]$/g, "").replace(/\.+$/, "");
+  if (!host) return true;
 
   // Special internal hostnames and TLDs
   if (

@@ -10,16 +10,19 @@
     - Clarified transient model data processing with zero foundation model training under commercial enterprise API terms.
     - Added Data Subject Access Request (DSAR) and portability procedure with 30-day statutory response timeline via `privacy@stryde.dev`.
     - Added Delaware governing law, informal dispute resolution, AAA binding individual arbitration, class action waiver, and comprehensive limitation of liability in `app/terms/page.tsx`.
-    - Verified by new test suite `tests/legal-compliance-disclosures.test.ts` (3/3 pass).
+    - Added visible landing page and workspace footers linking to `/terms`, `/privacy`, and `privacy@stryde.dev` (required for Paddle Merchant-of-Record underwriting), a legal consent notice in the auth modal, a confirmation-gated (`DELETE`) self-serve account deletion UI modal in the workspace wired to `DELETE /api/v1/user/account`, and removed internal founder payout/script notes from customer-facing copy in `app/page.tsx`.
+    - Verified by new test suite `tests/legal-compliance-disclosures.test.ts` (4/4 pass).
   - **AppSec Hardening (0 to 100):**
-    - Hardened SSRF defense in `lib/sanitization.ts` and `lib/ssrf.ts`: comprehensive detection and rejection of private IPv4 (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 127.0.0.0/8, 169.254.0.0/16 metadata, 0.0.0.0/8, CGNAT 100.64.0.0/10, multicast/reserved), decimal/hex/octal encoded IP bypasses (e.g. 2130706433, 0x7f000001, 0177.0.0.1), IPv6 loopback (::1, ::), IPv4-mapped IPv6 hex variations (::ffff:7f00:1), unique local (fc00::/7), link-local (fe80::/10), and internal TLDs (`.local`, `.internal`, `.localhost`, `.lan`, `.localdomain`, `.home.arpa`).
-    - Verified by `tests/markdown-sanitization.test.ts` (11/11 pass) and `tests/page-fetch-ssrf.test.ts` (3/3 pass).
+    - Hardened SSRF defense in `lib/sanitization.ts` and `lib/ssrf.ts`: comprehensive detection and rejection of private IPv4 (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 127.0.0.0/8, 169.254.0.0/16 metadata, 0.0.0.0/8, CGNAT 100.64.0.0/10, multicast/reserved), decimal/hex/octal encoded IP bypasses (e.g. 2130706433, 0x7f000001, 0177.0.0.1), IPv6 loopback (::1, ::), IPv4-mapped IPv6 hex variations (::ffff:7f00:1), unique local (fc00::/7), link-local (fe80::/10), internal TLDs (`.local`, `.internal`, `.localhost`, `.lan`, `.localdomain`, `.home.arpa`), and FQDN trailing-dot bypasses (`localhost.`, `metadata.google.internal.`).
+    - Enforced strict fail-closed write barrier verification in `lib/account-deletion.ts` so account purge aborts immediately if `auth.admin.updateUserById` returns an error or throws.
+    - Added global HTTP security headers (`X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: strict-origin-when-cross-origin`, `Permissions-Policy: camera=(), microphone=(), geolocation=()`) in `next.config.ts`.
+    - Verified by `tests/markdown-sanitization.test.ts` (11/11 pass), `tests/page-fetch-ssrf.test.ts` (3/3 pass), and `tests/user-account-deletion.test.ts` (10/10 pass).
   - **Rendered Visual QA (Real Browser Verification):**
     - Rendered live application via Puppeteer across desktop (1440×900), common laptop (1280×800), and mobile (390×844).
-    - Verified intake composer, live goal input, accessible auth modal with backdrop blur and form controls, `/privacy`, and `/terms`.
+    - Verified intake composer, live goal input, accessible auth modal with backdrop blur and form controls, `/privacy`, `/terms`, mobile 390px navbar button layout (`whitespace-nowrap`), and `Escape` key modal dismissal.
     - Checked against `docs/AI_WEBSITE_DESIGN_ANTI_PATTERNS.md` (high contrast WCAG AA, no generic violet gradients, no fake controls, zero horizontal clipping).
   - **Verification Matrix:**
-    - Full test suite: **424 passed, 0 failed across 53 test suites**.
+    - Full test suite: **426 passed, 0 failed across 53 test suites**.
     - TypeScript: **0 errors** (`npx tsc --noEmit`).
     - ESLint: **0 errors, 0 warnings** (`npm run lint`).
     - Supply chain audit: **0 vulnerabilities** (`npm audit --omit=dev`).
