@@ -72,13 +72,13 @@ export function resolveTurnKey(
     };
   }
 
-  const headerKey =
-    headers.get("idempotency-key") || headers.get("x-idempotency-key");
-  if (headerKey && headerKey.trim().length > 0) {
-    const rawKey = headerKey.trim();
+  const idKey = headers.get("idempotency-key")?.trim();
+  const xIdKey = headers.get("x-idempotency-key")?.trim();
+  const rawHeader = idKey && idKey.length > 0 ? idKey : xIdKey && xIdKey.length > 0 ? xIdKey : null;
+  if (rawHeader) {
     return {
-      rawKey,
-      uuidKey: turnKeyToUuid(rawKey),
+      rawKey: rawHeader,
+      uuidKey: turnKeyToUuid(rawHeader),
       source: "header",
     };
   }

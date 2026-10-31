@@ -480,9 +480,19 @@ export async function cancelPaddleSubscription(
 
     if (!response.ok) {
       const errText = await response.text();
+      let errorCode = "";
+      try {
+        const parsed = JSON.parse(errText);
+        errorCode = (parsed?.error?.code || "").toLowerCase();
+      } catch {
+        // Not JSON
+      }
       const lower = errText.toLowerCase();
       // If the subscription is already canceled/cancelled in Paddle, acknowledge as idempotent success
       if (
+        errorCode === "subscription_is_canceled" ||
+        errorCode === "subscription_is_cancelled" ||
+        errorCode === "subscription_locked_renewal" ||
         lower.includes("already_canceled") ||
         lower.includes("already_cancelled") ||
         lower.includes("subscription_canceled") ||
@@ -492,6 +502,26 @@ export async function cancelPaddleSubscription(
       ) {
         return { success: true, status: "canceled" };
       }
+
+      // For 4xx response, query GET /subscriptions/{id} to verify if already canceled
+      if (response.status >= 400 && response.status < 500) {
+        try {
+          const checkRes = await fetchImpl(`${config.baseUrl}/subscriptions/${encodeURIComponent(subscriptionRef)}`, {
+            headers: { Authorization: `Bearer ${config.apiKey}` },
+            cache: "no-store",
+          });
+          if (checkRes.ok) {
+            const checkData = (await checkRes.json()) as { data?: { status?: string } };
+            const currentStatus = checkData?.data?.status?.toLowerCase();
+            if (currentStatus === "canceled" || currentStatus === "cancelled") {
+              return { success: true, status: "canceled" };
+            }
+          }
+        } catch {
+          // Fall through to error
+        }
+      }
+
       return {
         success: false,
         error: `Paddle cancellation returned HTTP ${response.status}: ${errText}`,

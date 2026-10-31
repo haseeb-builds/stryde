@@ -254,9 +254,11 @@ export default function HomePage() {
   function validateCredentials() {
     if (!email.trim()) return "Enter your email address.";
     if (!password) return "Enter a password.";
-    if (password.length < 8) return "Password must be at least 8 characters.";
-    if (TRIVIAL_PASSWORDS.has(password.toLowerCase())) {
-      return "Please choose a more secure password.";
+    if (authMode === "signup") {
+      if (password.length < 8) return "Password must be at least 8 characters.";
+      if (TRIVIAL_PASSWORDS.has(password.toLowerCase())) {
+        return "Please choose a more secure password.";
+      }
     }
     return null;
   }

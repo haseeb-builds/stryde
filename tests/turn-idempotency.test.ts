@@ -71,6 +71,18 @@ test("resolveTurnKey accepts x-idempotency-key header", () => {
   assert.equal(resolved.source, "header");
 });
 
+test("resolveTurnKey falls back from whitespace-only idempotency-key to valid x-idempotency-key", () => {
+  const headers = new Headers({
+    "idempotency-key": "   ",
+    "x-idempotency-key": "x-fallback-key-456",
+  });
+
+  const resolved = resolveTurnKey(undefined, headers);
+  assert.ok(resolved);
+  assert.equal(resolved.rawKey, "x-fallback-key-456");
+  assert.equal(resolved.source, "header");
+});
+
 test("resolveTurnKey returns null when neither body nor header key is provided", () => {
   const headers = new Headers();
   const resolved = resolveTurnKey(undefined, headers);

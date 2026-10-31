@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import type { User } from "@supabase/supabase-js";
 import { normalizePaddleBillingEvent } from "../lib/paddle.ts";
-import { AccountDeletionLockedError } from "../lib/supabase/server.ts";
+import { AccountDeletionLockedError, assertNotDeletionLocked } from "../lib/supabase/server.ts";
 
 test("Cross-tenant security: Artifact revision caller identity and ownership isolation", () => {
   const userA = "11111111-1111-4111-8111-111111111111";
@@ -155,22 +155,15 @@ test("Account deletion write barrier: requireAuthenticatedSupabase rejects concu
     created_at: new Date().toISOString(),
   } as unknown as User;
 
-  function checkWriteBarrier(user: User, options?: { allowDeletionInProgress?: boolean }) {
-    if (user.app_metadata?.deletion_in_progress && !options?.allowDeletionInProgress) {
-      throw new AccountDeletionLockedError();
-    }
-    return true;
-  }
-
-  // Normal user proceeds
-  assert.equal(checkWriteBarrier(normalUser), true);
+  // Normal user proceeds without error
+  assert.doesNotThrow(() => assertNotDeletionLocked(normalUser));
 
   // Locked user is rejected with AccountDeletionLockedError
   assert.throws(
-    () => checkWriteBarrier(lockedUser),
+    () => assertNotDeletionLocked(lockedUser),
     AccountDeletionLockedError
   );
 
   // Locked user with allowDeletionInProgress: true proceeds (for idempotent retry of DELETE /api/v1/user/account)
-  assert.equal(checkWriteBarrier(lockedUser, { allowDeletionInProgress: true }), true);
+  assert.doesNotThrow(() => assertNotDeletionLocked(lockedUser, { allowDeletionInProgress: true }));
 });

@@ -195,9 +195,35 @@ export async function cascadeDeleteUserData(
     const cancelFn = options?.paddleCancelImpl ?? cancelPaddleSubscription;
     const cancelResult = await cancelFn(subState.provider_subscription_ref as string);
     if (!cancelResult.success) {
+      if (serviceClient.auth?.admin?.updateUserById) {
+        await serviceClient.auth.admin.updateUserById(cleanUserId, {
+          app_metadata: {
+            deletion_in_progress: false,
+            deletion_aborted_at: new Date().toISOString(),
+          },
+        }).catch(() => {});
+      }
       throw new Error(
         `Failed to cancel active Paddle subscription (${subState.provider_subscription_ref}): ${cancelResult.error || "unknown error"}. Deletion aborted to prevent orphaned recurring charges.`
       );
+    }
+
+    // Update local subscription_state to CANCELLED so subsequent retries do not re-cancel
+    try {
+      const fromBuilder = serviceClient.from("subscription_state") as unknown as {
+        update?: (values: unknown) => { eq: (col: string, val: unknown) => Promise<unknown> };
+      };
+      if (typeof fromBuilder?.update === "function") {
+        await fromBuilder
+          .update({
+            status: "CANCELLED",
+            provider_status: "canceled",
+            updated_at: new Date().toISOString(),
+          })
+          .eq("owner_user_id", cleanUserId);
+      }
+    } catch {
+      // Non-fatal if state update fails during deletion sequence
     }
   }
 

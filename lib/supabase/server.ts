@@ -63,11 +63,18 @@ export async function requireAuthenticatedSupabase(
     throw new Error("Invalid or expired authentication token");
   }
 
+  assertNotDeletionLocked(user, options);
+
+  return { supabase, user };
+}
+
+export function assertNotDeletionLocked(
+  user: { app_metadata?: Record<string, unknown> },
+  options?: { allowDeletionInProgress?: boolean }
+): void {
   if (user.app_metadata?.deletion_in_progress && !options?.allowDeletionInProgress) {
     throw new AccountDeletionLockedError();
   }
-
-  return { supabase, user };
 }
 
 export function ownerId(user: User): string {

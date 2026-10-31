@@ -110,6 +110,9 @@ export function sanitizeUrl(url: unknown): string {
   const trimmed = url.trim();
   if (!trimmed) return "#";
 
+  // Reject C0, DEL, and C1 control characters (including tabs and newlines) before any branch
+  if (/[\u0000-\u001F\u007F-\u009F]/.test(trimmed)) return "#";
+
   // Reject protocol-relative URLs (//...) and Windows-style UNC paths (\\...)
   if (trimmed.startsWith("//") || trimmed.startsWith("\\\\")) return "#";
 
@@ -118,15 +121,13 @@ export function sanitizeUrl(url: unknown): string {
 
   // Allow safe fragment anchor links (e.g., #section-1)
   if (trimmed.startsWith("#")) {
-    // Ensure no control characters or suspicious protocols inside anchor
-    if (/[\u0000-\u001F\u007F-\u009F]/.test(trimmed)) return "#";
     return trimmed;
   }
 
   // Allow safe single-slash relative links (e.g., /dashboard, /pursuits/123)
-  // Must start with '/' and the second character must NOT be '/' or '\'
+  // Must start with '/' and must not be followed by '/' or '\' or whitespace
   if (trimmed.startsWith("/")) {
-    if (trimmed.length > 1 && (trimmed[1] === "/" || trimmed[1] === "\\")) {
+    if (trimmed.length > 1 && (trimmed[1] === "/" || trimmed[1] === "\\" || /^\/\s*[/\\]/.test(trimmed))) {
       return "#";
     }
     return trimmed;
@@ -199,9 +200,9 @@ export function stripRawHtmlPreservingCode(text: string): string {
   cleaned = cleaned.replace(/<\/?[a-zA-Z][^>]*>/g, "");
 
   // 5. Restore protected code blocks and inline code
-  tokenIndex = 0;
-  cleaned = cleaned.replace(/__CODE_BLOCK_PLACEHOLDER_\d+__|__CODE_SPAN_PLACEHOLDER_\d+__/g, () => {
-    return placeholders[tokenIndex++];
+  cleaned = cleaned.replace(/__(?:CODE_BLOCK|CODE_SPAN)_PLACEHOLDER_(\d+)__/g, (match, indexStr) => {
+    const index = parseInt(indexStr, 10);
+    return index >= 0 && index < placeholders.length ? placeholders[index] : match;
   });
 
   return cleaned;

@@ -53,8 +53,8 @@ export async function POST(request: Request, context: RouteContext) {
     if (body.terminal_status !== "COMPLETED" && body.terminal_status !== "FAILED" && body.terminal_status !== "CANCELLED") {
       return errorResponse("terminal_status must be COMPLETED, FAILED, or CANCELLED", 400);
     }
-    if (body.turn_key !== undefined && (typeof body.turn_key !== "string" || !body.turn_key.trim())) {
-      return errorResponse("turn_key must be a non-empty string when provided", 400);
+    if (body.turn_key !== undefined && typeof body.turn_key !== "string") {
+      return errorResponse("turn_key must be a string when provided", 400);
     }
 
     const legacyResult = body.result === undefined ? null : body.result;
@@ -119,6 +119,13 @@ export async function POST(request: Request, context: RouteContext) {
     }
     const existingAssistant = recorded?.assistant as { content?: string; metadata?: Record<string, unknown> } | null;
     if (existingAssistant?.content) {
+      const meta = (existingAssistant.metadata ?? {}) as Record<string, unknown>;
+      if (
+        (meta.action_id && meta.action_id !== actionId) ||
+        (meta.terminal_status && meta.terminal_status !== terminalStatus)
+      ) {
+        return errorResponse("Idempotency key was already used with a different action or terminal status", 409);
+      }
       const { data: storedObservations } = await supabase
         .from("observation")
         .select("id, content")
@@ -289,6 +296,8 @@ export async function POST(request: Request, context: RouteContext) {
 
     const assistantMessage = buildActionCompletionMessage(observation, nextWorkingState);
     const metadata = {
+      action_id: actionId,
+      terminal_status: terminalStatus,
       question: observation.suggested_follow_up,
       options: [],
       ready_for_reasoning: true,

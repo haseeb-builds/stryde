@@ -115,6 +115,9 @@ test("cascadeDeleteUserData cancels Paddle subscription across all active status
                 }),
               }),
             }),
+            update: () => ({
+              eq: () => Promise.resolve({ error: null }),
+            }),
             delete: () => ({
               eq: () => {
                 deletedTables.push(table);

@@ -36,6 +36,12 @@ test("sanitizeUrl rejects dangerous schemes (javascript, data, vbscript)", () =>
   assert.equal(sanitizeUrl("java\0script:alert(1)"), "#");
 });
 
+test("sanitizeUrl rejects tab/newline-obfuscated protocol-relative paths", () => {
+  assert.equal(sanitizeUrl("/\t/evil.example"), "#");
+  assert.equal(sanitizeUrl("/\t\\evil.example"), "#");
+  assert.equal(sanitizeUrl("/\n/evil.example"), "#");
+});
+
 test("SSRF Defense: sanitizeUrl strictly blocks private, loopback, and metadata IPv4 vectors", () => {
   const privateIpv4s = [
     // 127.0.0.0/8 Loopback
@@ -159,6 +165,15 @@ test("isPrivateHost correctly evaluates IP and hostname classifications", () => 
   assert.equal(isPrivateHost("1.1.1.1"), false);
 });
 
+test("isPrivateHost covers IPv6 range boundaries", () => {
+  for (const h of ["fe81::1", "febf::1", "fec0::1", "ff02::1", "::ffff:7f00:1"]) {
+    assert.equal(isPrivateHost(h), true, h);
+  }
+  for (const h of ["2606:4700::1111", "::ffff:808:808"]) {
+    assert.equal(isPrivateHost(h), false, h);
+  }
+});
+
 test("stripRawHtmlPreservingCode strips dangerous HTML tags outside code fences while preserving code blocks", () => {
   const input = [
     "Here is a paragraph with <script>alert('xss')</script> bad script.",
@@ -183,4 +198,9 @@ test("stripRawHtmlPreservingCode strips dangerous HTML tags outside code fences 
   assert.ok(output.includes("<div class=\"container\">"), "HTML inside code block must be preserved");
   assert.ok(output.includes("<p>Hello world</p>"), "HTML inside code block must be preserved");
   assert.ok(output.includes("`<span>preserve me</span>`"), "HTML inside inline code must be preserved");
+});
+
+test("stripRawHtmlPreservingCode restores inline code before a fenced block", () => {
+  const out = stripRawHtmlPreservingCode("Use `x` then\n```\ncode\n```");
+  assert.equal(out, "Use `x` then\n```\ncode\n```");
 });
