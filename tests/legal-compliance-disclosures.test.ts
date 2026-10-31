@@ -172,4 +172,18 @@ test("Landing page and workspace surface legal links, self-serve account deletio
     !homeContent.includes("probe-research") && !homeContent.includes("probe-paddle"),
     "Public demo scenarios must not leak internal repository script names",
   );
+
+  // 4. GitHub 1-click OAuth and hardened password validation
+  assert.ok(
+    homeContent.includes("Continue with GitHub") && homeContent.includes("signInWithOAuth"),
+    "Auth modal must offer 1-click Continue with GitHub OAuth option",
+  );
+  assert.ok(
+    homeContent.includes("minLength={8}") && homeContent.includes("password.length < 8"),
+    "Auth modal must enforce minimum 8-character password policy",
+  );
+  assert.ok(
+    homeContent.includes("TRIVIAL_PASSWORDS"),
+    "Auth modal must reject common trivial passwords",
+  );
 });

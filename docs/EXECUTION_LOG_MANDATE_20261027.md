@@ -159,13 +159,18 @@
   - `next.config.ts`: Added global HTTP security headers (`X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: strict-origin-when-cross-origin`, `Permissions-Policy: camera=(), microphone=(), geolocation=()`).
 - **Verification:** `tests/markdown-sanitization.test.ts` (11/11 pass).
 
-### 4.6 Pre-Launch UI, Legal & Underwriting Hardening (`app/page.tsx`, `lib/account-deletion.ts`)
+### 4.6 Pre-Launch UI, Legal, Underwriting & OAuth Hardening (`app/page.tsx`, `lib/account-deletion.ts`)
 - **Problem:**
   - `serviceClient.auth.admin.updateUserById` in `lib/account-deletion.ts` returns `{ data, error }` rather than throwing on error, and the previous `try/catch` only logged `console.warn`, allowing account deletion to proceed without a write barrier if the metadata update failed.
   - `app/page.tsx` lacked visible footer links to `/terms` and `/privacy` (a mandatory Paddle Merchant-of-Record underwriting requirement), lacked a self-serve "Delete account & erase data" UI button in the authenticated workspace, leaked internal founder payout notes (`"supporting Pakistani software businesses with direct SWIFT and Payoneer payouts"`), leaked internal test script names (`probe-research & probe-paddle`), and wrapped navbar CTA buttons onto two lines on 390px mobile screens.
+  - Lack of 1-click social sign-in (GitHub OAuth) and permissive client password validation (<8 characters and trivial passwords permitted).
 - **Solution:**
   - `lib/account-deletion.ts`: Enforced strict fail-closed write barrier verification (`if (barrierResult?.error) throw ...`) before any table purge begins.
-  - `app/page.tsx`: Added landing and workspace footers linking to `/terms`, `/privacy`, and `privacy@stryde.dev`; added legal notice inside the auth modal; added a confirmation-gated (`DELETE`) self-serve account deletion modal wired to `DELETE /api/v1/user/account`; replaced internal founder/repo copy with clean customer-facing B2B copy; fixed 390px mobile navbar wrapping and added `Escape` key modal dismissal.
+  - `app/page.tsx`:
+    - Added landing and workspace footers linking to `/terms`, `/privacy`, and `privacy@stryde.dev`; added legal notice inside the auth modal; added a confirmation-gated (`DELETE`) self-serve account deletion modal wired to `DELETE /api/v1/user/account`.
+    - Added 1-click **"Continue with GitHub"** OAuth button (`supabase.auth.signInWithOAuth({ provider: "github" })`) with pending goal preservation in `sessionStorage` across OAuth redirects.
+    - Hardened client-side password validation: enforced minimum 8 characters (`minLength={8}`) and rejection of common trivial passwords (`TRIVIAL_PASSWORDS`).
+    - Replaced internal founder/repo copy with clean customer-facing B2B copy; fixed 390px mobile navbar wrapping and added `Escape` key modal dismissal.
 - **Verification:** `tests/user-account-deletion.test.ts` (10/10 pass) and `tests/legal-compliance-disclosures.test.ts` (4/4 pass).
 
 ---
