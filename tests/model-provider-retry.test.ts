@@ -112,3 +112,14 @@ test("cancellation aborts immediately without retrying or falling through", asyn
   assert.equal(geminiCalls, 1, "Cancelled request must fail on first attempt without retrying");
   assert.equal(omniCalls, 0, "Cancelled request must NOT fall through to fallback provider");
 });
+
+test("router rejects oversized input prompt before network dispatch", async () => {
+  let calls = 0;
+  const router = createModelRouter([config], async () => { calls++; return okResponse(); });
+  const oversizedPrompt = "A".repeat(150_000);
+  await assert.rejects(
+    router.generateStructured({ ...input, prompt: oversizedPrompt }),
+    /Assembled prompt exceeds maximum allowed size/
+  );
+  assert.equal(calls, 0, "No network request should be dispatched for oversized prompt");
+});

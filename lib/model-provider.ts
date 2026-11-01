@@ -178,6 +178,16 @@ function body(config: ModelProviderConfig, input: StructuredInput, stream: boole
 
 export function createModelProvider(config: ModelProviderConfig, fetchImpl: typeof fetch = fetch): ModelProvider {
   const request = async (input: StructuredInput, stream: boolean, onText?: (text: string) => void) => {
+    const maxPromptChars = Number(process.env.STRYDE_MAX_PROMPT_CHARS) || 120_000;
+    if (typeof input.prompt === "string" && input.prompt.length > maxPromptChars) {
+      throw new ModelProviderError(
+        config.provider,
+        "http",
+        `Assembled prompt exceeds maximum allowed size of ${maxPromptChars} characters (received ${input.prompt.length})`,
+        false,
+        400
+      );
+    }
     // Task-aware routing (Phase 12): a per-call override selects WHICH model
     // the leg serves; the leg itself never changes.
     const model = input.modelOverride ?? config.model;

@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 
@@ -36,11 +37,11 @@ const SCENARIOS = {
     moveWhy: "Confirms whether abandonment is caused by payment method rejection or webhook state delay before changing pricing."
   },
   migration: {
-    goal: "Complete full production readiness & security audit before opening customer access",
-    understanding: "368 automated tests pass and preview build is live, but external research and merchant credentials need live probe verification.",
-    bottleneck: "Production worker container needs live fly.io health check confirmation alongside API credentials.",
-    moveTitle: "Run live provider probes (probe-research & probe-paddle) and record verified exit codes",
-    moveWhy: "Separates passing unit tests from verified external API connectivity so nothing ships on assumptions."
+    goal: "Close enterprise security & compliance review for our $48k annual pilot",
+    understanding: "Technical architecture and vendor questionnaire are drafted, but the buyer's security lead flagged 3 unverified data-retention answers.",
+    bottleneck: "Subprocessor DPA citations and deletion SLA evidence have not been attached to the procurement packet.",
+    moveTitle: "Map subprocessor retention terms and attach verified deletion evidence to the security packet",
+    moveWhy: "Directly resolves the security reviewer's three open questions with primary source citations instead of generic assurances."
   }
 };
 
@@ -111,6 +112,9 @@ export default function HomePage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<"ALL" | "ACTIVE" | "COMPLETED">("ALL");
   const [subscription, setSubscription] = useState<SubscriptionDetails | null>(null);
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState("");
+  const [deletingAccount, setDeletingAccount] = useState(false);
 
   // Landing Page Interactive "Try-Before-Sign-Up" Stage State
   const [selectedScenarioKey, setSelectedScenarioKey] = useState<"saas" | "revenue" | "migration">("saas");
@@ -155,6 +159,27 @@ export default function HomePage() {
     }
     setSessionReady(true);
     void loadSubscription(token);
+
+    const pendingGoal = typeof window !== "undefined" ? sessionStorage.getItem("stryde_pending_goal") : null;
+    if (pendingGoal) {
+      sessionStorage.removeItem("stryde_pending_goal");
+      try {
+        await fetch("/api/v1/pursuits", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`
+          },
+          body: JSON.stringify({
+            title: pendingGoal.slice(0, 80),
+            initial_input: pendingGoal
+          })
+        });
+      } catch {
+        // ignore
+      }
+    }
+
     const response = await fetch("/api/v1/pursuits?limit=30", {
       headers: { Authorization: `Bearer ${token}` }
     });
@@ -170,6 +195,18 @@ export default function HomePage() {
     });
     return () => data.subscription.unsubscribe();
   }, [loadPursuits]);
+
+  useEffect(() => {
+    if (!authModalOpen && !deleteModalOpen) return;
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        setAuthModalOpen(false);
+        setDeleteModalOpen(false);
+      }
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [authModalOpen, deleteModalOpen]);
 
   function handleScenarioSelect(key: "saas" | "revenue" | "migration") {
     setSelectedScenarioKey(key);
@@ -204,11 +241,52 @@ export default function HomePage() {
     setAuthModalOpen(true);
   }
 
+  const TRIVIAL_PASSWORDS = new Set([
+    "password",
+    "12345678",
+    "123456789",
+    "admin123",
+    "stryde123",
+    "qwerty123",
+    "letmein123"
+  ]);
+
   function validateCredentials() {
     if (!email.trim()) return "Enter your email address.";
     if (!password) return "Enter a password.";
-    if (password.length < 6) return "Password must be at least 6 characters.";
+    if (authMode === "signup") {
+      if (password.length < 8) return "Password must be at least 8 characters.";
+      if (TRIVIAL_PASSWORDS.has(password.toLowerCase())) {
+        return "Please choose a more secure password.";
+      }
+    }
     return null;
+  }
+
+  async function handleOAuthSignIn(provider: "github") {
+    setLoading(true);
+    setError("");
+    setMessage("");
+    try {
+      const preservedGoal = stageGoalInput.trim();
+      if (preservedGoal && preservedGoal !== SCENARIOS.saas.goal && typeof window !== "undefined") {
+        sessionStorage.setItem("stryde_pending_goal", preservedGoal);
+      }
+      const redirectTo = typeof window !== "undefined" ? `${window.location.origin}` : undefined;
+      const { error: authError } = await supabase.auth.signInWithOAuth({
+        provider,
+        options: {
+          redirectTo
+        }
+      });
+      if (authError) {
+        setError(authError.message);
+        setLoading(false);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to initiate GitHub sign-in");
+      setLoading(false);
+    }
   }
 
   async function handleAuthSubmit(event: FormEvent) {
@@ -304,6 +382,45 @@ export default function HomePage() {
     setPursuits([]);
     setSubscription(null);
     setSessionReady(false);
+  }
+
+  async function handleDeleteAccount(event: FormEvent) {
+    event.preventDefault();
+    if (deleteConfirmText.trim().toUpperCase() !== "DELETE") {
+      setError("Type DELETE to confirm permanent account removal.");
+      return;
+    }
+    setDeletingAccount(true);
+    setError("");
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
+      if (!token) {
+        setError("Please sign in again to delete your account.");
+        setDeletingAccount(false);
+        return;
+      }
+      const response = await fetch("/api/v1/user/account", {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const body = (await response.json()) as { deleted?: boolean; error?: string };
+      if (!response.ok || !body.deleted) {
+        setError(body.error || "Account deletion failed. Your account remains intact.");
+        setDeletingAccount(false);
+        return;
+      }
+      await supabase.auth.signOut();
+      setDeleteModalOpen(false);
+      setDeleteConfirmText("");
+      setPursuits([]);
+      setSubscription(null);
+      setSessionReady(false);
+    } catch {
+      setError("Could not complete account deletion. Please try again.");
+    } finally {
+      setDeletingAccount(false);
+    }
   }
 
   async function createPursuit(event: FormEvent) {
@@ -422,11 +539,11 @@ export default function HomePage() {
       <div className="min-h-screen flex flex-col bg-[#F7F7F5] text-[#111111]">
         {/* Top Translucent Navbar (Stitch Export 2 style) */}
         <header className="sticky top-0 left-0 right-0 z-40 bg-[#F7F7F5]/85 backdrop-blur-md border-b border-[#E7E7E4]">
-          <div className="max-w-[1440px] mx-auto px-6 md:px-12 h-[72px] flex items-center justify-between">
+          <div className="max-w-[1440px] mx-auto px-4 sm:px-6 md:px-12 h-[72px] flex items-center justify-between gap-2">
             <div className="flex items-center gap-10">
               <a href="#top" className="text-xl font-semibold tracking-tight text-[#111111] flex items-center gap-2">
                 <span>Stryde</span>
-                <span className="text-[11px] font-medium px-2.5 py-0.5 rounded-full bg-[#EBEAE6] text-[#52525B]">
+                <span className="hidden sm:inline-block whitespace-nowrap text-[11px] font-medium px-2.5 py-0.5 rounded-full bg-[#EBEAE6] text-[#52525B]">
                   Pursuit System
                 </span>
               </a>
@@ -446,14 +563,14 @@ export default function HomePage() {
               <button
                 type="button"
                 onClick={() => openAuthWithGoal("signin")}
-                className="text-sm font-medium text-[#52525B] hover:text-[#111111] transition-colors px-3 py-2"
+                className="whitespace-nowrap text-sm font-medium text-[#52525B] hover:text-[#111111] transition-colors px-2.5 sm:px-3 py-2"
               >
                 Sign in
               </button>
               <button
                 type="button"
                 onClick={() => openAuthWithGoal("signup")}
-                className="text-sm font-medium bg-[#111111] text-white px-5 py-2.5 rounded-full hover:opacity-90 transition-opacity"
+                className="whitespace-nowrap text-sm font-medium bg-[#111111] text-white px-4 sm:px-5 py-2.5 rounded-full hover:opacity-90 transition-opacity"
               >
                 Start a pursuit
               </button>
@@ -493,7 +610,7 @@ export default function HomePage() {
                 <p className="text-base md:text-lg text-[#52525B] leading-relaxed mb-4">
                   Ordinary AI chat leaves you with walls of advice and forgotten threads. Stryde keeps a living operational record of your pursuit—isolating the real bottleneck, committing to one next move, and separating what you reported from what is verified.
                 </p>
-                <div className="flex items-center gap-4 text-xs font-medium text-[#6B6B6B] pt-2 border-t border-[#E7E7E4]">
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs font-medium text-[#6B6B6B] pt-2 border-t border-[#E7E7E4]">
                   <span>Intention</span>
                   <span>→</span>
                   <span>Situation</span>
@@ -868,7 +985,7 @@ export default function HomePage() {
               </div>
               <div className="lg:col-span-6 lg:col-start-7 flex flex-col justify-center">
                 <p className="text-base md:text-lg text-[#52525B] leading-relaxed">
-                  Transparent plans with global checkout and merchant compliance handled by Paddle as Merchant of Record (supporting Pakistani and international software businesses with direct payouts).
+                  Transparent plans with global checkout, tax compliance, and self-serve subscription management handled by Paddle as Merchant of Record.
                 </p>
               </div>
             </div>
@@ -928,6 +1045,28 @@ export default function HomePage() {
           </section>
         </main>
 
+        {/* EDITORIAL LANDING FOOTER */}
+        <footer className="border-t border-[#E7E7E4] bg-[#F3F2EF]/60 py-10 px-6 md:px-12">
+          <div className="max-w-[1440px] mx-auto flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 text-xs text-[#52525B]">
+            <div className="flex items-center gap-3">
+              <span className="font-semibold text-[#111111]">Stryde</span>
+              <span>·</span>
+              <span>Persistent Pursuit &amp; Execution System</span>
+            </div>
+            <div className="flex flex-wrap items-center gap-6">
+              <Link href="/terms" className="hover:text-[#111111] transition-colors">
+                Terms of Service
+              </Link>
+              <Link href="/privacy" className="hover:text-[#111111] transition-colors">
+                Privacy Policy
+              </Link>
+              <a href="mailto:privacy@stryde.dev" className="hover:text-[#111111] transition-colors">
+                Contact &amp; Privacy
+              </a>
+            </div>
+          </div>
+        </footer>
+
         {/* WARM-STONE AUTH MODAL */}
         {authModalOpen ? (
           <div
@@ -973,6 +1112,27 @@ export default function HomePage() {
                 </div>
               ) : null}
 
+              <div className="space-y-3 pt-1">
+                <button
+                  type="button"
+                  onClick={() => void handleOAuthSignIn("github")}
+                  disabled={loading}
+                  className="w-full flex items-center justify-center gap-2.5 bg-white border border-[#E7E7E4] text-[#111111] py-2.5 px-4 rounded-full text-xs sm:text-sm font-semibold hover:bg-[#F3F2EF] hover:border-[#D7D7D4] transition-all disabled:opacity-45 shadow-2xs cursor-pointer"
+                >
+                  <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                    <path fillRule="evenodd" clipRule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.53 1.032 1.53 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z" />
+                  </svg>
+                  Continue with GitHub
+                </button>
+
+                <div className="relative flex items-center justify-center my-2">
+                  <div className="border-t border-[#E7E7E4] w-full"></div>
+                  <span className="bg-[#FCFCFB] px-3 text-[10px] font-semibold text-[#6B6B6B] uppercase tracking-wider">
+                    or continue with email
+                  </span>
+                </div>
+              </div>
+
               <form onSubmit={handleAuthSubmit} noValidate className="space-y-3.5">
                 <div>
                   <label htmlFor="auth-email" className="block text-xs font-medium text-[#111111] mb-1">
@@ -1005,10 +1165,10 @@ export default function HomePage() {
                       setPassword(e.target.value);
                       if (error) setError("");
                     }}
-                    placeholder="At least 6 characters"
+                    placeholder="At least 8 characters"
                     autoComplete={authMode === "signin" ? "current-password" : "new-password"}
                     required
-                    minLength={6}
+                    minLength={8}
                     className="w-full bg-[#F7F7F5] border border-[#E7E7E4] rounded-xl px-3.5 py-2.5 text-sm text-[#111111] placeholder:text-[#6B6B6B] focus:border-[#111111] focus:bg-white focus:outline-none"
                   />
                 </div>
@@ -1033,6 +1193,18 @@ export default function HomePage() {
                   >
                     {loading ? "Working…" : authMode === "signin" ? "Sign in to workspace →" : "Continue to workspace →"}
                   </button>
+
+                  <p className="text-[11px] text-center text-[#6B6B6B] leading-relaxed pt-1">
+                    By continuing, you agree to Stryde&apos;s{" "}
+                    <Link href="/terms" className="underline hover:text-[#111111]">
+                      Terms of Service
+                    </Link>{" "}
+                    and{" "}
+                    <Link href="/privacy" className="underline hover:text-[#111111]">
+                      Privacy Policy
+                    </Link>
+                    .
+                  </p>
 
                   <div className="text-center pt-2">
                     {authMode === "signin" ? (
@@ -1296,7 +1468,7 @@ export default function HomePage() {
                 </span>
               </div>
               <p className="text-xs sm:text-sm text-[#52525B] max-w-xl leading-relaxed">
-                Global and Pakistan billing is processed securely by Paddle as Merchant of Record (supporting Pakistani software businesses with direct SWIFT and Payoneer payouts).
+                Subscriptions and global tax compliance are processed securely by Paddle as Merchant of Record, with instant self-serve cancellation at any time.
               </p>
             </div>
             {subscription?.managementUrls?.updatePaymentMethod ? (
@@ -1322,7 +1494,111 @@ export default function HomePage() {
             )}
           </div>
         </section>
+
+        {/* Account & Data Privacy Controls (Self-Serve Deletion + Legal Links) */}
+        <footer className="pt-6 border-t border-[#E7E7E4] flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 text-xs text-[#52525B]">
+          <div className="flex flex-wrap items-center gap-4">
+            <Link href="/terms" className="hover:text-[#111111] transition-colors">
+              Terms of Service
+            </Link>
+            <Link href="/privacy" className="hover:text-[#111111] transition-colors">
+              Privacy Policy
+            </Link>
+            <a href="mailto:privacy@stryde.dev" className="hover:text-[#111111] transition-colors">
+              Data Export &amp; Privacy
+            </a>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setDeleteConfirmText("");
+              setError("");
+              setDeleteModalOpen(true);
+            }}
+            className="text-xs font-medium text-red-700 hover:text-red-900 underline underline-offset-4"
+          >
+            Delete account &amp; erase data
+          </button>
+        </footer>
       </main>
+
+      {deleteModalOpen ? (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="delete-account-title"
+          className="fixed inset-0 z-50 bg-black/35 backdrop-blur-xs flex items-center justify-center p-4"
+          onClick={(e) => {
+            if (e.target === e.currentTarget && !deletingAccount) setDeleteModalOpen(false);
+          }}
+        >
+          <div className="bg-[#FCFCFB] border border-[#E7E7E4] rounded-3xl max-w-md w-full p-6 sm:p-8 shadow-2xl space-y-4">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <span className="inline-block text-[11px] font-semibold uppercase tracking-wider px-2.5 py-0.5 rounded-full bg-red-50 text-red-800 border border-red-200 mb-2">
+                  Permanent Action
+                </span>
+                <h2 id="delete-account-title" className="text-xl font-semibold tracking-tight text-[#111111]">
+                  Delete account &amp; erase all data
+                </h2>
+                <p className="text-xs sm:text-sm text-[#52525B] mt-1 leading-relaxed">
+                  This cancels any active Paddle subscription and permanently purges your pursuits, conversations, memories, and records across all 40 database tables. This cannot be undone.
+                </p>
+              </div>
+              <button
+                type="button"
+                disabled={deletingAccount}
+                onClick={() => setDeleteModalOpen(false)}
+                aria-label="Close dialog"
+                className="text-xs font-medium px-2.5 py-1 rounded-full bg-[#F3F2EF] text-[#52525B] hover:text-[#111111]"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleDeleteAccount} className="space-y-3.5">
+              <div>
+                <label htmlFor="delete-confirm-input" className="block text-xs font-medium text-[#111111] mb-1">
+                  Type <span className="font-mono font-semibold">DELETE</span> to confirm
+                </label>
+                <input
+                  id="delete-confirm-input"
+                  type="text"
+                  value={deleteConfirmText}
+                  onChange={(e) => setDeleteConfirmText(e.target.value)}
+                  placeholder="DELETE"
+                  required
+                  className="w-full bg-[#F7F7F5] border border-[#E7E7E4] rounded-xl px-3.5 py-2.5 text-sm text-[#111111] placeholder:text-[#6B6B6B] focus:border-red-600 focus:bg-white focus:outline-none"
+                />
+              </div>
+
+              {error ? (
+                <p role="alert" className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-red-700">
+                  {error}
+                </p>
+              ) : null}
+
+              <div className="flex items-center justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  disabled={deletingAccount}
+                  onClick={() => setDeleteModalOpen(false)}
+                  className="px-4 py-2.5 rounded-full text-xs font-medium bg-[#F3F2EF] text-[#111111] hover:bg-[#EBEAE6]"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={deletingAccount || deleteConfirmText.trim().toUpperCase() !== "DELETE"}
+                  className="px-5 py-2.5 rounded-full text-xs font-medium bg-red-700 text-white hover:bg-red-800 disabled:opacity-45"
+                >
+                  {deletingAccount ? "Erasing account…" : "Permanently delete account"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

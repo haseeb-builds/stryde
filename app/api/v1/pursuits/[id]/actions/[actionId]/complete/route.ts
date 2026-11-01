@@ -6,6 +6,7 @@ import { compileForSituation } from "@/lib/context-compiler";
 import { requireAuthenticatedSupabase } from "@/lib/supabase/server";
 import { recordMemory } from "@/lib/memory";
 import { normalizeUserClaims, syncObservedUserClaims } from "@/lib/action-completion";
+import { resolveTurnKey, validateTurnPayloadMatch, claimInFlightTurn, releaseInFlightTurn } from "@/lib/idempotency";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -52,8 +53,14 @@ export async function POST(request: Request, context: RouteContext) {
     if (body.terminal_status !== "COMPLETED" && body.terminal_status !== "FAILED" && body.terminal_status !== "CANCELLED") {
       return errorResponse("terminal_status must be COMPLETED, FAILED, or CANCELLED", 400);
     }
-    if (body.turn_key !== undefined && (typeof body.turn_key !== "string" || !body.turn_key.trim())) {
-      return errorResponse("turn_key must be a non-empty string when provided", 400);
+    const rawHeaderKey = request.headers.get("idempotency-key")?.trim() || request.headers.get("x-idempotency-key")?.trim();
+    if (body.turn_key !== undefined) {
+      if (typeof body.turn_key !== "string") {
+        return errorResponse("turn_key must be a string when provided", 400);
+      }
+      if (!body.turn_key.trim() && !rawHeaderKey) {
+        return errorResponse("turn_key must be a non-empty string when provided", 400);
+      }
     }
 
     const legacyResult = body.result === undefined ? null : body.result;
@@ -74,7 +81,8 @@ export async function POST(request: Request, context: RouteContext) {
     if (!report) return errorResponse("report is required; tell Stryde what happened", 400);
 
     const terminalStatus = body.terminal_status as "COMPLETED" | "FAILED" | "CANCELLED";
-    const turnKey = typeof body.turn_key === "string" && body.turn_key.trim() ? body.turn_key.trim() : crypto.randomUUID();
+    const resolvedTurn = resolveTurnKey(body.turn_key, request.headers);
+    const turnKey = resolvedTurn ? resolvedTurn.uuidKey : crypto.randomUUID();
     const sessionId = body.session_id.trim();
     const { data: pursuit, error: pursuitError } = await supabase
       .from("pursuit")
@@ -111,8 +119,19 @@ export async function POST(request: Request, context: RouteContext) {
       p_content: report,
     });
     if (recordError) return errorResponse("Unable to save your Action report", 500);
+    const existingUser = recorded?.user as { content?: string } | null;
+    if (existingUser?.content && !validateTurnPayloadMatch(existingUser.content, report)) {
+      return errorResponse("Idempotency key was already used with a different report payload", 409);
+    }
     const existingAssistant = recorded?.assistant as { content?: string; metadata?: Record<string, unknown> } | null;
     if (existingAssistant?.content) {
+      const meta = (existingAssistant.metadata ?? {}) as Record<string, unknown>;
+      if (
+        (meta.action_id && meta.action_id !== actionId) ||
+        (meta.terminal_status && meta.terminal_status !== terminalStatus)
+      ) {
+        return errorResponse("Idempotency key was already used with a different action or terminal status", 409);
+      }
       const { data: storedObservations } = await supabase
         .from("observation")
         .select("id, content")
@@ -143,6 +162,11 @@ export async function POST(request: Request, context: RouteContext) {
       }, { status: 200 });
     }
 
+    if (!claimInFlightTurn(turnKey)) {
+      return errorResponse("A request for this turn is currently in progress", 409);
+    }
+
+    try {
     const situationBeforeResult = await assembleAdaptiveSituation(supabase, user.id, id);
     if (situationBeforeResult.error || !situationBeforeResult.situation) {
       return errorResponse(situationBeforeResult.error ?? "Unable to assemble current Situation", 500);
@@ -283,6 +307,8 @@ export async function POST(request: Request, context: RouteContext) {
 
     const assistantMessage = buildActionCompletionMessage(observation, nextWorkingState);
     const metadata = {
+      action_id: actionId,
+      terminal_status: terminalStatus,
       question: observation.suggested_follow_up,
       options: [],
       ready_for_reasoning: true,
@@ -316,6 +342,9 @@ export async function POST(request: Request, context: RouteContext) {
       auto_claims: claimSync,
       memory: memory ? { id: memory.id } : null,
     }, { status: 200 });
+    } finally {
+      releaseInFlightTurn(turnKey);
+    }
   } catch (error) {
     if (error instanceof SyntaxError) return errorResponse("Request body must be valid JSON", 400);
     const message = error instanceof Error ? error.message : "Unable to record Action result";

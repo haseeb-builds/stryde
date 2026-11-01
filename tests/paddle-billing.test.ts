@@ -7,6 +7,7 @@ import {
   verifyPaddleWebhookSignature,
   createPaddleCheckoutTransaction,
   normalizePaddleSubscriptionEvent,
+  cancelPaddleSubscription,
   type PaddleWebhookEvent,
 } from "../lib/paddle.ts";
 
@@ -200,4 +201,63 @@ test("Paddle subscription normalization: maps lifecycle statuses accurately", ()
     event_type: "transaction.completed",
   };
   assert.equal(normalizePaddleSubscriptionEvent(transactionEvent), null);
+});
+
+test("cancelPaddleSubscription: treats subscription_is_canceled_action_invalid as idempotent success", async () => {
+  const env = {
+    PADDLE_API_KEY: "pdl_test_123",
+    PADDLE_WEBHOOK_SECRET: "pndto_test_456",
+    PADDLE_PRICE_ID_PRO: "pri_pro_789",
+  } as unknown as NodeJS.ProcessEnv;
+
+  const mockFetch = async () => {
+    return new Response(JSON.stringify({
+      error: {
+        type: "request_error",
+        code: "subscription_is_canceled_action_invalid",
+        detail: "Subscription is already canceled",
+      },
+    }), { status: 400 });
+  };
+
+  const result = await cancelPaddleSubscription("sub_already_canceled_123", {
+    env,
+    fetchImpl: mockFetch as unknown as typeof fetch,
+  });
+
+  assert.equal(result.success, true);
+  assert.equal(result.status, "canceled");
+});
+
+test("cancelPaddleSubscription: 409 subscription_locked_renewal returns success: false to prevent unsafe deletion", async () => {
+  const env = {
+    PADDLE_API_KEY: "pdl_test_123",
+    PADDLE_WEBHOOK_SECRET: "pndto_test_456",
+    PADDLE_PRICE_ID_PRO: "pri_pro_789",
+  } as unknown as NodeJS.ProcessEnv;
+
+  const mockFetch = async (url: string | URL | Request) => {
+    const urlStr = String(url);
+    if (urlStr.endsWith("/cancel")) {
+      return new Response(JSON.stringify({
+        error: {
+          type: "request_error",
+          code: "subscription_locked_renewal",
+          detail: "Subscription cannot be canceled during active renewal period",
+        },
+      }), { status: 409 });
+    }
+    // GET /subscriptions/sub_renewal_123 returns active
+    return new Response(JSON.stringify({
+      data: { id: "sub_renewal_123", status: "active" },
+    }), { status: 200 });
+  };
+
+  const result = await cancelPaddleSubscription("sub_renewal_123", {
+    env,
+    fetchImpl: mockFetch as unknown as typeof fetch,
+  });
+
+  assert.equal(result.success, false);
+  assert.ok(result.error?.includes("409"));
 });

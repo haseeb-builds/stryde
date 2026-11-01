@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import { sanitizeUrl } from "@/lib/sanitization";
 
 function renderInline(text: string): React.ReactNode[] {
   const nodes: React.ReactNode[] = [];
@@ -28,10 +29,11 @@ function renderInline(text: string): React.ReactNode[] {
       const splitIdx = token.indexOf("](");
       const label = token.slice(1, splitIdx);
       const href = token.slice(splitIdx + 2, -1);
-      const safeHref =
-        href.startsWith("http://") || href.startsWith("https://") || href.startsWith("/")
-          ? href
-          : "#";
+      const safeHref = sanitizeUrl(href);
+
+
+
+
       nodes.push(
         <a
           key={`inline-${key++}`}
