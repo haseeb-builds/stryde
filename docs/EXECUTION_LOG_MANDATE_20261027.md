@@ -43,7 +43,7 @@
 | Phase 2 | Correctness and Security Remediation | **PASS** | Completed 6.1 (Account deletion), 6.2 (Idempotency), 6.3 (Paddle webhooks & ledger), 6.4 (AI caps), 6.5 (Prompt injection guards), 6.6 (Sanitization), 6.7 (RLS & auth), 6.8 (Worker recovery), 6.9 (CI Node 24). |
 | Phase 3 | Privacy, Data Inventory, Terms & Behavior | **PASS** | Created `app/privacy/page.tsx` and `app/terms/page.tsx` based on factual data flows and verified subprocessors. |
 | Phase 4 | Observability, Alerts & Diagnostics | **PASS** | Added `app/api/health/route.ts` liveness/readiness probe; verified `app/api/health/model/route.ts` privacy & cost boundaries. |
-| Phase 5 | Test Strategy, CI, Staging & Recovery | **PASS** | 426 total unit/integration tests passing across 53 suites. CI aligned to Node 24. |
+| Phase 5 | Test Strategy, CI, Staging & Recovery | **PASS** | 433 total unit/integration tests passing across 53 suites. CI aligned to Node 24. |
 | Phase 6 | Database Advisor Triage | **PASS** | Individual triage of `public.loops`, 5 `SECURITY DEFINER` functions, foreign key indexing, and RLS initplans. |
 | Phase 7 | Agent Maintainability Audit & Cleanup | **PASS** | Safe consolidation of sanitization, idempotency resolution, and webhook processing without contract drift. |
 | Phase 8 | Documentation Reconciliation | **PASS** | Updated `docs/STATE.md`, `docs/INTEGRATIONS.md`, `HANDOFF.md`, and this ledger. |

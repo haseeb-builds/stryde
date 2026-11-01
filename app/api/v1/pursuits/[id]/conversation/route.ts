@@ -14,7 +14,7 @@ import { reserveResources, recordResourceUsage, type ReservationGroup } from "@/
 import { executeWebResearch } from "@/lib/research-execution";
 import { checkAutoResearch, loadAutonomyPolicy } from "@/lib/autonomy-policy";
 import { executeResearchAndRoadmapOrchestration, detectDeterministicResearchRequirement, buildBlockedResearchTurn } from "@/lib/research-orchestration";
-import { resolveTurnKey, validateTurnPayloadMatch } from "@/lib/idempotency";
+import { resolveTurnKey, validateTurnPayloadMatch, claimInFlightTurn, releaseInFlightTurn } from "@/lib/idempotency";
 
 export const runtime = "nodejs";
 // A full turn is TWO real model generations (the streamed ConversationTurn plus
@@ -106,6 +106,10 @@ export async function POST(request: Request, context: RouteContext) {
       return new Response(`${streamEvent({ type: "complete", turn, model: metadata.model ?? null })}`, {
         headers: { "Content-Type": "text/event-stream; charset=utf-8", "Cache-Control": "no-cache, no-transform" },
       });
+    }
+
+    if (!claimInFlightTurn(turnKey)) {
+      return errorResponse("A request for this turn is currently in progress", 409);
     }
 
     // priorMessages was read before the current turn was recorded, but a retry of this
@@ -554,6 +558,8 @@ export async function POST(request: Request, context: RouteContext) {
             controller.enqueue(encoder.encode(streamEvent({ type: "error", message })));
           }
           controller.close();
+        } finally {
+          releaseInFlightTurn(turnKey);
         }
       },
     });

@@ -96,3 +96,26 @@ export function validateTurnPayloadMatch(
 ): boolean {
   return originalPayload.trim() === newPayload.trim();
 }
+
+const inFlightTurnClaims = new Set<string>();
+
+/**
+ * Claims a turn key for in-flight execution. Returns true if successfully claimed,
+ * or false if another request is currently processing this exact turn key.
+ */
+export function claimInFlightTurn(turnKey: string): boolean {
+  if (!turnKey) return true;
+  if (inFlightTurnClaims.has(turnKey)) {
+    return false;
+  }
+  inFlightTurnClaims.add(turnKey);
+  return true;
+}
+
+/**
+ * Releases an in-flight turn claim upon completion or failure.
+ */
+export function releaseInFlightTurn(turnKey: string): void {
+  if (!turnKey) return;
+  inFlightTurnClaims.delete(turnKey);
+}

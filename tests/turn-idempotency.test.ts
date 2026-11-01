@@ -5,6 +5,8 @@ import {
   isUuid,
   turnKeyToUuid,
   validateTurnPayloadMatch,
+  claimInFlightTurn,
+  releaseInFlightTurn,
 } from "../lib/idempotency.ts";
 
 test("isUuid correctly identifies standard UUID v4/v5 strings", () => {
@@ -191,4 +193,14 @@ test("concurrent submission simulation with identical key serializes cleanly", a
   const [resA, resB] = await Promise.all([concurrentRecord(1), concurrentRecord(2)]);
   assert.equal(resA.uuid, resB.uuid, "Both concurrent requests must resolve to the identical UUID");
   assert.equal(callCount, 2);
+});
+
+test("claimInFlightTurn claims turn key and prevents concurrent duplicate execution until released", () => {
+  const turnKey = "test-inflight-claim-123";
+  assert.equal(claimInFlightTurn(turnKey), true, "First claim should succeed");
+  assert.equal(claimInFlightTurn(turnKey), false, "Second concurrent claim must fail");
+
+  releaseInFlightTurn(turnKey);
+  assert.equal(claimInFlightTurn(turnKey), true, "Claim after release should succeed");
+  releaseInFlightTurn(turnKey);
 });

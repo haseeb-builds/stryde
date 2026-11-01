@@ -490,13 +490,12 @@ export async function cancelPaddleSubscription(
       const lower = errText.toLowerCase();
       // If the subscription is already canceled/cancelled in Paddle, acknowledge as idempotent success
       if (
-        errorCode === "subscription_is_canceled" ||
-        errorCode === "subscription_is_cancelled" ||
-        errorCode === "subscription_locked_renewal" ||
+        errorCode === "subscription_is_canceled_action_invalid" ||
+        errorCode === "subscription_update_when_canceled" ||
+        lower.includes("subscription_is_canceled_action_invalid") ||
+        lower.includes("subscription_update_when_canceled") ||
         lower.includes("already_canceled") ||
         lower.includes("already_cancelled") ||
-        lower.includes("subscription_canceled") ||
-        lower.includes("subscription_cancelled") ||
         lower.includes("subscription is already canceled") ||
         lower.includes("subscription is already cancelled")
       ) {

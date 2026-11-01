@@ -123,6 +123,22 @@ export type AccountDeletionResult = {
  *    identity so that the user or an admin can re-authenticate to retry or reconcile.
  * 4. Only once all database tables are cleanly purged does it delete the Auth user identity.
  */
+
+async function releaseDeletionBarrier(serviceClient: SupabaseClient, userId: string): Promise<string | null> {
+  if (!serviceClient.auth?.admin?.updateUserById) return null;
+  try {
+    const res = await serviceClient.auth.admin.updateUserById(userId, {
+      app_metadata: {
+        deletion_in_progress: false,
+        deletion_aborted_at: new Date().toISOString(),
+      },
+    });
+    return res?.error ? (res.error.message || "Failed to release write barrier") : null;
+  } catch (err) {
+    return err instanceof Error ? err.message : String(err);
+  }
+}
+
 export async function cascadeDeleteUserData(
   serviceClient: SupabaseClient,
   userId: string,
@@ -181,7 +197,9 @@ export async function cascadeDeleteUserData(
     .maybeSingle();
 
   if (subError) {
-    throw new Error(`Failed to query subscription state before deletion: ${subError.message}`);
+    const releaseErr = await releaseDeletionBarrier(serviceClient, cleanUserId);
+    const releaseNote = releaseErr ? ` (barrier release note: ${releaseErr})` : "";
+    throw new Error(`Failed to query subscription state before deletion: ${subError.message}${releaseNote}`);
   }
 
   const requiresCancellation = shouldCancelSubscription(
@@ -195,16 +213,10 @@ export async function cascadeDeleteUserData(
     const cancelFn = options?.paddleCancelImpl ?? cancelPaddleSubscription;
     const cancelResult = await cancelFn(subState.provider_subscription_ref as string);
     if (!cancelResult.success) {
-      if (serviceClient.auth?.admin?.updateUserById) {
-        await serviceClient.auth.admin.updateUserById(cleanUserId, {
-          app_metadata: {
-            deletion_in_progress: false,
-            deletion_aborted_at: new Date().toISOString(),
-          },
-        }).catch(() => {});
-      }
+      const releaseErr = await releaseDeletionBarrier(serviceClient, cleanUserId);
+      const releaseNote = releaseErr ? ` (barrier release note: ${releaseErr})` : "";
       throw new Error(
-        `Failed to cancel active Paddle subscription (${subState.provider_subscription_ref}): ${cancelResult.error || "unknown error"}. Deletion aborted to prevent orphaned recurring charges.`
+        `Failed to cancel active Paddle subscription (${subState.provider_subscription_ref}): ${cancelResult.error || "unknown error"}. Deletion aborted to prevent orphaned recurring charges.${releaseNote}`
       );
     }
 
